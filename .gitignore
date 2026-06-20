@@ -1,0 +1,10 @@
+# Session & dev artifacts (not part of the plugin)
+.remember/
+.superpowers/
+
+# Local Claude Code settings
+.claude/settings.local.json
+
+# Ephemeral otel-as-code runtime files
+.claude/.otel-force
+.claude/otel-context.json

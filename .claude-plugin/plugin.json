@@ -1,0 +1,117 @@
+{
+  "id": "otel-as-code",
+  "name": "otel-as-code",
+  "version": "0.1.0",
+  "description": "OpenTelemetry instrumentation and observability-as-code for any stack",
+  "license": "Apache-2.0",
+  "commands": [
+    {
+      "name": "otel-as-code:otel-init",
+      "description": "First-run: scan repo, detect service boundaries, prime context cache",
+      "prompt": "commands/otel-init.md"
+    },
+    {
+      "name": "otel-as-code:otel-instrument",
+      "description": "Generate OTel SDK bootstrap and OTLP wiring for this service",
+      "prompt": "commands/otel-instrument.md"
+    },
+    {
+      "name": "otel-as-code:otel-evaluate",
+      "description": "Read-only audit of existing OTel coverage, semconv conformance, and cardinality risks",
+      "prompt": "commands/otel-evaluate.md"
+    },
+    {
+      "name": "otel-as-code:otel-collector",
+      "description": "Generate otelcol-contrib config (agent or gateway mode)",
+      "prompt": "commands/otel-collector.md"
+    },
+    {
+      "name": "otel-as-code:otel-business-attrs",
+      "description": "Infer and confirm service identity, ownership, and business metric candidates",
+      "prompt": "commands/otel-business-attrs.md"
+    },
+    {
+      "name": "otel-as-code:otel-backend",
+      "description": "Generate Terraform for one observability backend (grafana|datadog|newrelic|dash0)",
+      "prompt": "commands/otel-backend.md"
+    }
+  ],
+  "skills": [
+    {
+      "name": "otel-as-code:semconv-discipline",
+      "description": "OpenTelemetry semantic convention rules injected when editing OTel files",
+      "prompt": "skills/semconv-discipline.md",
+      "trigger": "auto",
+      "filePatterns": [
+        "**/tracing.{js,ts,py,go,java,rb}",
+        "**/telemetry.{js,ts,py,go,java,rb}",
+        "**/instrumentation.{js,ts,py,go,java,rb}",
+        "**/opentelemetry.{js,ts,py,go,java,rb}",
+        "**/*.otel.{js,ts,py}"
+      ]
+    },
+    {
+      "name": "otel-as-code:language-maturity",
+      "description": "Per-language OTel signal maturity matrix",
+      "prompt": "skills/language-maturity.md",
+      "trigger": "manual"
+    },
+    {
+      "name": "otel-as-code:business-attr-ux",
+      "description": "Tiered confidence table UX and conflict resolution protocol",
+      "prompt": "skills/business-attr-ux.md",
+      "trigger": "manual"
+    },
+    {
+      "name": "otel-as-code:terraform-patterns",
+      "description": "Per-backend Terraform provider patterns and gotchas",
+      "prompt": "skills/terraform-patterns.md",
+      "trigger": "manual"
+    },
+    {
+      "name": "otel-as-code:collector-topology",
+      "description": "otelcol pipeline topology, tail-sampling, and cardinality guidance",
+      "prompt": "skills/collector-topology.md",
+      "trigger": "manual"
+    }
+  ],
+  "subagents": [
+    {
+      "name": "otel-as-code:repo-context-scanner",
+      "description": "Read-only repo traversal — returns structured context JSON",
+      "prompt": "subagents/repo-context-scanner.md"
+    },
+    {
+      "name": "otel-as-code:instrumentation-gen",
+      "description": "Generates language-specific OTel SDK bootstrap files",
+      "prompt": "subagents/instrumentation-gen.md"
+    },
+    {
+      "name": "otel-as-code:terraform-gen",
+      "description": "Generates complete Terraform module for one observability backend",
+      "prompt": "subagents/terraform-gen.md"
+    },
+    {
+      "name": "otel-as-code:brownfield-auditor",
+      "description": "Gap analysis on existing OTel instrumentation",
+      "prompt": "subagents/brownfield-auditor.md"
+    }
+  ],
+  "hooks": [
+    {
+      "event": "PreToolUse",
+      "script": "${CLAUDE_PLUGIN_ROOT}/hooks/write-guard.sh",
+      "description": "Block destructive overwrites of existing OTel bootstrap files"
+    },
+    {
+      "event": "PostToolUse",
+      "script": "${CLAUDE_PLUGIN_ROOT}/hooks/semconv-lint.sh",
+      "description": "Advisory semconv lint and cardinality warnings on OTel file writes"
+    },
+    {
+      "event": "SessionEnd",
+      "script": "${CLAUDE_PLUGIN_ROOT}/hooks/session-summary.sh",
+      "description": "Emit OTel session changelog for PR descriptions"
+    }
+  ]
+}
