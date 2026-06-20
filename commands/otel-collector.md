@@ -1,0 +1,66 @@
+# /otel-collector [mode] [--experimental]
+
+Generate an otelcol-contrib config for this service's Collector setup.
+
+## Flags
+- `[mode]` — `agent` (default) or `gateway`
+- `--experimental` — include experimental processors/receivers
+
+## Step 1: Load the collector-topology skill
+
+Read `otel-as-code:collector-topology`. Apply all topology patterns and cardinality
+guardrails from that skill throughout this command.
+
+## Step 2: Load context
+
+Check `.claude/otel-context.json`. Run inline scan if stale/absent.
+
+## Step 3: Determine output path
+
+Write to: `otelcol-agent.yaml` (mode=agent) or `otelcol-gateway.yaml` (mode=gateway)
+in the repo root (or service root for monorepos).
+
+If the file already exists, print a warning and ask to confirm overwrite.
+
+## Step 4: Generate the config
+
+For `agent` mode:
+- Use the agent template from the `collector-topology` skill
+- Replace endpoint env var with `${env:OTEL_EXPORTER_OTLP_ENDPOINT}`
+- Include the `transform` processor for any high-cardinality attributes found in context
+  (`context.services[i].existingOtel.conformanceIssues` where severity = cardinality)
+- Include `memory_limiter` and `batch` processors
+
+For `gateway` mode:
+- Use the gateway template from the `collector-topology` skill
+- Include `tail_sampling` with error + latency + debug + probabilistic policies
+- Set `decision_wait: 10s`, `num_traces: 100000`
+
+Apply `--experimental`:
+- If `--experimental` is NOT set, emit ONLY the stable receivers/processors/exporters from
+  the `collector-topology` skill.
+- If `--experimental` IS set, you may add experimental components (e.g. the `spanmetrics`
+  connector or profiling receivers) on top of the stable pipeline. Annotate each added
+  component with a `# experimental — requires --experimental` comment so it is easy to find.
+
+## Step 5: Write the file and validate
+
+Write the YAML config file.
+
+Run: `otelcol-contrib validate --config=<filename>` (if otelcol-contrib is on PATH).
+If not on PATH, print: "otelcol-contrib not found on PATH. To validate manually:
+  otelcol-contrib validate --config=<filename>"
+
+## Step 6: Print next steps
+
+```
+✓ Generated <filename>
+
+To run a local Collector:
+  docker run --rm \
+    -p 4317:4317 -p 4318:4318 \
+    -v $(pwd)/<filename>:/etc/otelcol-contrib/config.yaml \
+    otel/opentelemetry-collector-contrib:latest
+
+Set in your app: OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+```

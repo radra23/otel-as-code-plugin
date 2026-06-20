@@ -1,0 +1,134 @@
+# .github/workflows/ci.yml
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Weekly run to catch semconv / provider drift
+    - cron: '0 9 * * 1'
+
+jobs:
+  lint-hooks:
+    name: Hook lint tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run write-guard tests
+        run: bash tests/hooks/write-guard.test.sh
+
+      - name: Run semconv-lint tests
+        run: bash tests/hooks/semconv-lint.test.sh
+
+  validate-fixtures:
+    name: Validate fixture structure
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check nodejs-greenfield fixture
+        run: |
+          test -f fixtures/nodejs-greenfield/package.json
+          test -f fixtures/nodejs-greenfield/index.js
+          test -f fixtures/nodejs-greenfield/Dockerfile
+          # Verify no OTel packages in greenfield fixture
+          ! grep -q "@opentelemetry" fixtures/nodejs-greenfield/package.json
+
+      - name: Check python-greenfield fixture
+        run: |
+          test -f fixtures/python-greenfield/pyproject.toml
+          test -f fixtures/python-greenfield/app.py
+          test -f fixtures/python-greenfield/Dockerfile
+          ! grep -q "opentelemetry" fixtures/python-greenfield/pyproject.toml
+
+      - name: Check nodejs-brownfield fixture has seeded violations
+        run: |
+          test -f fixtures/nodejs-brownfield/tracing.js
+          grep -q "service.name" fixtures/nodejs-brownfield/tracing.js
+          grep -q "http.method" fixtures/nodejs-brownfield/tracing.js
+          grep -q "orderId" fixtures/nodejs-brownfield/tracing.js
+
+  validate-plugin-manifest:
+    name: Validate plugin.json
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate JSON
+        run: python3 -c "import json; json.load(open('.claude-plugin/plugin.json'))"
+
+      - name: Check all referenced prompt files exist
+        run: |
+          python3 - <<'EOF'
+          import json, os, sys
+          manifest = json.load(open('.claude-plugin/plugin.json'))
+          missing = []
+          for section in ['commands', 'skills', 'subagents']:
+            for item in manifest.get(section, []):
+              path = item.get('prompt', '')
+              if path and not os.path.exists(path):
+                missing.append(path)
+          if missing:
+            print('Missing prompt files:', missing)
+            sys.exit(1)
+          print('All prompt files present.')
+          EOF
+
+  validate-terraform:
+    name: Terraform validate (snapshots)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~1.7"
+
+      - name: Validate snapshot modules
+        run: |
+          found=0
+          for vendor in grafana datadog newrelic dash0; do
+            snap_dir="tests/snapshots/${vendor}"
+            if [ -d "$snap_dir" ] && ls "$snap_dir"/*.tf.snap 2>/dev/null | head -1 > /dev/null; then
+              found=$((found+1))
+              echo "Validating $vendor..."
+              # Copy snap to a temp dir for validation
+              tmp=$(mktemp -d)
+              cp "$snap_dir"/*.tf.snap "$tmp/main.tf"
+              terraform -chdir="$tmp" init -backend=false -input=false 2>&1 | tail -5
+              terraform -chdir="$tmp" validate
+              rm -rf "$tmp"
+            else
+              echo "MISSING: no committed snapshot for $vendor"
+            fi
+          done
+          # Fail loudly if the gate is inactive — a silently-skipped gate reads as green
+          # while protecting nothing.
+          if [ "$found" -eq 0 ]; then
+            echo "::error::Terraform snapshot gate is INACTIVE — no golden snapshots committed."
+            echo "Commit at least one tests/snapshots/<vendor>/main.tf.snap (see tests/snapshots/README.md)."
+            exit 1
+          fi
+          echo "Validated $found committed snapshot module(s)."
+
+  semconv-drift:
+    name: Semconv drift check (scheduled only)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check pinned semconv version against latest
+        run: |
+          PINNED=$(grep 'SEMCONV_VERSION' skills/semconv-discipline.md | \
+                   grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          LATEST=$(curl -s https://api.github.com/repos/open-telemetry/semantic-conventions/releases/latest \
+                   | python3 -c "import sys,json; print(json.load(sys.stdin)['tag_name'].lstrip('v'))")
+          echo "Pinned: $PINNED  |  Latest: $LATEST"
+          if [ "$PINNED" != "$LATEST" ]; then
+            echo "::warning::Semconv version is outdated. Pinned: $PINNED, Latest: $LATEST"
+            echo "Update SEMCONV_VERSION in skills/semconv-discipline.md"
+          fi
