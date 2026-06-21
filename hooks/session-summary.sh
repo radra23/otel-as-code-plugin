@@ -71,6 +71,14 @@ for f in "${CHANGED_OTEL[@]}"; do
       echo "- Added Dash0 observability module (\`$f\`)" ;;
     *.claude/otel-services.json)
       echo "- Updated service map (\`$f\`)" ;;
+    *opentelemetry.js|*opentelemetry.ts|*telemetry.js|*telemetry.py)
+      echo "- Updated OTel instrumentation (\`$f\`)" ;;
+    *.claude/otel-context.json)
+      echo "- Updated context cache (\`$f\`)" ;;
+    *)
+      # Catch-all: anything is_otel_path() counted must still get a bullet, so the
+      # summary header is never emitted with an empty body.
+      echo "- Updated OTel file (\`$f\`)" ;;
   esac
 done
 
