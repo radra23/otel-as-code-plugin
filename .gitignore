@@ -8,3 +8,6 @@
 # Ephemeral otel-as-code runtime files
 .claude/.otel-force
 .claude/otel-context.json
+
+# Personal Claude notes
+.claude.local.md
