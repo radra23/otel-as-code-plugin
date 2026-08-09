@@ -1,10 +1,11 @@
 # /otel-backend <vendor> [--kind all|dashboard|alerts|slo] [--output-dir <path>] [--experimental] [--force]
 
 Generate a complete Terraform module for one observability backend.
-Supported vendors: grafana, datadog, newrelic, dash0
+Supported vendors: the backends listed in `backends.txt` at the plugin root — the single
+source of truth (currently grafana, datadog, newrelic, dash0).
 
 ## Flags
-- `<vendor>` — REQUIRED. One of: `grafana`, `datadog`, `newrelic`, `dash0`
+- `<vendor>` — REQUIRED. Must be one of the backends listed in `backends.txt` (plugin root)
 - `--kind` — default `all`. Emit only one artifact type: `dashboard`, `alerts`, or `slo`
 - `--output-dir` — default `infra/observability/<vendor>/`
 - `--experimental` — include pre-Stable semconv in generated resource queries
@@ -12,8 +13,9 @@ Supported vendors: grafana, datadog, newrelic, dash0
 
 ## Step 1: Validate vendor argument
 
-If `<vendor>` is not one of `grafana`, `datadog`, `newrelic`, `dash0`:
-- Print: "Unknown vendor: <vendor>. Supported: grafana, datadog, newrelic, dash0"
+Read the supported backends from `${CLAUDE_PLUGIN_ROOT}/backends.txt` (one vendor per line —
+the single source of truth). If `<vendor>` is not in that list:
+- Print: "Unknown vendor: <vendor>. Supported: <the backends from backends.txt>"
 - Print: "v1 will add: honeycomb, dynatrace, sumo-logic, splunk, azure-monitor,
   cloudwatch, gcp-ops, elastic, lightstep, chronosphere, last9"
 - Exit.

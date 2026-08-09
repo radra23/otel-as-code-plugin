@@ -93,7 +93,8 @@ jobs:
       - name: Validate snapshot modules
         run: |
           found=0
-          for vendor in grafana datadog newrelic dash0; do
+          # Vendor list comes from backends.txt (single source of truth).
+          for vendor in $(cat backends.txt); do
             snap_dir="tests/snapshots/${vendor}"
             if [ -d "$snap_dir" ] && ls "$snap_dir"/*.tf.snap 2>/dev/null | head -1 > /dev/null; then
               found=$((found+1))

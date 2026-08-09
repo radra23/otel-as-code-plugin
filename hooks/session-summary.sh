@@ -34,7 +34,10 @@ else
            .claude/otel-context.json .claude/otel-services.json; do
     [ -f "$f" ] && CHANGED_OTEL+=("$f")
   done
-  for vendor in grafana datadog newrelic dash0; do
+  # Supported backends come from the plugin's single source of truth (backends.txt).
+  # Guarded so a missing file can never break this always-exit-0 hook.
+  PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+  for vendor in $(cat "$PLUGIN_ROOT/backends.txt" 2>/dev/null || true); do
     [ -f "infra/observability/${vendor}/main.tf" ] && CHANGED_OTEL+=("infra/observability/${vendor}/main.tf")
   done
 fi

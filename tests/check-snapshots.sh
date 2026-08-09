@@ -7,7 +7,8 @@ set -euo pipefail
 FAIL=0
 FOUND=0
 
-for vendor in grafana datadog newrelic dash0; do
+# Vendor list comes from the single source of truth (backends.txt at the repo root).
+for vendor in $(cat backends.txt); do
   snap="tests/snapshots/${vendor}/main.tf.snap"
   generated="infra/observability/${vendor}/main.tf"
 
