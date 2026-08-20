@@ -12,10 +12,10 @@ The machine-readable vendor list has a single source (`backends.txt`). Adding a 
 Add the vendor name (one per line) to `backends.txt` at the repo root. This is the ONLY place the list is enumerated — the CI `validate-terraform` loop, `tests/check-snapshots.sh`, the `session-summary` hook, and `/otel-backend`'s validation all read it.
 
 ## 2. terraform-patterns skill
-Add a `## <Vendor>` section to `skills/terraform-patterns.md`: provider `source` + version, auth variables, required resources (dashboard / alerts / SLO), key gotchas, and OTel-specific query examples (PromQL/NRQL/native).
+Add a `## <Vendor>` section to `skills/terraform-patterns/SKILL.md`: provider `source` + version, auth variables, required resources (dashboard / alerts / SLO), key gotchas, and OTel-specific query examples (PromQL/NRQL/native).
 
 ## 3. terraform-gen subagent
-Add a `## <Vendor> main.tf` block to `subagents/terraform-gen.md` describing the resources to emit, referencing the skill section.
+Add a `## <Vendor> main.tf` block to `agents/terraform-gen.md` describing the resources to emit, referencing the skill section.
 
 ## 4. Golden snapshot (validated)
 Create `tests/snapshots/<vendor>/main.tf.snap`:

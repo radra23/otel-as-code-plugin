@@ -9,7 +9,7 @@ set -euo pipefail
 # skill) instead of hardcoding it here. Falls back to "unknown" if the skill can't be read.
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 SEMCONV_VERSION=$(grep -oE 'SEMCONV_VERSION:[[:space:]]*[0-9]+\.[0-9]+\.[0-9]+' \
-  "$PLUGIN_ROOT/skills/semconv-discipline.md" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+  "$PLUGIN_ROOT/skills/semconv-discipline/SKILL.md" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
 SEMCONV_VERSION="${SEMCONV_VERSION:-unknown}"
 
 INPUT=$(cat)

@@ -1,3 +1,7 @@
+---
+description: "First-run: scan the repo, detect service boundaries, and prime the context cache"
+---
+
 # /otel-init
 
 First-run setup for otel-as-code. Run this before any other /otel-* command.

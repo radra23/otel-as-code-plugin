@@ -1,3 +1,7 @@
+---
+description: Infer and confirm service identity, ownership, and business-metric candidates
+---
+
 # /otel-business-attrs
 
 Infer service identity, ownership, and candidate business metrics from the repo.

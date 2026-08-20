@@ -1,3 +1,8 @@
+---
+description: Generate OTel SDK bootstrap and OTLP wiring for this service
+argument-hint: "[language] [--experimental] [--force]"
+---
+
 # /otel-instrument [language] [--experimental] [--force]
 
 Generate OTel SDK bootstrap and OTLP wiring for this service.

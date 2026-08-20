@@ -1,3 +1,7 @@
+---
+description: Read-only audit of existing OTel coverage, semconv conformance, and cardinality risks
+---
+
 # /otel-evaluate
 
 Read-only audit of existing OTel coverage. Does NOT write any application files.

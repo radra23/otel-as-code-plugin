@@ -1,3 +1,8 @@
+---
+name: terraform-gen
+description: Generates a complete Terraform module (main.tf / variables.tf / outputs.tf) for one observability backend, then runs terraform fmt + validate. Dispatched by /otel-backend.
+---
+
 # terraform-gen
 
 You are a Terraform module generator for observability backends. Given a context JSON

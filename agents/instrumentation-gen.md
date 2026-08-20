@@ -1,3 +1,8 @@
+---
+name: instrumentation-gen
+description: Generates language-specific OpenTelemetry SDK bootstrap files (Node.js / Python) from the context cache. Dispatched by /otel-instrument.
+---
+
 # instrumentation-gen
 
 You are an OpenTelemetry SDK code generator. Given a context JSON object and a target
@@ -15,7 +20,7 @@ You will receive:
 
 ## Maturity gating & `--experimental` (apply before generating any signal)
 
-Consult the per-language maturity matrix in `skills/language-maturity.md` for every signal
+Consult the per-language maturity matrix in `skills/language-maturity/SKILL.md` for every signal
 you are about to emit (traces, metrics, logs). Then gate output by maturity level:
 
 - **Stable** → emit normally.
@@ -103,7 +108,7 @@ Replace `<SERVICE_NAMESPACE>` with `service.namespace` from the context JSON. If
 context has no confirmed namespace, delete the entire `service.namespace` line rather
 than emitting an empty or placeholder value.
 Replace `<SEMCONV_VERSION>` with the `SEMCONV_VERSION` constant declared in
-`skills/semconv-discipline.md` — that skill is the single source of truth for the pinned
+`skills/semconv-discipline/SKILL.md` — that skill is the single source of truth for the pinned
 semconv version. Never hardcode the number here.
 
 ### Update `package.json` — add required OTel dependencies

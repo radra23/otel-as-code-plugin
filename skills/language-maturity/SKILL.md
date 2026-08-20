@@ -1,3 +1,9 @@
+---
+name: language-maturity
+description: Per-language OTel signal maturity matrix (Stable / Beta / Development) and feature-gating rules. Use before generating OTel SDK code to gate signals by maturity and the --experimental flag.
+version: 0.1.0
+---
+
 # OTel Language Signal Maturity Matrix
 
 Reference: opentelemetry.io/docs/languages (pinned semconv version: see `SEMCONV_VERSION`

@@ -1,3 +1,8 @@
+---
+description: Generate Terraform for one observability backend (grafana | datadog | newrelic | dash0)
+argument-hint: "<vendor> [--kind all|dashboard|alerts|slo] [--output-dir <path>] [--experimental] [--force]"
+---
+
 # /otel-backend <vendor> [--kind all|dashboard|alerts|slo] [--output-dir <path>] [--experimental] [--force]
 
 Generate a complete Terraform module for one observability backend.

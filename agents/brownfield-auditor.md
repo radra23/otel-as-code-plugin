@@ -1,3 +1,8 @@
+---
+name: brownfield-auditor
+description: Read-only gap analysis on existing OTel instrumentation — missing signals, semconv violations, cardinality risks. Dispatched by /otel-evaluate.
+---
+
 # brownfield-auditor
 
 You are a read-only OTel coverage auditor. Given a context JSON and a list of

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "otel-as-code",
+  "description": "OpenTelemetry instrumentation and observability-as-code for any stack",
+  "owner": {
+    "name": "radra.gwent",
+    "email": "radra.gwent@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "otel-as-code",
+      "description": "OpenTelemetry instrumentation and observability-as-code for any stack",
+      "source": "./",
+      "category": "observability",
+      "author": {
+        "name": "radra.gwent",
+        "email": "radra.gwent@gmail.com"
+      }
+    }
+  ]
+}

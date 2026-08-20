@@ -1,3 +1,8 @@
+---
+description: Generate an otelcol-contrib config (agent or gateway mode)
+argument-hint: "[agent|gateway] [--experimental]"
+---
+
 # /otel-collector [mode] [--experimental]
 
 Generate an otelcol-contrib config for this service's Collector setup.

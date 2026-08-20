@@ -54,29 +54,41 @@ jobs:
           grep -q "orderId" fixtures/nodejs-brownfield/tracing.js
 
   validate-plugin-manifest:
-    name: Validate plugin.json
+    name: Validate plugin manifests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Validate JSON
-        run: python3 -c "import json; json.load(open('.claude-plugin/plugin.json'))"
+      - name: Validate JSON (plugin + marketplace)
+        run: |
+          python3 -c "import json; json.load(open('.claude-plugin/plugin.json'))"
+          python3 -c "import json; json.load(open('.claude-plugin/marketplace.json'))"
 
-      - name: Check all referenced prompt files exist
+      - name: Check plugin structure (auto-discovery conventions)
         run: |
           python3 - <<'EOF'
-          import json, os, sys
-          manifest = json.load(open('.claude-plugin/plugin.json'))
-          missing = []
-          for section in ['commands', 'skills', 'subagents']:
-            for item in manifest.get(section, []):
-              path = item.get('prompt', '')
-              if path and not os.path.exists(path):
-                missing.append(path)
-          if missing:
-            print('Missing prompt files:', missing)
+          import json, os, sys, glob
+          errors = []
+          pj = json.load(open('.claude-plugin/plugin.json'))
+          if 'name' not in pj:
+            errors.append("plugin.json missing required 'name'")
+          for legacy in ('commands', 'skills', 'subagents', 'hooks'):
+            if isinstance(pj.get(legacy), list):
+              errors.append(f"plugin.json must not declare an inline '{legacy}' array (use auto-discovery)")
+          if not glob.glob('commands/*.md'): errors.append("no commands/*.md")
+          if not glob.glob('agents/*.md'): errors.append("no agents/*.md")
+          if not glob.glob('skills/*/SKILL.md'): errors.append("no skills/<name>/SKILL.md")
+          if not os.path.exists('hooks/hooks.json'): errors.append("missing hooks/hooks.json")
+          for f in glob.glob('skills/*/SKILL.md') + glob.glob('agents/*.md'):
+            head = open(f).read(600)
+            if not (head.startswith('---') and 'name:' in head and 'description:' in head):
+              errors.append(f"{f}: missing name/description frontmatter")
+          if errors:
+            print("Structure errors:")
+            for e in errors:
+              print(" -", e)
             sys.exit(1)
-          print('All prompt files present.')
+          print("Plugin structure OK.")
           EOF
 
   validate-terraform:
@@ -127,12 +139,12 @@ jobs:
 
       - name: Check pinned semconv version against latest
         run: |
-          PINNED=$(grep 'SEMCONV_VERSION' skills/semconv-discipline.md | \
+          PINNED=$(grep 'SEMCONV_VERSION' skills/semconv-discipline/SKILL.md | \
                    grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
           LATEST=$(curl -s https://api.github.com/repos/open-telemetry/semantic-conventions/releases/latest \
                    | python3 -c "import sys,json; print(json.load(sys.stdin)['tag_name'].lstrip('v'))")
           echo "Pinned: $PINNED  |  Latest: $LATEST"
           if [ "$PINNED" != "$LATEST" ]; then
             echo "::warning::Semconv version is outdated. Pinned: $PINNED, Latest: $LATEST"
-            echo "Update SEMCONV_VERSION in skills/semconv-discipline.md"
+            echo "Update SEMCONV_VERSION in skills/semconv-discipline/SKILL.md"
           fi

@@ -19,10 +19,9 @@ for t in tests/hooks/*.test.sh; do echo "== $t =="; bash "$t" || exit 1; done
 - **python-greenfield**: `pyproject.toml`, `app.py`, `Dockerfile` exist AND `pyproject.toml` has NO `opentelemetry` dependency.
 - **nodejs-brownfield**: `tracing.js` exists AND still contains the three seeded violations — `service.name` as a span attribute, `http.method`, and un-namespaced `orderId` — which the lint tests assert against.
 
-## 3. Plugin manifest (CI: validate-plugin-manifest)
-- `python3 -c "import json; json.load(open('.claude-plugin/plugin.json'))"` — must be valid JSON.
-- Confirm every `prompt` path (commands/skills/subagents) resolves to an existing file.
-- Extra (beyond CI): also resolve each hook `script` path — strip the leading `${CLAUDE_PLUGIN_ROOT}/` first.
+## 3. Plugin manifest & structure (CI: validate-plugin-manifest)
+- `claude plugin validate . --strict` — must pass. Validates `plugin.json` (metadata-only), `marketplace.json`, and the auto-discovered components (`commands/*.md`, `agents/*.md`, `skills/<name>/SKILL.md`, `hooks/hooks.json`).
+- If the `claude` CLI isn't available: confirm both `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` are valid JSON, plugin.json declares NO inline component arrays, and the convention dirs/files exist.
 
 ## 4. Shell sanity (local-only — no CI equivalent)
 - `bash -n` on every `hooks/*.sh` and `tests/**/*.sh`.
