@@ -1,0 +1,30 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "apply_patch|Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/hooks/codex/pre-tool-use.py\"",
+            "timeout": 30,
+            "statusMessage": "otel-as-code write-guard"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "apply_patch|Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/hooks/codex/post-tool-use.py\"",
+            "timeout": 30,
+            "statusMessage": "otel-as-code semconv-lint"
+          }
+        ]
+      }
+    ]
+  }
+}

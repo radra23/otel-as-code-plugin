@@ -25,6 +25,40 @@ jobs:
       - name: Run session-summary tests
         run: bash tests/hooks/session-summary.test.sh
 
+      - name: Run Codex hook-adapter tests
+        run: bash tests/hooks/codex-adapters.test.sh
+
+  validate-codex-bridge:
+    name: Validate Codex bridge
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate .codex/hooks.json + adapters
+        run: |
+          python3 -c "import json; json.load(open('.codex/hooks.json'))"
+          test -f hooks/codex/pre-tool-use.py
+          test -f hooks/codex/post-tool-use.py
+          python3 -m py_compile hooks/codex/pre-tool-use.py hooks/codex/post-tool-use.py
+
+      - name: Check .agents/skills bridge references resolve
+        run: |
+          python3 - <<'EOF'
+          import glob, os, re, sys
+          pat = re.compile(r'`((?:commands|skills|agents)/[A-Za-z0-9/_.-]+|backends\.txt)`')
+          missing = set()
+          for f in glob.glob('.agents/skills/*/SKILL.md'):
+            for ref in pat.findall(open(f).read()):
+              if not os.path.exists(ref):
+                missing.add(f"{f} -> {ref}")
+          if missing:
+            print("Broken Codex-bridge references:")
+            for x in sorted(missing):
+              print(" -", x)
+            sys.exit(1)
+          print("All Codex-bridge references resolve.")
+          EOF
+
   validate-fixtures:
     name: Validate fixture structure
     runs-on: ubuntu-latest

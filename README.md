@@ -36,9 +36,10 @@ $otel-backend datadog # generate Datadog Terraform
 
 Each Codex skill is a thin bridge to the canonical `commands/`, `skills/`, and `agents/` files
 (one source of truth — no duplicated content). See [`AGENTS.md`](AGENTS.md) for the full Codex
-guide, including two differences to respect: Codex has **no subagent dispatch** (read
-`agents/<x>.md` and do that work inline) and **no auto-firing hooks** (apply the
-write-guard / semconv-lint / confirm-before-write behaviors manually).
+guide. The guardrails DO run in Codex — `.codex/hooks.json` ports write-guard + confirm-before-write
+to `PreToolUse` and semconv-lint to `PostToolUse` (via thin adapters in `hooks/codex/` that reuse
+the same shell hooks). The one difference to respect: Codex has **no subagent dispatch**, so where
+a command says "dispatch the `<x>` agent", read `agents/<x>.md` and do that work inline.
 
 ## Quick start
 

@@ -11,3 +11,7 @@
 
 # Personal Claude notes
 .claude.local.md
+
+# Python bytecode (hooks/codex adapters)
+__pycache__/
+*.pyc

@@ -8,9 +8,11 @@ Each command needs `description` frontmatter; each agent/skill needs `name` + `d
 Validate structure with `claude plugin validate . --strict`.
 
 Cross-agent instructions live in `AGENTS.md` (read by Codex et al.); the same capabilities are
-bridged to Codex skills in `.agents/skills/` — thin wrappers pointing back at `commands/`,
-`skills/`, and `agents/` (single source of truth). Keep those bridges in sync when you
-rename/move a command, skill, or agent.
+bridged to Codex: skills in `.agents/skills/` (thin wrappers pointing back at `commands/`,
+`skills/`, `agents/`), and the guardrails in `.codex/hooks.json` (PreToolUse/PostToolUse adapters
+in `hooks/codex/` that reuse `hooks/*.sh`, translating Codex's `apply_patch` payload +
+`permissionDecision` contract). Keep the bridges in sync when you rename/move a command, skill,
+agent, or hook — the `validate-codex-bridge` CI job checks the skill references resolve.
 
 ## Hooks (`hooks/*.sh`, registered in `hooks/hooks.json`)
 - Registered in `hooks/hooks.json` (NOT inline in plugin.json): PreToolUse/PostToolUse matcher `Write|Edit` → write-guard / semconv-lint; SessionEnd → session-summary; each invoked as `bash "${CLAUDE_PLUGIN_ROOT}/hooks/<name>.sh"`.

@@ -14,5 +14,5 @@ Follow the canonical procedure in this repo — it is the single source of truth
 
 Args: `$ARGUMENTS`.
 
-Codex note: business attributes and inferred values are ALWAYS confirmed with the user before
-writing (the plugin's confirm-before-write hook does not auto-fire here).
+Codex note: `.codex/hooks.json` enforces confirm-before-write on whole-file `otel-context.json`
+writes; still confirm all inferred business attributes with the user before writing.

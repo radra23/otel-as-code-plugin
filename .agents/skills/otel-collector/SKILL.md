@@ -13,5 +13,5 @@ Follow the canonical procedure in this repo — it is the single source of truth
 
 Args: `$ARGUMENTS` (e.g. `gateway`, `--experimental`; default mode is `agent`).
 
-Codex note: hooks do not auto-fire — do NOT overwrite an existing `otelcol-agent.yaml` /
-`otelcol-gateway.yaml` without explicit intent.
+Codex note: `.codex/hooks.json` enforces write-guard here — a denied overwrite of an existing
+`otelcol-agent.yaml` / `otelcol-gateway.yaml` means regenerate deliberately.

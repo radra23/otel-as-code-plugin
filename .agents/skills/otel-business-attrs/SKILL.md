@@ -15,6 +15,7 @@ Follow the canonical procedure in this repo — it is the single source of truth
 
 Args: `$ARGUMENTS`.
 
-Codex note: business attributes are ALWAYS presented for explicit confirmation before writing,
-and every written `businessAttrs` entry must carry `"confirmed": true` (the plugin's
-confirm-before-write hook does not auto-fire here).
+Codex note: `.codex/hooks.json` enforces confirm-before-write for whole-file `otel-context.json`
+writes (an unconfirmed `biz.*` attribute is denied). Patch-style edits are not deep-checked, so
+always present business attributes for explicit confirmation and write `"confirmed": true` only
+on approved ones.

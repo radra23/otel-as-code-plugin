@@ -8,6 +8,5 @@ description: OpenTelemetry semantic-convention rules — resource vs span attrib
 Read and apply `skills/semconv-discipline/SKILL.md` at the repo root — the single source of
 truth for OTel semantic-convention rules and the pinned `SEMCONV_VERSION`.
 
-In Codex this partly substitutes for the plugin's `semconv-lint` hook (which does not auto-fire
-here): consult it proactively whenever you touch OTel instrumentation code, and check generated
-output against its rules before writing.
+In Codex, `.codex/hooks.json` runs `semconv-lint` as a PostToolUse advisory on OTel file writes;
+consult this skill proactively too so output is conformant before it is written.

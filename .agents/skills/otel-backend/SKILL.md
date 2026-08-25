@@ -16,5 +16,5 @@ Follow the canonical procedure in this repo — it is the single source of truth
 
 Args: `$ARGUMENTS` (e.g. `datadog --kind dashboard`, `grafana --output-dir infra/o11y/grafana`).
 
-Codex note: hooks do not auto-fire — do NOT overwrite existing
-`infra/observability/<vendor>/*.tf` without explicit intent.
+Codex note: `.codex/hooks.json` enforces write-guard here — a denied overwrite of existing
+`infra/observability/<vendor>/*.tf` means regenerate deliberately.
