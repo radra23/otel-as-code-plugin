@@ -1,6 +1,6 @@
 # otel-as-code
 
-A Claude Code plugin for OpenTelemetry instrumentation and observability-as-code.
+A Claude Code plugin — and a set of Codex skills — for OpenTelemetry instrumentation and observability-as-code.
 
 Instrument any Node.js or Python service, infer service identity from your repo,
 generate Terraform for Grafana, Datadog, New Relic, or Dash0 — all from your editor.
@@ -19,6 +19,26 @@ claude plugin marketplace add https://github.com/YOUR_ORG/otel-as-code
 git clone https://github.com/YOUR_ORG/otel-as-code
 claude --plugin-dir /path/to/otel-as-code
 ```
+
+## Using with Codex
+
+The same capabilities ship as **Codex skills** under `.agents/skills/`. Codex discovers them
+when this repo is your working directory / repo root (or vendored into one — e.g. a git
+submodule). Invoke a workflow with `$name`:
+
+```text
+$otel-init            # scan repo, detect services
+$otel-business-attrs  # confirm service identity + namespace
+$otel-instrument      # generate OTel SDK bootstrap
+$otel-collector agent # generate Collector config
+$otel-backend datadog # generate Datadog Terraform
+```
+
+Each Codex skill is a thin bridge to the canonical `commands/`, `skills/`, and `agents/` files
+(one source of truth — no duplicated content). See [`AGENTS.md`](AGENTS.md) for the full Codex
+guide, including two differences to respect: Codex has **no subagent dispatch** (read
+`agents/<x>.md` and do that work inline) and **no auto-firing hooks** (apply the
+write-guard / semconv-lint / confirm-before-write behaviors manually).
 
 ## Quick start
 

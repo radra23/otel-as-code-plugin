@@ -7,6 +7,11 @@ Each command needs `description` frontmatter; each agent/skill needs `name` + `d
 `.claude-plugin/marketplace.json` makes the repo installable as its own marketplace.
 Validate structure with `claude plugin validate . --strict`.
 
+Cross-agent instructions live in `AGENTS.md` (read by Codex et al.); the same capabilities are
+bridged to Codex skills in `.agents/skills/` — thin wrappers pointing back at `commands/`,
+`skills/`, and `agents/` (single source of truth). Keep those bridges in sync when you
+rename/move a command, skill, or agent.
+
 ## Hooks (`hooks/*.sh`, registered in `hooks/hooks.json`)
 - Registered in `hooks/hooks.json` (NOT inline in plugin.json): PreToolUse/PostToolUse matcher `Write|Edit` → write-guard / semconv-lint; SessionEnd → session-summary; each invoked as `bash "${CLAUDE_PLUGIN_ROOT}/hooks/<name>.sh"`.
 - Read stdin JSON keys `tool_name` and `tool_input.file_path` (NOT `tool`/`input`). Parse with `python3`, not `jq`.

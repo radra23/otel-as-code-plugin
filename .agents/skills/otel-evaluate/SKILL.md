@@ -1,0 +1,17 @@
+---
+name: otel-evaluate
+description: Read-only brownfield audit of existing OTel coverage — missing signals, semconv conformance, and cardinality risks. Use to assess a codebase's current instrumentation.
+---
+
+# otel-evaluate (Codex bridge)
+
+Follow the canonical procedure in this repo — it is the single source of truth:
+
+1. Read `commands/otel-evaluate.md` (repo root) and execute its steps.
+2. Codex has no subagent dispatch: where it says to run the `brownfield-auditor` agent, read
+   `agents/brownfield-auditor.md` and perform that read-only gap analysis yourself.
+3. Judge conformance against `skills/semconv-discipline/SKILL.md`.
+
+Args: `$ARGUMENTS`.
+
+This workflow is read-only — it produces an audit report and never rewrites instrumentation.
