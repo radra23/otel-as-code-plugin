@@ -11,6 +11,13 @@
 #
 # Self-contained (declares its own variables) so CI can `terraform validate` main.tf
 # in isolation. The plugin emits variables.tf / outputs.tf alongside this file for real runs.
+#
+# APM metric names: these queries use the trace metric stem `trace.http.server.request.*`,
+# the Datadog operation name assigned to OTel HTTP server spans under operation-name logic v2
+# (default on OTel Collector >= v0.126.0 / Datadog Agent >= v7.65). On older pipelines, or if a
+# transform processor sets operation.name, the stem differs — confirm yours in Datadog under
+# APM > Metrics (Metrics Explorer, search `trace.`) before relying on these monitors/SLO.
+# Latency thresholds are in NANOSECONDS (500000000 = 500ms).
 
 terraform {
   required_providers {
@@ -62,7 +69,7 @@ resource "datadog_dashboard" "otel" {
     timeseries_definition {
       title = "Request rate"
       request {
-        q            = "sum:trace.http.request.hits{service:${var.service_name}}.as_rate()"
+        q            = "sum:trace.http.server.request.hits{service:${var.service_name}}.as_rate()"
         display_type = "line"
       }
     }
@@ -72,7 +79,7 @@ resource "datadog_dashboard" "otel" {
     timeseries_definition {
       title = "Error rate"
       request {
-        q            = "sum:trace.http.request.errors{service:${var.service_name}}.as_rate()"
+        q            = "sum:trace.http.server.request.errors{service:${var.service_name}}.as_rate()"
         display_type = "line"
       }
     }
@@ -82,7 +89,7 @@ resource "datadog_dashboard" "otel" {
     timeseries_definition {
       title = "p99 latency"
       request {
-        q            = "p99:trace.http.request.duration{service:${var.service_name}}"
+        q            = "p99:trace.http.server.request{service:${var.service_name}}"
         display_type = "line"
       }
     }
@@ -93,7 +100,7 @@ resource "datadog_monitor" "error_rate" {
   name    = "High error rate — ${var.service_name}"
   type    = "query alert"
   message = "5xx error rate for ${var.service_name} is above 5%. Notify @your-team."
-  query   = "sum(last_5m):sum:trace.http.request.errors{service:${var.service_name}}.as_rate() / sum:trace.http.request.hits{service:${var.service_name}}.as_rate() > 0.05"
+  query   = "sum(last_5m):sum:trace.http.server.request.errors{service:${var.service_name}}.as_rate() / sum:trace.http.server.request.hits{service:${var.service_name}}.as_rate() > 0.05"
 
   monitor_thresholds {
     critical = 0.05
@@ -106,10 +113,10 @@ resource "datadog_monitor" "latency" {
   name    = "High p99 latency — ${var.service_name}"
   type    = "metric alert"
   message = "p99 latency for ${var.service_name} is above 500ms. Notify @your-team."
-  query   = "avg(last_5m):p99:trace.http.request.duration{service:${var.service_name}} > 0.5"
+  query   = "avg(last_5m):p99:trace.http.server.request{service:${var.service_name}} > 500000000"
 
   monitor_thresholds {
-    critical = 0.5
+    critical = 500000000
   }
 
   tags = ["service:${var.service_name}", "managed-by:otel-as-code"]
@@ -121,8 +128,8 @@ resource "datadog_service_level_objective" "availability" {
   description = "99.9% of requests to ${var.service_name} are non-error over 30d."
 
   query {
-    numerator   = "sum:trace.http.request.hits{service:${var.service_name}}.as_count() - sum:trace.http.request.errors{service:${var.service_name}}.as_count()"
-    denominator = "sum:trace.http.request.hits{service:${var.service_name}}.as_count()"
+    numerator   = "sum:trace.http.server.request.hits{service:${var.service_name}}.as_count() - sum:trace.http.server.request.errors{service:${var.service_name}}.as_count()"
+    denominator = "sum:trace.http.server.request.hits{service:${var.service_name}}.as_count()"
   }
 
   thresholds {

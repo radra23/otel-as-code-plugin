@@ -94,9 +94,20 @@ variable "datadog_site" {
 - Dashboard `layout_type` is either `"ordered"` or `"free"`
 
 ### OTel-specific monitor queries
-- Request rate: `sum(last_5m):sum:trace.http.request.hits{service:<name>}.as_rate()`
-- Error rate: `sum(last_5m):sum:trace.http.request.errors{service:<name>}.as_rate() / sum:trace.http.request.hits{service:<name>}.as_rate() > 0.05`
-- P99 latency: `avg(last_5m):p99:trace.http.request.duration{service:<name>} > 500`
+
+Datadog APM trace metrics are named `trace.<operation_name>.{hits,errors,duration}`. For an
+OTel **HTTP server** span, Datadog's operation-name logic v2 (default on OTel Collector
+`>= v0.126.0` / Datadog Agent `>= v7.65`) assigns the operation name `http.server.request` —
+NOT `http.request`. Use the `trace.http.server.request` stem:
+
+- Request rate: `sum(last_5m):sum:trace.http.server.request.hits{service:<name>}.as_rate()`
+- Error rate: `sum(last_5m):sum:trace.http.server.request.errors{service:<name>}.as_rate() / sum:trace.http.server.request.hits{service:<name>}.as_rate() > 0.05`
+- P99 latency: `avg(last_5m):p99:trace.http.server.request{service:<name>} > 500000000`
+
+Two gotchas baked into those queries:
+- **Percentiles need the bare distribution metric.** `trace.<op>.duration` is a COUNT (total time) and does NOT support `p50/p95/p99`. Query the suffix-less distribution metric `trace.http.server.request` for percentile aggregations.
+- **Durations are in nanoseconds.** `500000000` = 500 ms. Do not write `> 500` or `> 0.5`.
+- **The operation name is pipeline-dependent.** On pre-v2 collectors, or where a `transform` processor sets `operation.name` / legacy `span_name_as_resource_name` is configured, the stem differs. Emit a comment telling the user to confirm theirs in Datadog under APM > Metrics (Metrics Explorer, search `trace.`) before trusting the monitors — a monitor on a metric that never populates silently never fires.
 
 ---
 
