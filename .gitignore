@@ -2,6 +2,9 @@
 .remember/
 .superpowers/
 
+# Internal planning/design docs — kept locally, not shipped in the public repo
+docs/
+
 # Local Claude Code settings
 .claude/settings.local.json
 
