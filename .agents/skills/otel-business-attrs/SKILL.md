@@ -5,6 +5,8 @@ description: Infer and confirm service identity, ownership, and business-metric 
 
 # otel-business-attrs (Codex bridge)
 
+> **Requires the otel-as-code repo.** The `commands/` / `skills/` / `agents/` files referenced below live there — if they're not present in your workspace, stop and tell the user to add the repo (see AGENTS.md).
+
 Follow the canonical procedure in this repo — it is the single source of truth:
 
 1. Read `commands/otel-business-attrs.md` (repo root) and execute its steps.

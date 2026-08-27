@@ -5,6 +5,8 @@ description: Read-only brownfield audit of existing OTel coverage — missing si
 
 # otel-evaluate (Codex bridge)
 
+> **Requires the otel-as-code repo.** The `commands/` / `skills/` / `agents/` files referenced below live there — if they're not present in your workspace, stop and tell the user to add the repo (see AGENTS.md).
+
 Follow the canonical procedure in this repo — it is the single source of truth:
 
 1. Read `commands/otel-evaluate.md` (repo root) and execute its steps.

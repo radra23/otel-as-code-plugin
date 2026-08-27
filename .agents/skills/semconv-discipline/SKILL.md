@@ -5,6 +5,8 @@ description: OpenTelemetry semantic-convention rules — resource vs span attrib
 
 # semconv-discipline (Codex bridge)
 
+> **Requires the otel-as-code repo.** The `skills/` file referenced below lives there — if it's not present in your workspace, stop and tell the user to add the repo (see AGENTS.md).
+
 Read and apply `skills/semconv-discipline/SKILL.md` at the repo root — the single source of
 truth for OTel semantic-convention rules and the pinned `SEMCONV_VERSION`.
 

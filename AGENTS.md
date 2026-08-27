@@ -3,6 +3,9 @@
 Cross-agent instructions for this repo, read by Codex (and other agents that honor
 `AGENTS.md`). Claude Code plugin-development specifics live in `CLAUDE.md`.
 
+<!-- Maintainer note: Codex loads this file up to `project_doc_max_bytes` (32 KiB default) —
+     keep it lean. An `AGENTS.override.md` beside it, if present, takes precedence. -->
+
 ## What this is
 otel-as-code is a toolkit for OpenTelemetry instrumentation and observability-as-code:
 instrument a codebase (Node.js / Python), infer service identity from the repo, and generate
@@ -40,9 +43,8 @@ directory is elsewhere, resolve them from `git rev-parse --show-toplevel`.
   `git rev-parse --show-toplevel` to find the adapters). SessionEnd/`session-summary` is not
   ported — Codex has SessionEnd, but its PR-changelog output has no natural Codex surface.
 
-## Conventions (tool-agnostic)
-- `SEMCONV_VERSION` in `skills/semconv-discipline/SKILL.md` is the single source of truth for the pinned semconv version.
-- `backends.txt` (repo root) is the single source of truth for the supported vendor list.
-- Terraform golden snapshots live in `tests/snapshots/<vendor>/main.tf.snap`, are self-contained, and validate with `terraform validate`.
-
-See `CLAUDE.md` for Claude Code plugin architecture (auto-discovery, `hooks/hooks.json`, `claude plugin validate`).
+## Conventions & architecture
+Tool-agnostic conventions — the single-sourced `SEMCONV_VERSION`, the `backends.txt` vendor list,
+and the Terraform snapshot layout — plus Claude Code plugin architecture (auto-discovery,
+`hooks/hooks.json`, `claude plugin validate`) live in `CLAUDE.md`. Read its "Conventions" section;
+they are not restated here, to keep a single source.
