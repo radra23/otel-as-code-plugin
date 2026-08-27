@@ -172,11 +172,42 @@ jobs:
     name: Upstream drift check (scheduled / manual)
     runs-on: ubuntu-latest
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: read
+      issues: write
     steps:
       - uses: actions/checkout@v4
 
-      # Reports (as ::warning:: + a job-summary table) where the plugin's pinned versions —
-      # semconv spec, OTel Node/Python SDK packages, and Terraform providers — have fallen
-      # behind upstream. Informational: never fails the build. See scripts/drift_check.py.
+      # Reports where the plugin's pinned versions — semconv spec, OTel Node/Python SDK
+      # packages, Terraform providers — have fallen behind upstream, as a ::warning:: + a
+      # job-summary table. Also writes drift-report.md and a `count` output for the issue
+      # steps below. Informational: never fails the build. See scripts/drift_check.py.
       - name: Check pinned versions against upstream
+        id: drift
         run: python3 scripts/drift_check.py
+
+      - name: Open or update the drift issue
+        if: steps.drift.outputs.count != '' && steps.drift.outputs.count != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COUNT: ${{ steps.drift.outputs.count }}
+        run: |
+          gh label create drift --color FBCA04 --description "Pinned versions behind upstream" 2>/dev/null || true
+          num=$(gh issue list --label drift --state open --json number --jq '.[0].number // empty')
+          if [ -n "$num" ]; then
+            gh issue edit "$num" --body-file drift-report.md
+            gh issue comment "$num" --body "Re-checked $(date -u +%Y-%m-%d): $COUNT component(s) behind. Report updated above."
+          else
+            gh issue create --title "Upstream drift: pinned versions are behind" --label drift --body-file drift-report.md
+          fi
+
+      - name: Close the drift issue when everything is current
+        if: steps.drift.outputs.count == '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          num=$(gh issue list --label drift --state open --json number --jq '.[0].number // empty')
+          if [ -n "$num" ]; then
+            gh issue comment "$num" --body "All pinned versions are current as of $(date -u +%Y-%m-%d). Closing."
+            gh issue close "$num"
+          fi
