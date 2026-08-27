@@ -4,7 +4,7 @@
   "description": "OpenTelemetry instrumentation and observability-as-code for any stack",
   "owner": {
     "name": "radra.gwent",
-    "email": "radra.gwent@gmail.com"
+    "email": "radra23@users.noreply.github.com"
   },
   "plugins": [
     {
@@ -14,7 +14,7 @@
       "category": "observability",
       "author": {
         "name": "radra.gwent",
-        "email": "radra.gwent@gmail.com"
+        "email": "radra23@users.noreply.github.com"
       }
     }
   ]
