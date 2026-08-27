@@ -12,6 +12,9 @@ cd "$(dirname "$0")"
 
 WORK="./.work"
 cleanup() {
+  # NOTE: this dump will include expected/harmless OTLP export-retry errors for the
+  # metrics/logs pipelines (Jaeger's OTLP receiver only accepts traces) — see the
+  # "Expected collector errors" section in README.md before treating those as the failure.
   echo "--- collector + app logs (tail) ---"
   docker compose logs --tail=40 jaeger collector node-app python-app 2>/dev/null || true
   docker compose down -v --remove-orphans 2>/dev/null || true
@@ -48,7 +51,11 @@ done
 #    docker-compose.yml). Each wait is bounded so CI can't hang.
 wait_ready() { # base_url
   local base="$1"
-  local deadline=$(( $(date +%s) + 90 ))
+  # 150s: the python-app runs `pip install` (grpcio + otlp proto exporter) inline
+  # before serving, which on a cold CI runner can approach 90s alone — 90s was too
+  # tight and risked spurious red on the first live run.
+  local APP_READY_TIMEOUT_S=150
+  local deadline=$(( $(date +%s) + APP_READY_TIMEOUT_S ))
   until curl -fsS "$base/health" >/dev/null 2>&1; do
     [ "$(date +%s)" -lt "$deadline" ] || { echo "FAIL: $base did not become ready within timeout" >&2; exit 1; }
     sleep 2

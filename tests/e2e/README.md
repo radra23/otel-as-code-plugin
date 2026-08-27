@@ -59,6 +59,19 @@ every push/PR. #4 stays local-only.
    collector and both apps, runs `docker compose down -v --remove-orphans`, and
    removes `tests/e2e/.work/` — regardless of whether the assertions passed.
 
+## Expected collector errors (not a failure)
+
+During a `run.sh` run the golden collector config routes **all three** pipelines
+(traces/metrics/logs) through a single OTLP exporter to Jaeger, but Jaeger's OTLP
+receiver only accepts traces. As a result the collector logs `Unimplemented`
+export-retry errors for the metrics and logs pipelines for the whole run — this is
+**expected and harmless**; only the trace pipeline is asserted by the harness. These
+lines also show up in the `docker compose logs` tail the cleanup trap prints on
+failure, so when diagnosing a failed run, ignore metrics/logs export-retry lines and
+instead look at the trace-export lines and the app/collector startup output. (They
+aren't filtered out of the log dump on purpose: the exporter carries traces too, so
+grepping out "export failed"-shaped lines risks hiding a real trace-export failure.)
+
 ## Plaintext OTLP
 
 The collector's exporter to Jaeger and both apps' exporters to the collector are
