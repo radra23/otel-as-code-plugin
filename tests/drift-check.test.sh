@@ -24,7 +24,7 @@ pp = dict(d.python_pins())
 check("python pins parsed (opentelemetry-sdk)", "opentelemetry-sdk" in pp)
 tf = dict(d.tf_pins())
 check("tf provider pins parsed (all 4 vendors)", len(tf) == 4 and "grafana/grafana" in tf)
-check("semconv pin parsed (1.27.0)", d.semconv_pin() == "1.27.0")
+check("semconv pin parsed (1.44.0)", d.semconv_pin() == "1.44.0")
 
 check("behind: 1.27.0 < 1.37.0", d.behind("1.27.0", "1.37.0"))
 check("not behind: 2.8.0 == 2.8.0", not d.behind("2.8.0", "2.8.0"))

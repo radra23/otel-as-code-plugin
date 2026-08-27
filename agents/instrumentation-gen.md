@@ -118,13 +118,13 @@ the stable packages are on the 1.x/2.x line, the SDK/exporters on the 0.x line;
 bump to the latest at generation time rather than copying these verbatim if newer
 releases exist):
 ```json
-"@opentelemetry/sdk-node": "^0.219.0",
-"@opentelemetry/sdk-metrics": "^2.8.0",
-"@opentelemetry/resources": "^2.8.0",
-"@opentelemetry/exporter-trace-otlp-grpc": "^0.219.0",
-"@opentelemetry/exporter-metrics-otlp-grpc": "^0.219.0",
-"@opentelemetry/auto-instrumentations-node": "^0.77.0",
-"@opentelemetry/semantic-conventions": "^1.41.0"
+"@opentelemetry/sdk-node": "^0.221.0",
+"@opentelemetry/sdk-metrics": "^2.10.0",
+"@opentelemetry/resources": "^2.10.0",
+"@opentelemetry/exporter-trace-otlp-grpc": "^0.221.0",
+"@opentelemetry/exporter-metrics-otlp-grpc": "^0.221.0",
+"@opentelemetry/auto-instrumentations-node": "^0.79.0",
+"@opentelemetry/semantic-conventions": "^1.43.0"
 ```
 
 Add `-r ./tracing.js` to the `scripts.start` entry:
@@ -201,10 +201,10 @@ def shutdown():
 
 Add to `[project].dependencies`:
 ```toml
-"opentelemetry-sdk>=1.42.0",
-"opentelemetry-exporter-otlp-proto-grpc>=1.42.0",
-"opentelemetry-instrumentation-fastapi>=0.63b0",
-"opentelemetry-semantic-conventions>=0.63b0",
+"opentelemetry-sdk>=1.44.0",
+"opentelemetry-exporter-otlp-proto-grpc>=1.44.0",
+"opentelemetry-instrumentation-fastapi>=0.65b0",
+"opentelemetry-semantic-conventions>=0.65b0",
 ```
 
 (Replace `fastapi` with the detected framework from context JSON. For Flask: use `opentelemetry-instrumentation-flask` and `FlaskInstrumentor().instrument_app(app)`. For Django: use `opentelemetry-instrumentation-django` and `DjangoInstrumentor().instrument()` at module load time. For unknown frameworks: install `opentelemetry-instrumentation` and call the framework-specific instrumentor if available, or skip auto-instrumentation and note this in the summary.)

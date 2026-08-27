@@ -5,6 +5,18 @@ A Claude Code plugin — and a set of Codex skills — for OpenTelemetry instrum
 Instrument any Node.js or Python service, infer service identity from your repo,
 generate Terraform for Grafana, Datadog, New Relic, or Dash0 — all from your editor.
 
+## Status
+
+**MVP / experimental.** Scope: Node.js + Python instrumentation, and Terraform for four
+backends (Grafana, Datadog, New Relic, Dash0).
+
+Generated output is validated for **syntax and schema** — every backend module is
+`terraform validate`d in CI, and the OTel SDK/semconv pins are checked against current
+releases weekly (see the drift check). It is **not yet proven end-to-end against live
+backends or a running Collector**. Before trusting generated code: run `terraform plan` /
+`apply` against your own account and confirm traces actually flow. Treat the output as a
+reviewed starting point, not turnkey infrastructure.
+
 ## Installation
 
 ### From the marketplace
@@ -91,7 +103,7 @@ v1 will add: Java, Go, .NET, Ruby, PHP, Rust.
 
 ## Semconv version
 
-Pinned to **1.27.0** (stable), defined once as `SEMCONV_VERSION` in the `semconv-discipline`
+Pinned to **1.44.0** (stable), defined once as `SEMCONV_VERSION` in the `semconv-discipline`
 skill — the single place to bump on a semconv release. Pass `--experimental` to unlock
 pre-Stable conventions.
 

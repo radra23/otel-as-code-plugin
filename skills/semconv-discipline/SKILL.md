@@ -6,7 +6,7 @@ version: 0.1.0
 
 # OTel Semantic Conventions Discipline
 
-**SEMCONV_VERSION: 1.27.0** — Use stable conventions from this version by default.
+**SEMCONV_VERSION: 1.44.0** — Use stable conventions from this version by default.
 Experimental conventions (GenAI, profiling, system) require the `--experimental` flag.
 
 > **Single source of truth.** This `SEMCONV_VERSION` constant is the one place the pinned

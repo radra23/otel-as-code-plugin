@@ -74,8 +74,8 @@ resource naming requirements. Apply all patterns and gotchas from that skill.
 
 Every main.tf must include a `terraform` block with `required_providers`. Use the correct source for each backend:
 
-- Grafana: `source = "grafana/grafana"`, `version = "~> 3.0"`
-- Datadog: `source = "DataDog/datadog"`, `version = "~> 3.0"`
+- Grafana: `source = "grafana/grafana"`, `version = "~> 4.0"`
+- Datadog: `source = "DataDog/datadog"`, `version = "~> 4.0"`
 - New Relic: `source = "newrelic/newrelic"`, `version = "~> 3.0"`
 - Dash0: `source = "dash0hq/dash0"` (check registry for current version)
 

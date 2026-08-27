@@ -15,7 +15,7 @@ cp infra/observability/dash0/main.tf     tests/snapshots/dash0/main.tf.snap
 ```
 
 Commit the updated snapshots with a message like:
-`test: update TF snapshots for semconv 1.27.0 / grafana provider 3.x`
+`test: update TF snapshots for semconv 1.44.0 / grafana provider 4.x`
 
 ## CI check
 

@@ -25,7 +25,7 @@ Emit the exact commands the user should run next (init, plan, apply) as a post-g
 
 ---
 
-## Grafana Cloud (`grafana/grafana ~> 3.0`)
+## Grafana Cloud (`grafana/grafana ~> 4.0`)
 
 ### Authentication variables
 ```hcl
@@ -51,7 +51,7 @@ variable "grafana_service_account_token" {
 - Dashboard `config_json` must be valid Grafana JSON; use `jsonencode()` to construct it safely
 - `grafana_rule_group` requires a `folder_uid` (from the folder resource) and `interval_seconds`
 - SLO `query` block uses PromQL expressions; prefer `rate()` over `irate()` for stability
-- Provider version `~> 3.0` introduced breaking changes from 2.x; do not use 2.x patterns
+- Pin `~> 4.0` (current major); the 2.x → 3.x → 4.x jumps each changed resource schemas — don't copy older-major patterns
 
 ### OTel-specific dashboard panels to generate
 - Request rate: `rate(http_server_request_duration_seconds_count{service_name="..."}[5m])`
@@ -60,7 +60,7 @@ variable "grafana_service_account_token" {
 
 ---
 
-## Datadog (`DataDog/datadog ~> 3.0`)
+## Datadog (`DataDog/datadog ~> 4.0`)
 
 ### Authentication variables
 ```hcl
