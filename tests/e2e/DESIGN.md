@@ -78,13 +78,16 @@ Each unit has one purpose and a clean interface:
 ## 5. Golden artifacts
 
 - **`otelcol-agent.yaml.snap`** — the generated agent Collector config. OTLP receiver
-  on `:4317`; processors per `collector-topology` (batch + cardinality guardrails);
-  OTLP exporter to `${OTEL_EXPORTER_OTLP_ENDPOINT}`. Self-contained and env-driven so
-  the same file validates standalone (#3) and routes to Jaeger in compose (#1).
+  on `0.0.0.0:4317`; processors per `collector-topology` (batch + cardinality
+  guardrails); OTLP exporter to `${env:OTEL_EXPORTER_OTLP_ENDPOINT}` (otelcol env syntax)
+  with the required `retry_on_failure` + `timeout` blocks. Self-contained and env-driven
+  so the same file validates standalone (#3) and routes to Jaeger in compose (#1).
 - **`instrument/nodejs/tracing.js`, `instrument/python/tracing.py`** — the generated
   SDK bootstraps. Export OTLP to the Collector via the standard
-  `OTEL_EXPORTER_OTLP_ENDPOINT` env var. Set `service.name`, `service.version`, and
-  the business/identity attrs (`service.namespace`, `deployment.environment`).
+  `OTEL_EXPORTER_OTLP_ENDPOINT` env var. Read identity from env-var defaults
+  (`OTEL_SERVICE_NAME` / `OTEL_SERVICE_VERSION` / `OTEL_SERVICE_NAMESPACE`), so compose
+  controls the values. Node sets `service.name/version/namespace`; Python additionally
+  sets `deployment.environment.name` (the incubating rename of `deployment.environment`).
   Dependency versions stay in lockstep with `agents/instrumentation-gen.md` — so a bad
   pin bump fails this harness.
 
@@ -98,14 +101,17 @@ disk are never mutated.
 
 1. `run.sh` seeds throwaway app dirs with the golden bootstraps, then `docker compose up -d`.
 2. Wait (bounded timeout) for collector + jaeger + both apps to be healthy.
-3. Drive load: a handful of `curl`s against each app's HTTP endpoint.
+3. Drive load: a handful of `curl`s per app against its real endpoints — Node
+   `checkout-api` (`GET /health`, `POST /checkout`, `GET /orders/:id`), Python
+   `inventory-api` (`GET /health`, `GET /inventory/{sku}`, `POST /inventory/reserve`).
 4. `assert-traces.sh` polls Jaeger (`/api/services`, then `/api/traces?service=<name>`)
    for up to ~30s (traces are async), and for **each** service asserts:
    - at least one trace/span landed (the full `app → collector → jaeger` path worked), and
-   - resource attributes carry correct `service.*`: `service.name` matches, and
-     `service.version` / `service.namespace` / `deployment.environment` are present with
-     the fixture's values. (Jaeger exposes resource attrs as process tags — a real
-     assertion on what was exported, not a config read.)
+   - resource attributes carry correct `service.*` — a per-language expected set matching
+     what each bootstrap actually emits: both assert `service.name` (matches the compose
+     identity) + `service.version` + `service.namespace`; Python additionally asserts
+     `deployment.environment.name`. (Jaeger exposes resource attrs as process tags — a
+     real assertion on what was exported, not a config read.)
 5. Teardown always runs (see §9).
 
 ## 7. #3 — Collector validate
