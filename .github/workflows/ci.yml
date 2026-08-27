@@ -39,7 +39,7 @@ jobs:
           python3 -c "import json; json.load(open('.codex/hooks.json'))"
           test -f hooks/codex/pre-tool-use.py
           test -f hooks/codex/post-tool-use.py
-          python3 -m py_compile hooks/codex/pre-tool-use.py hooks/codex/post-tool-use.py
+          python3 -m py_compile hooks/codex/_bridge.py hooks/codex/pre-tool-use.py hooks/codex/post-tool-use.py
 
       - name: Check .agents/skills bridge references resolve
         run: |

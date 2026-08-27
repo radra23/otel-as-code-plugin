@@ -14,12 +14,13 @@ payload() {  # cwd, patch
   python3 -c 'import json,sys; print(json.dumps({"hook_event_name":sys.argv[1],"tool_name":"apply_patch","cwd":sys.argv[2],"tool_input":{"command":sys.argv[3]}}))' "$1" "$2" "$3"
 }
 
-check() {  # name, expect(deny|allow|context), output
-  local name="$1" expect="$2" out="$3"
+check() {  # name, expect(deny|allow|context|substr), output, [needle]
+  local name="$1" expect="$2" out="$3" needle="${4:-}"
   case "$expect" in
     deny)    echo "$out" | grep -q '"permissionDecision": "deny"' && r=1 || r=0 ;;
     allow)   [ -z "$out" ] && r=1 || r=0 ;;
     context) echo "$out" | grep -q '"additionalContext"' && r=1 || r=0 ;;
+    substr)  echo "$out" | grep -q "$needle" && r=1 || r=0 ;;
   esac
   if [ "$r" -eq 1 ]; then echo "PASS: $name"; PASS=$((PASS+1)); else echo "FAIL: $name"; echo "  out: $out"; FAIL=$((FAIL+1)); fi
 }
@@ -56,7 +57,7 @@ EOF
 PATCH=$'*** Begin Patch\n*** Update File: tracing.js\n@@\n+span.setAttribute("orderId", id);\n*** End Patch'
 OUT=$(payload PostToolUse "$TMP" "$PATCH" | python3 "$POST")
 check "post: surfaces semconv warnings as additionalContext" context "$OUT"
-echo "$OUT" | grep -q "service.name" && { echo "PASS: post: warning names the violation"; PASS=$((PASS+1)); } || { echo "FAIL: post: warning content"; FAIL=$((FAIL+1)); }
+check "post: warning names the violation" substr "$OUT" "service.name"
 rm -rf "$TMP"
 
 echo ""
