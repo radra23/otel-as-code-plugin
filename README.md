@@ -1,5 +1,11 @@
 # otel-as-code
 
+[![CI](https://github.com/radra23/otel-as-code-plugin/actions/workflows/ci.yml/badge.svg)](https://github.com/radra23/otel-as-code-plugin/actions/workflows/ci.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Claude Code](https://img.shields.io/badge/Claude_Code-plugin-d97757)](https://docs.claude.com/en/docs/claude-code/overview)
+[![Codex](https://img.shields.io/badge/Codex-skills-4b5563)](AGENTS.md)
+![Status: MVP](https://img.shields.io/badge/status-MVP-e8a33d)
+
 A Claude Code plugin — and a set of Codex skills — for OpenTelemetry instrumentation and observability-as-code.
 
 Instrument any Node.js or Python service, infer service identity from your repo,
