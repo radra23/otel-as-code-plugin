@@ -32,6 +32,29 @@ jobs:
       - name: Run drift-check parser tests (offline)
         run: bash tests/drift-check.test.sh
 
+      - name: assert-traces unit test
+        run: bash tests/e2e/assert-traces.test.sh
+
+      - name: golden bootstrap pins/syntax test
+        run: bash tests/snapshots/instrument/pins.test.sh
+
+      - name: plan-local arg-handling test
+        run: bash tests/e2e/plan-local.test.sh
+
+  e2e:
+    name: End-to-end trace flow (#1 + #3)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Collector config validate (#3)
+        run: bash tests/collector-validate.sh
+        env:
+          OTELCOL_VERSION: "0.128.0"
+
+      - name: Trace-flow smoke test (#1)
+        run: bash tests/e2e/run.sh
+
   validate-codex-bridge:
     name: Validate Codex bridge
     runs-on: ubuntu-latest
