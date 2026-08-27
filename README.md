@@ -11,6 +11,13 @@ A Claude Code plugin — and a set of Codex skills — for OpenTelemetry instrum
 Instrument any Node.js or Python service, infer service identity from your repo,
 generate Terraform for Grafana, Datadog, New Relic, or Dash0 — all from your editor.
 
+```bash
+claude plugin marketplace add https://github.com/radra23/otel-as-code-plugin
+```
+
+Then run `/otel-init` in Claude Code to scan your repo. Full setup — dev hot-reload and
+Codex — under [Installation](#installation).
+
 ## Status
 
 **MVP / experimental.** Scope: Node.js + Python instrumentation, and Terraform for four
