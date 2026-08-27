@@ -10,14 +10,14 @@ generate Terraform for Grafana, Datadog, New Relic, or Dash0 — all from your e
 ### From the marketplace
 
 ```bash
-claude plugin marketplace add https://github.com/YOUR_ORG/otel-as-code
+claude plugin marketplace add https://github.com/radra23/otel-as-code-plugin
 ```
 
 ### For development (hot-reload)
 
 ```bash
-git clone https://github.com/YOUR_ORG/otel-as-code
-claude --plugin-dir /path/to/otel-as-code
+git clone https://github.com/radra23/otel-as-code-plugin
+claude --plugin-dir /path/to/otel-as-code-plugin
 ```
 
 ## Using with Codex
