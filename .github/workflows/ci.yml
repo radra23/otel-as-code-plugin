@@ -6,8 +6,9 @@ on:
     branches: [main]
   pull_request:
   schedule:
-    # Weekly run to catch semconv / provider drift
+    # Weekly run to catch semconv / SDK / provider drift
     - cron: '0 9 * * 1'
+  workflow_dispatch:
 
 jobs:
   lint-hooks:
@@ -27,6 +28,9 @@ jobs:
 
       - name: Run Codex hook-adapter tests
         run: bash tests/hooks/codex-adapters.test.sh
+
+      - name: Run drift-check parser tests (offline)
+        run: bash tests/drift-check.test.sh
 
   validate-codex-bridge:
     name: Validate Codex bridge
@@ -164,21 +168,15 @@ jobs:
           fi
           echo "Validated $found committed snapshot module(s)."
 
-  semconv-drift:
-    name: Semconv drift check (scheduled only)
+  drift-check:
+    name: Upstream drift check (scheduled / manual)
     runs-on: ubuntu-latest
-    if: github.event_name == 'schedule'
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check pinned semconv version against latest
-        run: |
-          PINNED=$(grep 'SEMCONV_VERSION' skills/semconv-discipline/SKILL.md | \
-                   grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-          LATEST=$(curl -s https://api.github.com/repos/open-telemetry/semantic-conventions/releases/latest \
-                   | python3 -c "import sys,json; print(json.load(sys.stdin)['tag_name'].lstrip('v'))")
-          echo "Pinned: $PINNED  |  Latest: $LATEST"
-          if [ "$PINNED" != "$LATEST" ]; then
-            echo "::warning::Semconv version is outdated. Pinned: $PINNED, Latest: $LATEST"
-            echo "Update SEMCONV_VERSION in skills/semconv-discipline/SKILL.md"
-          fi
+      # Reports (as ::warning:: + a job-summary table) where the plugin's pinned versions —
+      # semconv spec, OTel Node/Python SDK packages, and Terraform providers — have fallen
+      # behind upstream. Informational: never fails the build. See scripts/drift_check.py.
+      - name: Check pinned versions against upstream
+        run: python3 scripts/drift_check.py

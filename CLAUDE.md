@@ -24,6 +24,7 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
 - `SEMCONV_VERSION` in `skills/semconv-discipline/SKILL.md` is the single source of truth; the lint hook greps it and generators stamp `<SEMCONV_VERSION>`. Don't hardcode the version elsewhere.
 - `backends.txt` (repo root) is the single source of truth for the supported vendor list; the CI `validate-terraform` loop, `tests/check-snapshots.sh`, `hooks/session-summary.sh`, and `/otel-backend` validation all read it. Don't hardcode the vendor list elsewhere (per-vendor content in `terraform-patterns.md`/`terraform-gen.md` is fine).
 - Terraform golden snapshots: `tests/snapshots/<vendor>/main.tf.snap`, self-contained (inline `variable` blocks) so CI validates `main.tf` standalone. `terraform` isn't installed — download a pinned binary to validate; introspect unfamiliar providers with `terraform providers schema -json`.
+- `scripts/drift_check.py` (weekly `drift-check` CI job; also `workflow_dispatch`) reports when the pinned semconv / OTel-SDK / TF-provider versions fall behind upstream — informational, never fails CI (`tests/drift-check.test.sh` keeps its pin parsers honest offline). When it flags drift: bump the pins, regenerate the affected snapshots, re-validate.
 
 ## Shell
 - GitHub Actions runs `run:` blocks as `bash -eo pipefail`; reproduce CI shell logic with that, not the local zsh (zsh doesn't word-split unquoted `$VAR` — use literal args/arrays).
