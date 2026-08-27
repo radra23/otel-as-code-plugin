@@ -9,11 +9,12 @@ services:
       COLLECTOR_OTLP_ENABLED: "true"
     ports:
       - "16686:16686"   # query UI/API (assertions read this from the host)
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:16686/"]
-      interval: 3s
-      timeout: 2s
-      retries: 20
+    # No healthcheck: jaegertracing/all-in-one is a scratch/minimal image with no
+    # shell, wget, or curl, so a CMD-based healthcheck can never succeed and would
+    # leave the container permanently "unhealthy" (breaking any service_healthy
+    # dependency on it). Readiness is instead checked from the HOST in run.sh
+    # (curl against http://localhost:16686/), and the collector's OTLP exporter has
+    # retry_on_failure enabled, so it tolerates jaeger not being immediately ready.
 
   collector:
     image: otel/opentelemetry-collector-contrib:0.128.0
@@ -22,9 +23,7 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: "jaeger:4317"   # golden config exports here
     volumes:
       - ../snapshots/collector/otelcol-agent.yaml.snap:/etc/otelcol/config.yaml:ro
-    depends_on:
-      jaeger:
-        condition: service_healthy
+    depends_on: [jaeger]
 
   node-app:
     image: node:20-bookworm-slim

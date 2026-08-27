@@ -13,7 +13,7 @@ cd "$(dirname "$0")"
 WORK="./.work"
 cleanup() {
   echo "--- collector + app logs (tail) ---"
-  docker compose logs --tail=40 collector node-app python-app 2>/dev/null || true
+  docker compose logs --tail=40 jaeger collector node-app python-app 2>/dev/null || true
   docker compose down -v --remove-orphans 2>/dev/null || true
   rm -rf "$WORK"
 }
