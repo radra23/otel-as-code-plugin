@@ -3,7 +3,8 @@
 # Codex PreToolUse adapter for otel-as-code.
 #
 # Parses Codex's apply_patch payload and runs hooks/write-guard.sh (overwrite protection +
-# confirm-before-write) on each write target, mapping a block (exit 1) to Codex's
+# confirm-before-write) on each write target, mapping a block (exit 2 — the Claude Code
+# block/fail-closed code the shell hook uses) to Codex's
 # { hookSpecificOutput.permissionDecision: "deny" }. Shared plumbing lives in _bridge.py.
 #
 # Scope: apply_patch "Update" hunks give a diff, not full content, so the confirm-before-write
@@ -24,7 +25,7 @@ def main():
     env = bridge_env(cwd)
     for path, content in parse_targets(tool_input):
         proc = run_hook("write-guard.sh", path, content, cwd, env)
-        if proc.returncode == 1:
+        if proc.returncode == 2:  # exit 2 = block/fail-closed in write-guard.sh
             reason = (proc.stderr or "otel-as-code guardrail blocked this write.").strip()
             print(json.dumps({"hookSpecificOutput": {
                 "hookEventName": "PreToolUse",

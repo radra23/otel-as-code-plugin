@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # hooks/write-guard.sh
 # PreToolUse hook — blocks destructive overwrites of existing OTel bootstrap files.
-# Exit 0 = allow the tool call. Exit 1 = block the tool call (write error to stderr).
+# Exit 0 = allow the tool call. Exit 2 = BLOCK the tool call (reason written to stderr).
+# IMPORTANT: in Claude Code a PreToolUse hook blocks ONLY on exit 2. Exit 1 (or any other
+# non-zero) is a non-blocking error — the tool call PROCEEDS — so a block MUST use exit 2.
+# (Ref: code.claude.com/docs/en/hooks-guide — exit codes.)
 # Input: JSON on stdin with the Claude Code PreToolUse shape:
 #   {"hook_event_name":"PreToolUse","tool_name":"Write","tool_input":{"file_path":"..."}}
 
@@ -21,12 +24,22 @@ if [ "${OTEL_FORCE:-0}" = "1" ]; then
   exit 0
 fi
 
+# Resolve a JSON parser once. Parsing the payload needs python3 (jq is not assumed available).
+# If none is present we cannot tell whether this write hits a protected file, so we FAIL CLOSED
+# (block) rather than silently allowing the overwrite — loud-and-safe beats silent-and-unsafe.
+# OTEL_HOOK_PYTHON overrides the interpreter path (the tests set it empty to simulate absence).
+PY="${OTEL_HOOK_PYTHON-$(command -v python3 || command -v python || true)}"
+if [ -z "$PY" ]; then
+  echo "otel-as-code write-guard: no python3 on PATH — cannot verify this write; blocking (fail closed). Install python3." >&2
+  exit 2
+fi
+
 # Read JSON from stdin
 INPUT=$(cat)
 
 # Extract tool name and file path (portable; avoids jq dependency)
-TOOL=$(echo "$INPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_name',''))" 2>/dev/null || echo "")
-FILE_PATH=$(echo "$INPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_input',{}).get('file_path',''))" 2>/dev/null || echo "")
+TOOL=$(echo "$INPUT" | "$PY" -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_name',''))" 2>/dev/null || echo "")
+FILE_PATH=$(echo "$INPUT" | "$PY" -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_input',{}).get('file_path',''))" 2>/dev/null || echo "")
 
 # Only guard Write and Edit tools
 if [ "$TOOL" != "Write" ] && [ "$TOOL" != "Edit" ]; then
@@ -45,9 +58,9 @@ fi
 # are validated; Edits that don't carry full JSON content can't be checked and pass through.
 case "$FILE_PATH" in
   */.claude/otel-context.json|.claude/otel-context.json)
-    CONTENT=$(echo "$INPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_input',{}).get('content',''))" 2>/dev/null || echo "")
+    CONTENT=$(echo "$INPUT" | "$PY" -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_input',{}).get('content',''))" 2>/dev/null || echo "")
     if [ -n "$CONTENT" ]; then
-      UNCONFIRMED=$(printf '%s' "$CONTENT" | python3 -c "
+      UNCONFIRMED=$(printf '%s' "$CONTENT" | "$PY" -c "
 import sys, json
 try:
     d = json.load(sys.stdin)
@@ -61,7 +74,7 @@ print('\n'.join(a.get('name', '?') for a in attrs if isinstance(a, dict) and a.g
         printf '%s\n' "$UNCONFIRMED" | sed 's/^/  - /' >&2
         echo "Business attributes require explicit approval (\"confirmed\": true) before write." >&2
         echo "Re-run /otel-business-attrs and approve each attribute." >&2
-        exit 1
+        exit 2
       fi
     fi
     ;;
@@ -96,7 +109,7 @@ esac
 if [ "$blocked" -eq 1 ]; then
   echo "otel-as-code write-guard: blocking overwrite of existing OTel file: $FILE_PATH" >&2
   echo "Re-run the originating /otel-* command with --force to overwrite." >&2
-  exit 1
+  exit 2
 fi
 
 exit 0
