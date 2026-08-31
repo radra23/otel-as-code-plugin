@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # tests/check-snapshots.sh
-# Run after generating TF modules — diff against golden files.
-# Called by CI after running /otel-backend against greenfield fixture.
+# LOCAL developer helper (NOT run by CI): after regenerating TF modules with /otel-backend,
+# diff the output against the golden files here. CI instead runs `terraform validate` on each
+# self-contained snapshot (the `validate-terraform` job) — it does not regenerate and diff.
+# Note: golden snapshots are self-contained (inline variables) while real generation splits
+# variables into variables.tf, so a raw diff needs normalisation before it is meaningful.
 set -euo pipefail
 
 FAIL=0

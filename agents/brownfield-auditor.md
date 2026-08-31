@@ -1,6 +1,7 @@
 ---
 name: brownfield-auditor
 description: Read-only gap analysis on existing OTel instrumentation — missing signals, semconv violations, cardinality risks. Dispatched by /otel-evaluate.
+tools: Read, Grep, Glob
 ---
 
 # brownfield-auditor

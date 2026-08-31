@@ -1,6 +1,7 @@
 ---
 name: repo-context-scanner
 description: Read-only repo traversal that returns structured context JSON (services, languages, runtimes, frameworks, existing OTel coverage, ownership). Merges a prior context cache so user-confirmed answers survive a re-scan. Dispatched by /otel-init and any command with a stale/absent context cache.
+tools: Read, Grep, Glob, Bash
 ---
 
 # repo-context-scanner

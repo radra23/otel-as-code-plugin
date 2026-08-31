@@ -1,6 +1,8 @@
 # Terraform Snapshot Tests
 
-Golden files for generated Terraform modules. CI diffs output against these files.
+Golden files for generated Terraform modules. CI runs `terraform validate` on each (they are
+self-contained), catching provider-schema breaks — see the `validate-terraform` job in the CI
+workflow. CI does NOT diff regenerated output against these files.
 
 ## Updating snapshots
 
@@ -19,6 +21,9 @@ Commit the updated snapshots with a message like:
 
 ## CI check
 
-The CI workflow diffs regenerated output against these golden files.
-If output changes unexpectedly, CI fails. Developer reviews the diff and
-updates snapshots intentionally.
+The CI `validate-terraform` job downloads each backend's real provider and runs
+`terraform validate` on every snapshot — they are self-contained (inline `variable` blocks) so
+each validates standalone. This catches provider-schema breaks, **not** content drift: CI does not
+regenerate and diff. When you intentionally change generation, update the snapshots by hand (see
+above) and review the diff yourself. (`tests/check-snapshots.sh` is a local helper for that manual
+regenerate-and-compare — it is not run by CI.)
