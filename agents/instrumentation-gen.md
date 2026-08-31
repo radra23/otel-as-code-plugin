@@ -87,6 +87,40 @@ must not assert things you have not checked:
 - When nothing needs explaining, write nothing. A missing comment costs nothing; a wrong one
   costs a verification pass.
 
+## Incubating semconv attributes and the `/incubating` subpath (JS/TS)
+
+Stable attributes come from the package root, `@opentelemetry/semantic-conventions`
+(`ATTR_SERVICE_NAME`, `ATTR_SERVICE_VERSION`, and — at the pinned package version —
+`ATTR_SERVICE_NAMESPACE`, `ATTR_DEPLOYMENT_ENVIRONMENT_NAME`). Attributes that are still
+experimental — the whole `messaging.*` group, most `db.*`, and similar — are exported ONLY behind
+the package's `./incubating` subpath (`@opentelemetry/semantic-conventions/incubating`).
+
+That subpath is declared through package.json `exports`, and **TypeScript's legacy
+`moduleResolution: "node"` (a.k.a. `node10`) does not read `exports`** — so a `.ts` bootstrap that
+imports from `.../incubating` fails to compile with TS2307 "Cannot find module", even though Node
+resolves the same specifier fine at runtime. That is the CommonJS/TS case that bites: the code is
+correct, the project's `tsconfig` cannot see the subpath.
+
+When a bootstrap genuinely needs an incubating-only attribute, resolve it in this order:
+
+1. **Prefer upgrading the project's module resolution.** If the target `tsconfig.json` uses
+   `moduleResolution: "node"` / `"node10"`, recommend `"nodenext"`, `"node16"`, or `"bundler"` —
+   each honors `exports` and resolves `/incubating`, unlocking every incubating attribute at once.
+   Say so in the summary; it is the real fix.
+2. **If tsconfig cannot change, use the string literal for the attribute key.** A constant's value
+   is just its attribute name, so `'messaging.system'` is exactly what `ATTR_MESSAGING_SYSTEM`
+   holds. Verify the literal against the installed package
+   (`node -e "console.log(require('@opentelemetry/semantic-conventions/incubating').ATTR_MESSAGING_SYSTEM)"`)
+   and note in a comment what you observed and at what package version (per the comment rules
+   above). Runtime behavior is identical, with no subpath import.
+3. **Never deep-import an internal build path** (e.g.
+   `@opentelemetry/semantic-conventions/build/src/index-incubating`). Those are not part of the
+   package's public `exports` and break on any release.
+
+Pure-JavaScript (`.js`, `require`) bootstraps are unaffected: Node honors `exports`, so
+`require('@opentelemetry/semantic-conventions/incubating')` works. The constraint is specific to
+TypeScript projects compiling with the legacy resolver.
+
 ## Exporter configuration (all languages)
 
 Signal exporters are selected by the spec's own environment variables:
