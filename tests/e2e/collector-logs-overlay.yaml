@@ -1,0 +1,19 @@
+# tests/e2e/collector-logs-overlay.yaml
+# E2E-only overlay, merged on top of the golden agent config via a SECOND --config flag
+# (otelcol-contrib deep-merges multiple --config files). It adds a `file` exporter on the logs
+# pipeline so log records the collector receives are written to a host-readable file that
+# assert-logs.sh can inspect — the golden config exports logs via OTLP to Jaeger, which drops
+# non-trace signals, leaving nothing to assert. The golden snapshot itself is NOT modified: this
+# overlay exists only so the harness can prove the Python --experimental logs path end-to-end.
+#
+# Merge semantics: the `exporters` map gains `file` alongside the golden `otlp`; the leaf list
+# `service.pipelines.logs.exporters` is overridden to fan out to both. traces/metrics pipelines
+# are untouched.
+exporters:
+  file:
+    path: /out/logs.json
+
+service:
+  pipelines:
+    logs:
+      exporters: [otlp, file]

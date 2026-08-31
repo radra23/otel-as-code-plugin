@@ -18,11 +18,17 @@ services:
 
   collector:
     image: otel/opentelemetry-collector-contrib:0.128.0
-    command: ["--config=/etc/otelcol/config.yaml"]
+    # Golden config + an E2E-only overlay (deep-merged) that also writes received logs to a file
+    # so assert-logs.sh can prove the Python --experimental logs path. See collector-logs-overlay.yaml.
+    command:
+      - "--config=/etc/otelcol/config.yaml"
+      - "--config=/etc/otelcol/logs-overlay.yaml"
     environment:
       OTEL_EXPORTER_OTLP_ENDPOINT: "jaeger:4317"   # golden config exports here
     volumes:
       - ../snapshots/collector/otelcol-agent.yaml.snap:/etc/otelcol/config.yaml:ro
+      - ./collector-logs-overlay.yaml:/etc/otelcol/logs-overlay.yaml:ro
+      - ./.work/collector-out:/out   # file exporter writes logs.json here (run.sh makes it world-writable)
     depends_on: [jaeger]
 
   node-app:
