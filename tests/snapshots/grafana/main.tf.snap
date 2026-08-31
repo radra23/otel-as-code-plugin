@@ -116,8 +116,29 @@ resource "grafana_rule_group" "otel" {
         to   = 0
       }
       model = jsonencode({
-        refId = "A"
-        expr  = "sum(rate(http_server_request_duration_seconds_count{job=\"${var.service_name}\",http_response_status_code=~\"5..\"}[5m])) / sum(rate(http_server_request_duration_seconds_count{job=\"${var.service_name}\"}[5m]))"
+        refId      = "A"
+        datasource = { type = "prometheus", uid = var.prometheus_datasource_uid }
+        instant    = false
+        range      = true
+        expr       = "sum(rate(http_server_request_duration_seconds_count{job=\"${var.service_name}\",http_response_status_code=~\"5..\"}[5m])) / sum(rate(http_server_request_duration_seconds_count{job=\"${var.service_name}\"}[5m]))"
+      })
+    }
+
+    # Grafana unified alerting requires query -> reduce -> threshold. Ref A is a range query
+    # (a time series); ref B reduces it to a single value so ref C's threshold can evaluate.
+    # Wiring a threshold straight onto a multi-point series fails at rule evaluation.
+    data {
+      ref_id         = "B"
+      datasource_uid = "__expr__"
+      relative_time_range {
+        from = 0
+        to   = 0
+      }
+      model = jsonencode({
+        refId      = "B"
+        type       = "reduce"
+        expression = "A"
+        reducer    = "last"
       })
     }
 
@@ -131,7 +152,7 @@ resource "grafana_rule_group" "otel" {
       model = jsonencode({
         refId      = "C"
         type       = "threshold"
-        expression = "A"
+        expression = "B"
         conditions = [{
           evaluator = { type = "gt", params = [0.05] }
         }]

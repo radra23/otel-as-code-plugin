@@ -135,7 +135,7 @@ variable "newrelic_region" {
 ### Required resources
 1. `newrelic_one_dashboard` — pages with widget blocks; use `widget_line` and `widget_table`
 2. `newrelic_nrql_alert_condition` — NRQL-based alerts; `type = "static"` for threshold
-3. `newrelic_service_level` — SLOs; events block with `valid` and `good` NRQL queries
+3. `newrelic_service_level` — SLOs; `events` block uses `valid_events` / `good_events` (and optionally `bad_events`) NRQL query blocks — NOT `valid` / `good`
 
 ### Key gotchas
 - `account_id` is required on EVERY resource; there is no provider-level default
@@ -143,11 +143,18 @@ variable "newrelic_region" {
 - Service level `good` query denominator must return a rate between 0 and 1 — divide by total count
 - NRQL uses `FROM Span` for OTel trace data; attribute names follow OTel semconv directly
 - Dashboard widgets require `account_id` inside the `nrql_query` block, not just on the resource
+- **Alert-condition NRQL must NOT contain `SINCE` / `UNTIL` / `TIMESERIES` / `COMPARE WITH`** — New Relic rejects them in `newrelic_nrql_alert_condition` (the condition's own aggregation window drives timing). Those clauses are dashboard-only.
 
 ### OTel-specific NRQL queries
+
+Dashboard widget NRQL (a time window is expected — `SINCE` / `TIMESERIES` are fine here):
 - Request rate: `SELECT rate(count(*), 1 MINUTE) FROM Span WHERE service.name = '<name>' SINCE 5 MINUTES AGO`
 - Error rate: `SELECT filter(count(*), WHERE otel.status_code = 'ERROR') / count(*) FROM Span WHERE service.name = '<name>' SINCE 5 MINUTES AGO`
 - P99 latency: `SELECT percentile(duration.ms, 99) FROM Span WHERE service.name = '<name>' SINCE 5 MINUTES AGO`
+
+Alert-condition NRQL (`newrelic_nrql_alert_condition.nrql.query` — NO `SINCE`/`TIMESERIES`):
+- Error rate: `SELECT filter(count(*), WHERE otel.status_code = 'ERROR') / count(*) FROM Span WHERE service.name = '<name>'`
+- P99 latency: `SELECT percentile(duration.ms, 99) FROM Span WHERE service.name = '<name>'`
 
 ---
 
