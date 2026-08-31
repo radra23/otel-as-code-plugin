@@ -25,9 +25,10 @@ backends (Grafana, Datadog, New Relic, Dash0).
 
 Generated output is validated for **syntax and schema** — every backend module is
 `terraform validate`d in CI, and the OTel SDK/semconv pins are checked against current
-releases weekly (see the drift check). The Node.js + Python instrumentation is additionally
-**proven end-to-end in CI**: the generated SDK bootstrap exports through the generated
-Collector config into a running trace store, asserted on every push (see [`tests/e2e/`](tests/e2e/)).
+releases weekly (see the drift check). The Node.js, Python, and Java instrumentation is
+additionally **proven end-to-end in CI**: the generated SDK bootstrap (or, for Java, the
+OpenTelemetry Java agent) exports through the generated Collector config into a running trace
+store, asserted on every push (see [`tests/e2e/`](tests/e2e/)).
 The **Terraform is not yet proven against live vendor backends** — before trusting it, run
 `terraform plan` / `apply` against your own account. Treat backend modules as a reviewed
 starting point, not turnkey infrastructure.
