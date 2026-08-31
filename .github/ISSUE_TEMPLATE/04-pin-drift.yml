@@ -1,0 +1,43 @@
+name: Version or pin drift
+description: A pinned semconv, SDK, agent, or provider version has gone stale.
+title: "[drift] "
+labels: ["drift", "dependencies"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        CI runs a weekly drift check, but it does not catch everything, and a human who
+        just hit the problem is usually faster. Thanks for reporting.
+  - type: dropdown
+    id: what
+    attributes:
+      label: What is pinned and stale?
+      options:
+        - Semantic conventions (SEMCONV_VERSION)
+        - OpenTelemetry JS SDK
+        - OpenTelemetry Python SDK
+        - OpenTelemetry Java agent
+        - otelcol-contrib
+        - A Terraform provider
+    validations:
+      required: true
+  - type: input
+    id: current
+    attributes:
+      label: Version pinned today
+    validations:
+      required: true
+  - type: input
+    id: latest
+    attributes:
+      label: Version that should be pinned
+    validations:
+      required: true
+  - type: textarea
+    id: breaking
+    attributes:
+      label: Anything breaking in between?
+      description: >
+        Attribute renames, removed exporters, changed defaults. Link the release notes or
+        the migration guide if there is one. A bump with a known rename is a different
+        change from a bump without.

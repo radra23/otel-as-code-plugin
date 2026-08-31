@@ -1,0 +1,54 @@
+name: Coverage request (language or backend)
+description: Ask for a language, framework, or vendor backend that is not supported yet.
+title: "[coverage] "
+labels: ["coverage", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Coverage is the main axis this project grows along, so these requests are welcome and
+        they get read. The roadmap in [ROADMAP.md](../blob/main/ROADMAP.md) shows what is
+        already queued, and a request against a queued item is still useful: it is how
+        ordering gets decided.
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What kind of coverage?
+      options:
+        - A language or runtime
+        - A framework within a supported language
+        - A vendor backend (Terraform)
+        - A Collector component or topology
+    validations:
+      required: true
+  - type: input
+    id: target
+    attributes:
+      label: Which one?
+      placeholder: "Go, or Honeycomb, or FastAPI, or a tail-sampling gateway"
+    validations:
+      required: true
+  - type: textarea
+    id: shape
+    attributes:
+      label: What does your setup look like?
+      description: >
+        The concrete case beats the general ask. Runtime version, framework, how it deploys,
+        whether you run a Collector today. This is what determines whether generated output
+        will actually be useful to you rather than merely present.
+    validations:
+      required: true
+  - type: textarea
+    id: prior-art
+    attributes:
+      label: Prior art
+      description: >
+        Links to the upstream OTel instrumentation, the Terraform provider, or an existing
+        config you already use. Prior art is most of the work.
+  - type: checkboxes
+    id: help
+    attributes:
+      label: Would you like to help?
+      options:
+        - label: I can test a draft against a real service or account.
+        - label: I would consider opening the PR myself with some guidance.

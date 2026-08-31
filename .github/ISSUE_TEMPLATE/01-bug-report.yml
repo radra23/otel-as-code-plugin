@@ -1,0 +1,79 @@
+name: Bug report
+description: A command, hook, or agent in the plugin itself misbehaved.
+title: "[bug] "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time.
+
+        If the **generated output** was wrong (a bad `tracing.js`, a wrong semconv attribute,
+        Terraform that will not validate), use the *Incorrect generated output* template
+        instead. It asks for the few things that make that class of bug fixable in one pass.
+  - type: dropdown
+    id: command
+    attributes:
+      label: Which command?
+      options:
+        - /otel-init
+        - /otel-instrument
+        - /otel-evaluate
+        - /otel-collector
+        - /otel-business-attrs
+        - /otel-backend
+        - A hook or guardrail (write-guard, semconv-lint, force-match)
+        - Installation / marketplace
+        - Other or not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: host
+    attributes:
+      label: Where were you running it?
+      options:
+        - Claude Code (plugin)
+        - Codex (skills)
+        - Both
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you ran, what you expected, and what you actually got.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Ran /otel-init in a repo with ...
+        2. Then ran ...
+        3. Saw ...
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The `version` from `.claude-plugin/plugin.json`, or the commit SHA if you run from a clone.
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, plus language and runtime versions where they matter.
+      placeholder: |
+        OS: macOS 15.3 (arm64)
+        Node: 22.11.0
+  - type: checkboxes
+    id: hygiene
+    attributes:
+      label: Before you file
+      options:
+        - label: I searched existing issues and discussions.
+          required: true
+        - label: I stripped API keys, endpoints, and account identifiers from anything I pasted.
+          required: true

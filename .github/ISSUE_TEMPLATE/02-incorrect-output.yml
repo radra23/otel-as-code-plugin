@@ -1,0 +1,83 @@
+name: Incorrect generated output
+description: The SDK bootstrap, Collector config, or Terraform that came out was wrong.
+title: "[output] "
+labels: ["incorrect-output", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is the report that matters most to this project. A generator is only as good as
+        the output it defends, so please paste the actual artifact rather than describing it.
+        Redact endpoints, account IDs, and keys first.
+  - type: dropdown
+    id: artifact
+    attributes:
+      label: Which artifact?
+      options:
+        - SDK bootstrap (tracing.js)
+        - SDK bootstrap (tracing.py)
+        - Java agent config (otel-java.env)
+        - Collector config (agent)
+        - Collector config (gateway)
+        - Terraform (Grafana)
+        - Terraform (Datadog)
+        - Terraform (New Relic)
+        - Terraform (Dash0)
+        - Service map (.claude/otel-services.json)
+    validations:
+      required: true
+  - type: dropdown
+    id: failure
+    attributes:
+      label: How is it wrong?
+      options:
+        - It does not run, compile, or validate
+        - It runs, but no telemetry arrives
+        - Wrong or missing semantic-convention attribute
+        - Wrong exporter, endpoint, or protocol defaulting
+        - Wrong service identity, name, or namespace
+        - Cardinality or cost problem
+        - It overwrote hand edits it should have preserved
+        - Something else
+    validations:
+      required: true
+  - type: textarea
+    id: generated
+    attributes:
+      label: What was generated
+      description: The relevant portion of the file. Redact secrets.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What it should have been, and why
+      description: >
+        If a spec backs you up, link it. A link to the semantic conventions or a vendor
+        provider doc turns this into a one-commit fix.
+    validations:
+      required: true
+  - type: textarea
+    id: source-context
+    attributes:
+      label: What the generator was looking at
+      description: >
+        The shape of the service it read: manifest, framework, entry point, Dockerfile.
+        A minimal reproduction repo is the gold standard, but a package.json or
+        pyproject.toml excerpt usually does the job.
+      render: shell
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: checkboxes
+    id: hygiene
+    attributes:
+      label: Before you file
+      options:
+        - label: I stripped API keys, endpoints, and account identifiers from everything above.
+          required: true

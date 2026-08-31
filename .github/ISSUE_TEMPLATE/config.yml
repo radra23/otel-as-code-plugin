@@ -1,0 +1,14 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question, or "is this the right way to do it?"
+    url: https://github.com/radra23/otel-as-code-plugin/discussions/categories/q-a
+    about: Ask in Q&A. Instrumentation questions are usually answered faster there, and the answer stays findable.
+  - name: Idea or feedback on direction
+    url: https://github.com/radra23/otel-as-code-plugin/discussions/categories/ideas
+    about: Half-formed ideas are welcome in Discussions. They become issues once the shape is clear.
+  - name: Show what you built with it
+    url: https://github.com/radra23/otel-as-code-plugin/discussions/categories/show-and-tell
+    about: Instrumented something interesting? Post it. Real setups drive the roadmap more than anything else.
+  - name: Security vulnerability
+    url: https://github.com/radra23/otel-as-code-plugin/security/advisories/new
+    about: Please report privately rather than opening an issue.

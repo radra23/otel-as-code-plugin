@@ -5,6 +5,7 @@
 [![Claude Code](https://img.shields.io/badge/Claude_Code-plugin-d97757)](https://docs.claude.com/en/docs/claude-code/overview)
 [![Codex](https://img.shields.io/badge/Codex-skills-4b5563)](AGENTS.md)
 ![Status: MVP](https://img.shields.io/badge/status-MVP-e8a33d)
+[![Discussions](https://img.shields.io/github/discussions/radra23/otel-as-code-plugin?color=2ea043)](https://github.com/radra23/otel-as-code-plugin/discussions)
 
 A Claude Code plugin — and a set of Codex skills — for OpenTelemetry instrumentation and observability-as-code.
 
@@ -166,6 +167,17 @@ with the reason instead of generating a Node SDK bootstrap that cannot run in a 
 Pinned to **1.44.0** (stable), defined once as `SEMCONV_VERSION` in the `semconv-discipline`
 skill — the single place to bump on a semconv release. Pass `--experimental` to unlock
 pre-Stable conventions.
+
+## Contributing
+
+Questions, bug reports, and "I ran this on my repo and here is what came out" are all welcome,
+and that last one is the most useful thing anyone can send.
+
+- [CONTRIBUTING.md](CONTRIBUTING.md) covers the repo's conventions, the single-source-of-truth
+  rules, and how to run the tests locally.
+- [ROADMAP.md](ROADMAP.md) shows where this is going, and what it deliberately will not do.
+- [Discussions](https://github.com/radra23/otel-as-code-plugin/discussions) is the place for
+  questions and half-formed ideas. Issues are for things that are broken or missing.
 
 ## License
 
