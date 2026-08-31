@@ -115,6 +115,14 @@ rm -rf "$SENT"
 set +e; emit "$CLN/tracing.js" | OTEL_STRICT=1 bash "$HOOK" >/dev/null 2>&1; RC=$?; set -e
 check_rc "strict on + clean -> exit 0" 0 "$RC"
 
+# Test 11: no python + strict → fail closed (exit 2) — can't uphold the strict block guarantee.
+set +e; emit "$SEV/tracing.js" | OTEL_HOOK_PYTHON= OTEL_STRICT=1 bash "$HOOK" >/dev/null 2>&1; RC=$?; set -e
+check_rc "no-python + strict -> exit 2 (fail closed)" 2 "$RC"
+
+# Test 12: no python + advisory (default) → skip quietly (exit 0) — advisory lint can't run.
+set +e; emit "$SEV/tracing.js" | OTEL_HOOK_PYTHON= bash "$HOOK" >/dev/null 2>&1; RC=$?; set -e
+check_rc "no-python + advisory -> exit 0 (skip)" 0 "$RC"
+
 rm -rf "$SEV" "$WRN" "$CLN"
 
 echo ""

@@ -20,10 +20,20 @@ STRICT=0
 STRICT_SENTINEL="${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude/.otel-strict"
 [ -f "$STRICT_SENTINEL" ] && STRICT=1
 
+# Resolve a JSON parser (jq is not assumed). Without python we cannot parse the payload or run
+# the checks: in strict mode that would silently drop the block guarantee, so fail closed
+# (exit 2); in advisory (default) mode, skip quietly (exit 0) with a note. OTEL_HOOK_PYTHON
+# overrides the interpreter (the tests set it empty to simulate absence).
+PY="${OTEL_HOOK_PYTHON-$(command -v python3 || command -v python || true)}"
+if [ -z "$PY" ]; then
+  echo "otel-as-code semconv-lint: no python3 on PATH — cannot lint this write." >&2
+  [ "$STRICT" -eq 1 ] && exit 2 || exit 0
+fi
+
 INPUT=$(cat)
 
 # Extract file path written
-FILE_PATH=$(echo "$INPUT" | python3 -c "
+FILE_PATH=$(echo "$INPUT" | "$PY" -c "
 import sys, json
 d = json.load(sys.stdin)
 print(d.get('tool_input', {}).get('file_path', ''))
