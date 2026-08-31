@@ -34,6 +34,7 @@ services:
       OTEL_SERVICE_NAMESPACE: "storefront"
       DEPLOYMENT_ENV: "e2e"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4317"
+      OTEL_EXPORTER_OTLP_INSECURE: "true"   # be explicit (match python); don't rely on http://-scheme insecure inference
       PORT: "3000"
     ports:
       - "3000:3000"   # load is driven from the host (see run.sh)

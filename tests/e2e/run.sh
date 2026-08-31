@@ -15,10 +15,15 @@ cleanup() {
   # NOTE: this dump will include expected/harmless OTLP export-retry errors for the
   # metrics/logs pipelines (Jaeger's OTLP receiver only accepts traces) — see the
   # "Expected collector errors" section in README.md before treating those as the failure.
-  echo "--- collector + app logs (tail) ---"
-  docker compose logs --tail=40 jaeger collector node-app python-app 2>/dev/null || true
+  echo "--- collector + app logs (tail, timestamped) ---"
+  docker compose logs --timestamps --tail=60 jaeger collector node-app python-app 2>/dev/null || true
+  echo "--- jaeger /api/services (what actually landed) ---"
+  curl -fsS "http://localhost:16686/api/services" 2>/dev/null && echo || echo "(jaeger /api/services unreachable)"
   docker compose down -v --remove-orphans 2>/dev/null || true
-  rm -rf "$WORK"
+  # The app containers write node_modules / site-packages into the bind-mounted .work as
+  # root, so the (non-root) host user can't rm them directly. Fall back to a non-interactive
+  # sudo (passwordless on CI runners); never prompt, never fail the run over cleanup.
+  rm -rf "$WORK" 2>/dev/null || sudo -n rm -rf "$WORK" 2>/dev/null || true
 }
 trap cleanup EXIT
 
@@ -80,9 +85,17 @@ done
 
 # 4. assert (Jaeger reachable on host 16686)
 JA="http://localhost:16686"
+# Check BOTH services in one run (don't fail-fast on the first) so a single CI run reports
+# the status of node AND python, not just whichever is asserted first.
+rc=0
 POLL_TIMEOUT=40 bash assert-traces.sh --jaeger "$JA" --service checkout-api \
-  --expect service.name=checkout-api,service.version=1.4.2,service.namespace=storefront
+  --expect service.name=checkout-api,service.version=1.4.2,service.namespace=storefront || rc=1
 POLL_TIMEOUT=40 bash assert-traces.sh --jaeger "$JA" --service inventory-api \
-  --expect service.name=inventory-api,service.version=0.3.1,service.namespace=storefront,deployment.environment.name=e2e
+  --expect service.name=inventory-api,service.version=0.3.1,service.namespace=storefront,deployment.environment.name=e2e || rc=1
 
-echo "E2E PASS: traces for both services landed with correct service.* attrs"
+if [ "$rc" -eq 0 ]; then
+  echo "E2E PASS: traces for both services landed with correct service.* attrs"
+else
+  echo "E2E FAIL: at least one service's traces did not land — see per-service output above and the trap diagnostics (jaeger /api/services)." >&2
+  exit 1
+fi
