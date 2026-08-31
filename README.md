@@ -148,7 +148,8 @@ git can't un-ignore a file inside an excluded directory.
 
 ## Supported languages
 
-Node.js (all signals: Stable) and Python (traces + metrics: Stable; logs: Beta) via a generated
+Node.js (all signals: Stable) and Python (traces + metrics: Stable; logs: Development, opt-in via
+`--experimental`) via a generated
 SDK bootstrap (`tracing.js` / `tracing.py`). **Java** (all signals: Stable) via the zero-code
 OpenTelemetry Java **agent** — the generator emits an `otel-java.env` + a pinned agent download and
 run command, no source file.
