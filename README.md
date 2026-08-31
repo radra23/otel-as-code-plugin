@@ -13,9 +13,11 @@ generate Terraform for Grafana, Datadog, New Relic, or Dash0 — all from your e
 
 ```bash
 claude plugin marketplace add https://github.com/radra23/otel-as-code-plugin
+claude plugin install otel-as-code@otel-as-code
 ```
 
-Then run `/otel-init` in Claude Code to scan your repo. Full setup — dev hot-reload and
+Then run `/otel-init` in Claude Code to scan your repo. (`marketplace add` registers the
+source; `plugin install` actually enables the plugin.) Full setup — dev hot-reload and
 Codex — under [Installation](#installation).
 
 ## Status

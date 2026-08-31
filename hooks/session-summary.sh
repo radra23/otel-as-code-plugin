@@ -28,7 +28,8 @@ is_otel_path() {
 }
 
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  # Git is authoritative: report only files changed this session (staged, unstaged, or new).
+  # Git is authoritative: report otel-as-code generated files currently changed in the working
+  # tree (staged, unstaged, or untracked) — this is the whole dirty tree, not scoped to a session.
   # Strip the 2-char status + space prefix; for renames keep the post-`->` path.
   while IFS= read -r f; do
     [ -n "$f" ] || continue
