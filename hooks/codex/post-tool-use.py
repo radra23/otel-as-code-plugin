@@ -19,14 +19,25 @@ def main():
     cwd = payload.get("cwd") or os.getcwd()
     env = bridge_env(cwd)
     out = []
+    blocked = False
     for path, _content in parse_targets(tool_input):
         proc = run_hook("semconv-lint.sh", path, None, cwd, env)
-        if proc.stdout.strip():
+        # exit 2 = strict-mode severe block; the actionable details are on stderr. Codex
+        # PostToolUse can't deny (the write already happened), so surface it as a strongly
+        # framed must-fix additionalContext rather than a silent advisory.
+        if proc.returncode == 2:
+            blocked = True
+            detail = (proc.stderr or proc.stdout).strip()
+            if detail:
+                out.append(detail)
+        elif proc.stdout.strip():
             out.append(proc.stdout.strip())
     if out:
+        header = ("otel-as-code semconv-lint — STRICT: severe violation(s) must be fixed:\n"
+                  if blocked else "otel-as-code semconv-lint:\n")
         print(json.dumps({"hookSpecificOutput": {
             "hookEventName": "PostToolUse",
-            "additionalContext": "otel-as-code semconv-lint:\n" + "\n\n".join(out),
+            "additionalContext": header + "\n\n".join(out),
         }}))
 
 

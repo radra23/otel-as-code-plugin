@@ -60,6 +60,17 @@ check "post: surfaces semconv warnings as additionalContext" context "$OUT"
 check "post: warning names the violation" substr "$OUT" "service.name"
 rm -rf "$TMP"
 
+# Test 5: PostToolUse in STRICT mode (OTEL_STRICT=1) on a severe violation -> the adapter
+# reframes the additionalContext as a must-fix block (Codex PostToolUse can't deny).
+TMP=$(mktemp -d)
+cat > "$TMP/tracing.js" <<'EOF'
+span.setAttribute('http.method', 'POST');
+EOF
+PATCH=$'*** Begin Patch\n*** Update File: tracing.js\n@@\n+span.setAttribute("http.method","POST");\n*** End Patch'
+OUT=$(payload PostToolUse "$TMP" "$PATCH" | OTEL_STRICT=1 python3 "$POST")
+check "post(strict): severe violation framed as must-fix" substr "$OUT" "STRICT"
+rm -rf "$TMP"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
