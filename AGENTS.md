@@ -19,8 +19,11 @@ the working directory / repo root (or vendored into one). Invoke a workflow expl
 `skills/`, and `agents/` (the single source of truth), which you read and follow.
 
 All `commands/…`, `skills/…/SKILL.md`, and `agents/…` paths in these skills are relative to the
-otel-as-code repo root (the directory containing `.agents/` and `.codex/`). If your working
-directory is elsewhere, resolve them from `git rev-parse --show-toplevel`.
+otel-as-code repo root (the directory containing `.agents/` and `.codex/`). Codex integration
+assumes **otel-as-code is the repo you run Codex in** — that root is the git root — so from any
+subdirectory of it, `git rev-parse --show-toplevel` resolves these paths. If otel-as-code is
+instead checked out *inside* a different host repo, `show-toplevel` returns the host root (not
+here), so resolve these paths against otel-as-code's own checkout directory, not the git root.
 
 - Workflows: `$otel-init`, `$otel-instrument`, `$otel-evaluate`, `$otel-collector`,
   `$otel-business-attrs`, `$otel-backend`.
@@ -44,9 +47,15 @@ directory is elsewhere, resolve them from `git rev-parse --show-toplevel`.
     edits are not — so always present business attributes for explicit confirmation. Present
     them already namespaced (`com.myorg.*`); a bare `biz.*` name is a placeholder, never written.
   - `semconv-lint` → PostToolUse: surfaces semconv warnings on OTel file writes (advisory).
-  They load automatically when Codex runs with this repo as the git root (the hook commands use
-  `git rev-parse --show-toplevel` to find the adapters). SessionEnd/`session-summary` is not
-  ported — Codex has SessionEnd, but its PR-changelog output has no natural Codex surface.
+  They load only when Codex runs with **otel-as-code as the git/project root**: Codex discovers
+  `.codex/hooks.json` at the project root, and the hook commands resolve the adapters from
+  `git rev-parse --show-toplevel` (Codex's recommended anchor for repo-local hooks — there is no
+  per-hook config-dir variable; only Codex *plugins* get `PLUGIN_ROOT`, which this bridge is not).
+  Both conditions hold only when otel-as-code is that root, so when it is vendored *inside* another
+  repo the Codex hooks do not load — a Codex platform constraint, not something the config can work
+  around. The Claude Code hooks (`hooks/hooks.json`, resolved via `${CLAUDE_PLUGIN_ROOT}`) are
+  unaffected and remain the guardrail in that setup. SessionEnd/`session-summary` is not ported —
+  Codex has SessionEnd, but its PR-changelog output has no natural Codex surface.
 
 ## Conventions & architecture
 Tool-agnostic conventions — the single-sourced `SEMCONV_VERSION`, the `backends.txt` vendor list,
