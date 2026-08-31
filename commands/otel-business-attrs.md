@@ -13,8 +13,11 @@ Read `otel-as-code:business-attr-ux` — follow all UX rules for this command.
 
 ## Step 2: Ensure context cache is current
 
-Check `.claude/otel-context.json` gitHash vs `git rev-parse HEAD`.
-If stale or absent, dispatch `otel-as-code:repo-context-scanner` and write the cache.
+Check `.claude/otel-context.json`. Apply the freshness rule from `/otel-init` Step 1
+(identity-input fingerprint, not `HEAD`). If stale or absent, dispatch
+`otel-as-code:repo-context-scanner` **passing the existing cache as `priorContext`** and write
+what it returns — a refresh is a merge, never a replace (see the cache ownership contract in
+`agents/repo-context-scanner.md`).
 
 ## Step 3: Run inference
 
@@ -30,15 +33,18 @@ For each service in context, derive attribute candidates and confidence scores:
 - `service.team` from CODEOWNERS matching the service root → 0.63
 - `deployment.environment.name` — if CI config contains env keywords → 0.55
 
-**Tier 3 / business candidates (always confirm):**
-- Scan route definitions for POST/PUT handlers → candidate business transactions
-  (e.g. `POST /checkout` → `biz.checkout.order_placed`)
-- Scan metric-like variables (names containing `count`, `total`, `rate`) → candidate gauges/counters
-
-**Custom namespace:**
+**Custom namespace — resolve this BEFORE presenting any business candidate:**
 - Determine namespace hint from context JSON `namespaceHint`
 - If `namespaceHint` is null, ask: "What is your organization's reverse-DNS namespace?
   (e.g. com.myorg)" and persist the answer in the context JSON
+- Business candidates are presented already prefixed with it, so the string the user approves
+  is the string that gets written (see `business-attr-ux`). A bare `biz.*` name is a
+  placeholder, never a value to write — `semconv-discipline` requires the reverse-DNS prefix.
+
+**Tier 3 / business candidates (always confirm):**
+- Scan route definitions for POST/PUT handlers → candidate business transactions
+  (e.g. `POST /checkout` → `<namespace>.checkout.order_placed`)
+- Scan metric-like variables (names containing `count`, `total`, `rate`) → candidate gauges/counters
 
 ## Step 4: Check for conflicts
 

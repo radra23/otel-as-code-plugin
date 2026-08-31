@@ -5,15 +5,22 @@
 
 set -euo pipefail
 
+# Generated-file vocabulary, shared with write-guard.sh so the two cannot drift: a file the
+# guard protects is a file this summary reports.
+# Guarded so a broken install cannot violate this hook's always-exit-0 contract.
+# shellcheck source=hooks/otel-paths.sh
+if ! . "$(dirname "${BASH_SOURCE[0]}")/otel-paths.sh" 2>/dev/null; then
+  exit 0  # no vocabulary, nothing to report; never fail a SessionEnd hook
+fi
+
 # Collect otel-as-code generated files that actually CHANGED in the working tree.
 CHANGED_OTEL=()
 
-# Is this an otel-as-code generated artifact? Matches anywhere in the path so monorepo
-# locations (e.g. packages/foo/tracing.js) are covered.
+# Is this an otel-as-code generated artifact? Basename matching covers monorepo locations
+# (e.g. packages/foo/tracing.js) without also claiming a user's `request-tracing.js`.
 is_otel_path() {
+  if otel_is_generated_path "$1"; then return 0; fi
   case "$1" in
-    *tracing.js|*tracing.ts|*tracing.py|*opentelemetry.js|*opentelemetry.ts|*telemetry.js|*telemetry.py) return 0 ;;
-    *otelcol-agent.yaml|*otelcol-gateway.yaml) return 0 ;;
     */observability/*/main.tf) return 0 ;;
     *.claude/otel-context.json|*.claude/otel-services.json) return 0 ;;
     *) return 1 ;;
@@ -28,10 +35,14 @@ if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     if is_otel_path "$f"; then CHANGED_OTEL+=("$f"); fi
   done < <(git status --porcelain=v1 --untracked-files=all 2>/dev/null | sed -e 's/^...//' -e 's/.* -> //')
 else
-  # Not a git repo — fall back to scanning known locations that exist on disk.
-  for f in tracing.js tracing.ts tracing.py src/tracing.js src/tracing.ts src/tracing.py \
-           opentelemetry.js telemetry.js otelcol-agent.yaml otelcol-gateway.yaml \
-           .claude/otel-context.json .claude/otel-services.json; do
+  # Not a git repo — fall back to scanning known locations that exist on disk. The file
+  # names come from otel-paths.sh rather than a second hand-kept list.
+  while IFS= read -r name; do
+    for rel in "$name" "src/$name" "app/$name"; do
+      [ -f "$rel" ] && CHANGED_OTEL+=("$rel")
+    done
+  done < <(otel_bootstrap_globs)
+  for f in .claude/otel-context.json .claude/otel-services.json; do
     [ -f "$f" ] && CHANGED_OTEL+=("$f")
   done
   # Supported backends come from the plugin's single source of truth (backends.txt).
@@ -56,10 +67,12 @@ echo ""
 
 for f in "${CHANGED_OTEL[@]}"; do
   case "$f" in
-    *tracing.js|*tracing.ts)
+    *tracing.js|*tracing.ts|*tracing.mjs|*tracing.cjs|*tracing.mts|*tracing.cts)
       echo "- Added Node.js OTel SDK bootstrap (\`$f\`)" ;;
     *tracing.py)
       echo "- Added Python OTel SDK bootstrap (\`$f\`)" ;;
+    *otel-java.env)
+      echo "- Added OpenTelemetry Java agent config (\`$f\`)" ;;
     *otelcol-agent.yaml)
       echo "- Added OTel Collector agent config (\`$f\`)" ;;
     *otelcol-gateway.yaml)
@@ -74,7 +87,7 @@ for f in "${CHANGED_OTEL[@]}"; do
       echo "- Added Dash0 observability module (\`$f\`)" ;;
     *.claude/otel-services.json)
       echo "- Updated service map (\`$f\`)" ;;
-    *opentelemetry.js|*opentelemetry.ts|*telemetry.js|*telemetry.py)
+    *opentelemetry.*|*telemetry.*)
       echo "- Updated OTel instrumentation (\`$f\`)" ;;
     *.claude/otel-context.json)
       echo "- Updated context cache (\`$f\`)" ;;

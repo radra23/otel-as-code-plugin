@@ -17,7 +17,19 @@ Follow the canonical procedure in this repo — it is the single source of truth
    first. Then where it runs the `instrumentation-gen` agent, read `agents/instrumentation-gen.md`
    and generate the bootstrap files yourself.
 
-Args: `$ARGUMENTS` (e.g. `python --experimental`, or `--force`).
+Two steps deserve care because getting them wrong writes code that cannot run:
+
+- **Step 2 selects a service, not just a language.** Filter to services with
+  `instrumentable: true` and prompt when more than one qualifies; never fall back to
+  `services[0]`. A browser SPA reports `language: nodejs` with `runtime: browser` — refuse it
+  with its `instrumentableReason` rather than generating a Node bootstrap for a bundle.
+- **Step 4 finds the existing bootstrap via `existingOtel.bootstrapFiles`**, then by globbing the
+  service subtree — not by testing for `tracing.js` in the service root. That test misses
+  `api/src/tracing.ts` and writes a second, competing bootstrap beside the real one.
+
+Args: `$ARGUMENTS` (e.g. `python --experimental`, `--service api`, `--fix SC-2,SH-1`, `--force`).
 
 Codex note: `.codex/hooks.json` enforces write-guard + semconv-lint here — a denied overwrite of
-an existing `tracing.js` / `tracing.py` means regenerate deliberately.
+an existing bootstrap means regenerate deliberately. `--force` is a full regeneration: read the
+files first and carry their deliberate local decisions across, or use `--fix <ids>` to apply
+specific `/otel-evaluate` findings in place instead.

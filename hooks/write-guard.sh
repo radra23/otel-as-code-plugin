@@ -11,12 +11,23 @@
 set -euo pipefail
 
 # Protected files the plugin generates and must not silently overwrite:
-#   tracing.{js,ts,py,go}, opentelemetry.{js,ts}, telemetry.{js,py}  — matched by basename
-#   otel-java.env (generated Java agent config)                       — matched by basename
-#   otelcol-agent.yaml, otelcol-gateway.yaml                          — matched by basename
-#   <…>/observability/<vendor>/{main,variables,outputs}.tf           — matched by path
+#   <stem>.<ext> bootstraps, otel-java.env, otelcol-*.yaml  — matched by basename, from the
+#     derived set in hooks/otel-paths.sh (the single source of truth for generated names)
+#   <…>/observability/<vendor>/{main,variables,outputs}.tf  — matched by path
 # (Terraform files are scoped to an observability module dir so unrelated main.tf /
 #  variables.tf / outputs.tf elsewhere in the repo are never blocked.)
+
+# Generated-file vocabulary, shared with session-summary.sh so the two cannot drift.
+# Guarded: under `set -e` a failed source would abort with exit 1, which this hook's contract
+# reads as BLOCK — bricking every Write/Edit in the repo over a broken install. An absent guard
+# with a loud message is the better failure than a session where nothing can be written.
+# shellcheck source=hooks/otel-paths.sh
+OTEL_PATHS_LIB="$(dirname "${BASH_SOURCE[0]}")/otel-paths.sh"
+if ! . "$OTEL_PATHS_LIB" 2>/dev/null; then
+  echo "otel-as-code write-guard: cannot load $OTEL_PATHS_LIB — overwrite protection is OFF." >&2
+  echo "Reinstall the plugin; until then generated OTel files are not protected." >&2
+  exit 0
+fi
 
 # Global force override via env var (manual use / CI). Per-file --force is handled below
 # via the .claude/.otel-force sentinel so a slash-command flag can reach this hook process.
@@ -88,19 +99,26 @@ fi
 # Path-scoped --force: when a /otel-* command is invoked with --force it writes the absolute
 # paths it intends to overwrite into .claude/.otel-force (one per line) and removes the file
 # afterwards. Honor it only for the listed paths, so --force never blanket-disables the guard.
+#
+# Both sides are normalised before comparison rather than compared as raw strings. The tool
+# reports `file_path` in the host's own convention — on Windows a backslashed
+# `C:\Users\me\repo\src\tracing.ts` — while the sentinel is written from a shell where the
+# same file is `/c/Users/me/repo/src/tracing.ts`, and Codex's apply_patch reports paths
+# relative to the session cwd. An exact-string match can never succeed across those shapes,
+# which silently turned --force into a no-op. See hooks/otel-force-match.py.
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 FORCE_FILE="$PROJECT_DIR/.claude/.otel-force"
-if [ -f "$FORCE_FILE" ] && grep -Fxq "$FILE_PATH" "$FORCE_FILE" 2>/dev/null; then
+if [ -f "$FORCE_FILE" ] && python3 "$(dirname "${BASH_SOURCE[0]}")/otel-force-match.py" \
+     "$FILE_PATH" "$PROJECT_DIR" "$FORCE_FILE" 2>/dev/null; then
   exit 0
 fi
 
-# Determine whether this file is protected.
-BASENAME=$(basename "$FILE_PATH")
+# Determine whether this file is protected. The basename set is derived in otel-paths.sh
+# from stems x extensions, so no generated name can fall out of the guard by omission.
 blocked=0
-case "$BASENAME" in
-  tracing.js|tracing.ts|tracing.py|tracing.go|opentelemetry.js|opentelemetry.ts|telemetry.js|telemetry.py|otel-java.env|otelcol-agent.yaml|otelcol-gateway.yaml)
-    blocked=1 ;;
-esac
+if otel_is_generated_path "$FILE_PATH"; then
+  blocked=1
+fi
 case "$FILE_PATH" in
   */observability/*/main.tf|*/observability/*/variables.tf|*/observability/*/outputs.tf)
     blocked=1 ;;

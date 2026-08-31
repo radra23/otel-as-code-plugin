@@ -2,9 +2,6 @@
 // Semconv version: 1.44.0
 // Re-run /otel-instrument to regenerate.
 const { NodeSDK } = require('@opentelemetry/sdk-node');
-const { OTLPTraceExporter } = require('@opentelemetry/exporter-trace-otlp-grpc');
-const { OTLPMetricExporter } = require('@opentelemetry/exporter-metrics-otlp-grpc');
-const { PeriodicExportingMetricReader } = require('@opentelemetry/sdk-metrics');
 const { getNodeAutoInstrumentations } = require('@opentelemetry/auto-instrumentations-node');
 // SDK 2.x removed the `Resource` constructor; use the resourceFromAttributes() factory.
 const { resourceFromAttributes } = require('@opentelemetry/resources');
@@ -14,6 +11,42 @@ const {
   ATTR_SERVICE_NAMESPACE,
   ATTR_DEPLOYMENT_ENVIRONMENT_NAME,
 } = require('@opentelemetry/semantic-conventions');
+
+// --- Exporter selection ---------------------------------------------------------------
+// NodeSDK resolves each signal's exporter from OTEL_TRACES_EXPORTER / OTEL_METRICS_EXPORTER /
+// OTEL_LOGS_EXPORTER (otlp | console | none) as long as this file passes no traceExporter or
+// metricReaders of its own — so there is nothing to hand-roll here. The only decision left is
+// the default, and it is set below rather than left to the SDK: the SDK's default is `otlp`,
+// which with no endpoint configured means localhost:4317. In a deployed environment that drops
+// every span and holds a reconnect loop open. `none` fails silently instead, and `console` is
+// one env var away for local work.
+//
+// These assignments mutate process.env deliberately: they are how the SDK's own configuration
+// is reached, and they run before it is constructed. Anything already set is left alone.
+const hasEndpoint = Boolean(
+  process.env.OTEL_EXPORTER_OTLP_ENDPOINT ||
+    process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT ||
+    process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT ||
+    process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT
+);
+const SIGNAL_EXPORTERS = ['OTEL_TRACES_EXPORTER', 'OTEL_METRICS_EXPORTER', 'OTEL_LOGS_EXPORTER'];
+for (const key of SIGNAL_EXPORTERS) {
+  if (!process.env[key]) process.env[key] = hasEndpoint ? 'otlp' : 'none';
+}
+// This plugin standardizes on OTLP/gRPC (4317); the SDK's OTLP default is http/protobuf (4318),
+// so leaving the protocol unset while pointing at :4317 is connection-refused.
+if (!process.env.OTEL_EXPORTER_OTLP_PROTOCOL) {
+  process.env.OTEL_EXPORTER_OTLP_PROTOCOL = 'grpc';
+}
+// Warn only when nothing is actually being exported — after the defaults are applied, so an
+// explicit OTEL_TRACES_EXPORTER=console is not told it emits nothing.
+if (SIGNAL_EXPORTERS.every((key) => process.env[key] === 'none')) {
+  console.warn(
+    '[otel] No OTEL_EXPORTER_OTLP_ENDPOINT is configured and no exporter was selected, so this ' +
+      'process emits no telemetry. Set OTEL_EXPORTER_OTLP_ENDPOINT for your collector, or ' +
+      'OTEL_TRACES_EXPORTER=console to print spans locally.'
+  );
+}
 
 const resource = resourceFromAttributes({
   [ATTR_SERVICE_NAME]: process.env.OTEL_SERVICE_NAME || 'checkout-api',
@@ -26,15 +59,6 @@ const resource = resourceFromAttributes({
 
 const sdk = new NodeSDK({
   resource,
-  traceExporter: new OTLPTraceExporter({
-    url: process.env.OTEL_EXPORTER_OTLP_ENDPOINT || 'http://localhost:4317',
-  }),
-  metricReader: new PeriodicExportingMetricReader({
-    exporter: new OTLPMetricExporter({
-      url: process.env.OTEL_EXPORTER_OTLP_ENDPOINT || 'http://localhost:4317',
-    }),
-    exportIntervalMillis: 30000,
-  }),
   instrumentations: [
     getNodeAutoInstrumentations({
       '@opentelemetry/instrumentation-fs': { enabled: false },
