@@ -1,0 +1,61 @@
+# tests/e2e/docker-compose.yml
+# #1 integration: wires the golden agent Collector config (tests/snapshots/collector/
+# otelcol-agent.yaml.snap) as a real app -> collector -> jaeger path, for both Node.js
+# and Python golden bootstraps. Driven by run.sh; not started manually in CI.
+services:
+  jaeger:
+    image: jaegertracing/all-in-one:1.60
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"   # query UI/API (assertions read this from the host)
+    # No healthcheck: jaegertracing/all-in-one is a scratch/minimal image with no
+    # shell, wget, or curl, so a CMD-based healthcheck can never succeed and would
+    # leave the container permanently "unhealthy" (breaking any service_healthy
+    # dependency on it). Readiness is instead checked from the HOST in run.sh
+    # (curl against http://localhost:16686/), and the collector's OTLP exporter has
+    # retry_on_failure enabled, so it tolerates jaeger not being immediately ready.
+
+  collector:
+    image: otel/opentelemetry-collector-contrib:0.128.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: "jaeger:4317"   # golden config exports here
+    volumes:
+      - ../snapshots/collector/otelcol-agent.yaml.snap:/etc/otelcol/config.yaml:ro
+    depends_on: [jaeger]
+
+  node-app:
+    image: node:20-bookworm-slim
+    working_dir: /app
+    environment:
+      OTEL_SERVICE_NAME: "checkout-api"
+      OTEL_SERVICE_VERSION: "1.4.2"
+      OTEL_SERVICE_NAMESPACE: "storefront"
+      DEPLOYMENT_ENV: "e2e"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4317"
+      OTEL_EXPORTER_OTLP_INSECURE: "true"   # be explicit (match python); don't rely on http://-scheme insecure inference
+      PORT: "3000"
+    ports:
+      - "3000:3000"   # load is driven from the host (see run.sh)
+    volumes:
+      - ./.work/nodejs:/app
+    command: ["sh", "-c", "npm install --no-audit --no-fund --loglevel=error && node -r ./tracing.js index.js"]
+    depends_on: [collector]
+
+  python-app:
+    image: python:3.12-slim-bookworm
+    working_dir: /app
+    environment:
+      OTEL_SERVICE_NAME: "inventory-api"
+      OTEL_SERVICE_VERSION: "0.3.1"
+      OTEL_SERVICE_NAMESPACE: "storefront"
+      DEPLOYMENT_ENV: "e2e"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4317"
+      OTEL_EXPORTER_OTLP_INSECURE: "true"   # python grpc exporter defaults to TLS otherwise
+    ports:
+      - "8000:8000"   # load is driven from the host (see run.sh)
+    volumes:
+      - ./.work/python:/app
+    command: ["sh", "-c", "pip install --no-cache-dir -q -r requirements.txt && uvicorn e2e_main:app --host 0.0.0.0 --port 8000"]
+    depends_on: [collector]

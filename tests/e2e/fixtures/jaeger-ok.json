@@ -1,0 +1,18 @@
+{
+  "data": [
+    {
+      "traceID": "abc123",
+      "spans": [{ "traceID": "abc123", "spanID": "s1", "operationName": "GET /checkout", "processID": "p1" }],
+      "processes": {
+        "p1": {
+          "serviceName": "checkout-api",
+          "tags": [
+            { "key": "service.name", "type": "string", "value": "checkout-api" },
+            { "key": "service.version", "type": "string", "value": "1.4.2" },
+            { "key": "service.namespace", "type": "string", "value": "storefront" }
+          ]
+        }
+      }
+    }
+  ]
+}
