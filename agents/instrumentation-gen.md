@@ -395,6 +395,65 @@ On the `none` path no provider is registered, so the API's default no-op stays i
 spans are never constructed. Application code calling `tracer.start_as_current_span(...)` keeps
 working unchanged — this matches what NodeSDK does for `OTEL_TRACES_EXPORTER=none`.
 
+### Python logs — only under `--experimental`
+
+Python logs are Development-level (see `language-maturity`): the OTel spec marks the Logs SDK
+stable, but the Python implementation still exposes it under the underscore module
+`opentelemetry.sdk._logs`, so the API may change. **Emit the logs pipeline only when
+`--experimental` is set.** Without the flag, generate the traces + metrics bootstrap above and
+nothing here — the `OTEL_LOGS_EXPORTER` term already present in the "nothing exported" warning is
+harmless when no logs provider is wired.
+
+When `--experimental` IS set, add these imports to `tracing.py` (the underscore module names are
+the real API at the pinned SDK version — verify with
+`python -c "import opentelemetry.sdk._logs"` rather than assuming if you bump the dependency):
+
+```python
+import logging
+from opentelemetry._logs import set_logger_provider
+from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
+from opentelemetry.sdk._logs.export import (
+    BatchLogRecordProcessor,
+    ConsoleLogExporter,
+    SimpleLogRecordProcessor,
+)
+from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
+```
+
+and this block after the Metrics section (it honours `OTEL_LOGS_EXPORTER` the same way traces and
+metrics honour their exporter vars, and defaults to `none` with no endpoint):
+
+```python
+# Logs — EXPERIMENTAL (requires --experimental). The Python logs signal is still experimental in
+# the implementation (opentelemetry.sdk._logs is an underscore module and may change), even though
+# the spec marks the Logs SDK stable. Console uses Simple export so records print as they arrive.
+_logs = _choice("OTEL_LOGS_EXPORTER")
+_logger_provider = None
+if _logs in ("otlp", "console"):
+    _logger_provider = LoggerProvider(resource=resource)
+    if _logs == "otlp":
+        _logger_provider.add_log_record_processor(
+            BatchLogRecordProcessor(OTLPLogExporter(endpoint=_endpoint or None))
+        )
+    else:
+        _logger_provider.add_log_record_processor(
+            SimpleLogRecordProcessor(ConsoleLogExporter())
+        )
+    set_logger_provider(_logger_provider)
+    # Bridge the stdlib root logger to OTel so existing `logging` calls export as OTLP log records.
+    logging.getLogger().addHandler(LoggingHandler(logger_provider=_logger_provider))
+```
+
+and extend `shutdown()` to flush the logger provider:
+
+```python
+    if _logger_provider is not None:
+        _logger_provider.shutdown()
+```
+
+No new dependency is needed: `LoggingHandler` / `LoggerProvider` ship in `opentelemetry-sdk` and
+`OTLPLogExporter` ships in `opentelemetry-exporter-otlp-proto-grpc` — both already added below.
+
 ### Update `pyproject.toml` — add OTel dependencies
 
 Add to `[project].dependencies`:

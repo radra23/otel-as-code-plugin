@@ -63,12 +63,19 @@ Semconv constants: `@opentelemetry/semantic-conventions` — use named exports
 |---------|--------|------------------------------------------------------|
 | Traces  | Stable | `opentelemetry-sdk`                                  |
 | Metrics | Stable | `opentelemetry-sdk` (MeterProvider)                  |
-| Logs    | Beta   | `opentelemetry-sdk` (LoggerProvider) — warn user     |
+| Logs    | Development | `opentelemetry-sdk` (`opentelemetry.sdk._logs`) — gated behind `--experimental` |
 | Auto    | Stable | `opentelemetry-instrumentation-*` (per-framework)    |
 
 Python bootstrap: use `opentelemetry-sdk` + `opentelemetry-exporter-otlp-proto-grpc`.
 Auto-instrumentation: framework-specific package (e.g. `opentelemetry-instrumentation-fastapi`,
 `opentelemetry-instrumentation-django`, `opentelemetry-instrumentation-flask`).
+
+**Logs are Development, not Beta — gated behind `--experimental`.** The OTel *spec* marks the
+Logs SDK stable, but the Python *implementation* has not been promoted: the API lives under the
+underscore module `opentelemetry.sdk._logs`, the SDK's own signal that it may still change. So
+treat Python logs as Development — traces and metrics (both Stable) always generate; the logs
+pipeline is emitted only when `--experimental` is set (see the Python logs block in
+`instrumentation-gen`). Do not "promote" this to Stable from the spec status alone.
 
 ### Java (OpenTelemetry Java agent)
 | Signal  | Status | Mechanism                                                    |
