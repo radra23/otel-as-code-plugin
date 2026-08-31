@@ -31,17 +31,23 @@ expect = dict(kv.split("=", 1) for kv in os.environ["EXPECT"].split(",") if kv)
 traces = data.get("data") or []
 if not traces:
     print(f"FAIL: no traces for {service}"); sys.exit(1)
-# collect process tags for the target service across the first trace
+# collect process tags for the target service across the first trace.
+# NOTE: Jaeger stores the OTLP resource attr `service.name` as the process's `serviceName`
+# field, NOT as an entry in the tags array, so inject it explicitly. The other resource
+# attrs (service.version, service.namespace, deployment.environment.name) DO appear as tags.
 tags = {}
+matched = False
 for proc in (traces[0].get("processes") or {}).values():
     if proc.get("serviceName") == service:
+        matched = True
+        tags["service.name"] = proc.get("serviceName")
         for t in proc.get("tags") or []:
             tags[t["key"]] = str(t.get("value"))
-if not tags:
+if not matched:
     print(f"FAIL: no process for service {service}"); sys.exit(1)
 for k, v in expect.items():
     if tags.get(k) != v:
-        print(f"FAIL: {service} expected {k}={v}, got {tags.get(k)!r}"); sys.exit(1)
+        print(f"FAIL: {service} expected {k}={v}, got {tags.get(k)!r} (tags present: {sorted(tags)})"); sys.exit(1)
 print(f"OK: {service} has {', '.join(f'{k}={v}' for k,v in expect.items())}")
 PY
 )
