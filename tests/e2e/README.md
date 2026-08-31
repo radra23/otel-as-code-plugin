@@ -6,9 +6,10 @@ acceptance criteria (see `DESIGN.md`):
 
 - **#1 — trace flow.** The golden agent Collector config
   (`tests/snapshots/collector/otelcol-agent.yaml.snap`) routes real OTLP traffic
-  from the golden Node.js and Python SDK bootstraps, through the *actual* golden
-  Collector config, into Jaeger — and the resulting traces carry the correct
-  `service.*` resource attributes. Run locally:
+  from the golden Node.js and Python SDK bootstraps AND a Java service under the
+  OpenTelemetry Java **agent**, through the *actual* golden Collector config, into
+  Jaeger — and the resulting traces carry the correct `service.*` resource
+  attributes. Run locally:
 
   ```bash
   bash tests/e2e/run.sh
@@ -43,18 +44,24 @@ every push/PR. #4 stays local-only.
    `tracing.py` (which sets up the providers as an import side effect) and calls
    `tracing.instrument_fastapi(app)` on the pristine fixture's FastAPI `app`,
    so the fixture itself stays untouched.
+   For Java it copies the pristine `fixtures/java-greenfield/App.java` + the golden
+   `tests/snapshots/instrument/java/otel-java.env`, and downloads the pinned OTel
+   Java agent JAR (v2.31.1) — no source instrumentation; the agent auto-instruments
+   the JDK `com.sun.net.httpserver` app at runtime.
 2. Brings up `docker-compose.yml`: `jaeger` (native OTLP receiver on `:4317`),
    `collector` (the golden agent config, exporting to `jaeger:4317`), `node-app`
-   (checkout-api, golden bootstrap, publishes `3000:3000`) and `python-app`
-   (inventory-api, golden bootstrap, publishes `8000:8000`).
-3. Drives load against **both** apps from the host, over the published ports —
-   `curl` against `localhost:3000` and `localhost:8000` — every wait (app
-   readiness, trace poll) is bounded so a hung stack can't hang CI.
+   (checkout-api, publishes `3000:3000`), `python-app` (inventory-api, publishes
+   `8000:8000`), and `java-app` (payments-api, `eclipse-temurin` JDK running under
+   `-javaagent`, publishes `8080:8080`).
+3. Drives load against **all three** apps from the host, over the published ports —
+   `curl` against `localhost:3000`, `localhost:8000`, and `localhost:8080` — every
+   wait (app readiness, trace poll) is bounded so a hung stack can't hang CI.
 4. Asserts, via `assert-traces.sh` against Jaeger's query API on
-   `localhost:16686`, that both services produced traces with the expected
+   `localhost:16686`, that all three services produced traces with the expected
    `service.*` attributes:
    - `checkout-api`: `service.name=checkout-api,service.version=1.4.2,service.namespace=storefront`
    - `inventory-api`: `service.name=inventory-api,service.version=0.3.1,service.namespace=storefront,deployment.environment.name=e2e`
+   - `payments-api`: `service.name=payments-api,service.version=1.0.0,service.namespace=storefront,deployment.environment.name=e2e`
 5. Always tears down: a `trap ... EXIT` dumps `docker compose logs` for the
    collector and both apps, runs `docker compose down -v --remove-orphans`, and
    removes `tests/e2e/.work/` — regardless of whether the assertions passed.

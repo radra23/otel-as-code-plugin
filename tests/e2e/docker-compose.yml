@@ -59,3 +59,22 @@ services:
       - ./.work/python:/app
     command: ["sh", "-c", "pip install --no-cache-dir -q -r requirements.txt && uvicorn e2e_main:app --host 0.0.0.0 --port 8000"]
     depends_on: [collector]
+
+  java-app:
+    image: eclipse-temurin:21-jdk-jammy
+    working_dir: /app
+    environment:
+      PORT: "8080"
+    ports:
+      - "8080:8080"   # load is driven from the host (see run.sh)
+    volumes:
+      - ./.work/java:/app
+    # Compile the pristine fixture, source the golden otel-java.env for service identity, then
+    # repoint the OTLP endpoint at the in-network collector (the golden file's localhost:4317 is
+    # the user-facing default — the same override node/python do via env), and run under the agent.
+    # `http://` endpoint => the agent's gRPC exporter uses plaintext, so no extra insecure flag.
+    command:
+      - "sh"
+      - "-c"
+      - "javac App.java && set -a && . ./otel-java.env && export OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4317 && set +a && java -javaagent:./opentelemetry-javaagent.jar -cp . App"
+    depends_on: [collector]

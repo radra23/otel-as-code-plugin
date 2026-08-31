@@ -39,5 +39,20 @@ check "pin guard catches version drift (teeth check)" '
   rm -rf "$tmp"
   [ "$drift_injected" -eq 1 ] && [ "$guard_caught_drift" -eq 1 ]'
 
+# Java golden agent config: required OTEL_* keys present + gRPC protocol (paired with :4317
+# throughout the plugin; the agent's own default is http/protobuf:4318, so grpc must be explicit).
+check "java golden otel-java.env has required keys + grpc" '
+  f=tests/snapshots/instrument/java/otel-java.env
+  grep -q "^OTEL_SERVICE_NAME=" "$f" \
+    && grep -q "deployment.environment.name=" "$f" \
+    && grep -q "^OTEL_EXPORTER_OTLP_ENDPOINT=" "$f" \
+    && grep -q "^OTEL_EXPORTER_OTLP_PROTOCOL=grpc$" "$f"'
+
+# The pinned OTel Java agent version the e2e harness downloads (run.sh) must match the
+# generator doc (agents/instrumentation-gen.md), so the two never drift apart.
+check "java agent version pin matches generator" '
+  v=$(grep -oE "OTEL_JAVA_AGENT_VERSION=[0-9.]+" tests/e2e/run.sh | head -1 | cut -d= -f2)
+  [ -n "$v" ] && grep -qF "$v" agents/instrumentation-gen.md'
+
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
