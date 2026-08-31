@@ -131,9 +131,11 @@ If artifacts were found AND `--force` IS set:
   exclusion — must survive regeneration or be re-emitted; they are the reason the file is worth
   keeping.
 - Authorize the overwrite for the `write-guard` hook by listing the paths the subagent will
-  overwrite in the `.claude/.otel-force` sentinel, one per line:
+  overwrite in the `.claude/.otel-force` sentinel, one per line. **Truncate the sentinel as you
+  write it** (`>`, not `>>`) so a leftover from an aborted earlier run can never grant a standing
+  overwrite authorization — write all paths in a single `printf`:
   ```
-  mkdir -p .claude && printf '%s\n' "<path 1>" "<path 2>" >> .claude/.otel-force
+  mkdir -p .claude && printf '%s\n' "<path 1>" "<path 2>" > .claude/.otel-force
   ```
   A slash-command flag cannot set an env var for the hook process, so this file is how
   `--force` reaches the guard. List the paths resolved in this step, exactly as found. Absolute
