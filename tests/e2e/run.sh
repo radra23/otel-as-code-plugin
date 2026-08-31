@@ -29,11 +29,16 @@ trap cleanup EXIT
 
 # 1. seed throwaway app copies (fixtures stay pristine)
 rm -rf "$WORK"; mkdir -p "$WORK/nodejs" "$WORK/python" "$WORK/java"
+# The collector's file exporter (logs-overlay) writes logs.json here. World-writable so the
+# collector container's non-root user can write regardless of the host UID that created it.
+mkdir -p "$WORK/collector-out"; chmod 777 "$WORK/collector-out"
 cp -R ../../fixtures/nodejs-greenfield/. "$WORK/nodejs/"
 cp ../snapshots/instrument/nodejs/tracing.js "$WORK/nodejs/tracing.js"
 cp ../snapshots/instrument/nodejs/package.json "$WORK/nodejs/package.json"   # instrumented manifest
 cp -R ../../fixtures/python-greenfield/. "$WORK/python/"
-cp ../snapshots/instrument/python/tracing.py "$WORK/python/tracing.py"
+# Seed the --experimental bootstrap (traces + metrics + the Development-level logs pipeline) so
+# the run also proves the Python logs path; it is a superset, so the trace assertions still hold.
+cp ../snapshots/instrument/python/tracing.experimental.py "$WORK/python/tracing.py"
 cp ../snapshots/instrument/python/requirements.txt "$WORK/python/requirements.txt"
 # Python entrypoint: import the golden bootstrap (sets up providers as a side effect of
 # import), then instrument the pristine fixture's FastAPI `app` without modifying it.
@@ -109,9 +114,15 @@ POLL_TIMEOUT=40 bash assert-traces.sh --jaeger "$JA" --service inventory-api \
 POLL_TIMEOUT=40 bash assert-traces.sh --jaeger "$JA" --service payments-api \
   --expect service.name=payments-api,service.version=1.0.0,service.namespace=storefront,deployment.environment.name=e2e || rc=1
 
+# Logs (#12, --experimental): the Python app logs `reserved sku=...` on /inventory/reserve, the
+# --experimental bootstrap bridges it to OTLP, and the collector's file exporter writes it to
+# collector-out/logs.json. Assert that record actually arrived with the right service.name.
+POLL_TIMEOUT=40 bash assert-logs.sh --file "$WORK/collector-out/logs.json" \
+  --service inventory-api --expect-body "reserved sku" || rc=1
+
 if [ "$rc" -eq 0 ]; then
-  echo "E2E PASS: traces for both services landed with correct service.* attrs"
+  echo "E2E PASS: traces for all services landed with correct service.* attrs, and the Python --experimental logs path exported a log record"
 else
-  echo "E2E FAIL: at least one service's traces did not land — see per-service output above and the trap diagnostics (jaeger /api/services)." >&2
+  echo "E2E FAIL: a service's traces did not land, or the Python logs record did not arrive — see per-service output above and the trap diagnostics (jaeger /api/services)." >&2
   exit 1
 fi
