@@ -15,7 +15,7 @@ in the `semconv-discipline` skill — the single source of truth)
 - **Beta** — feature-complete but may have minor API changes
 - **Development** — experimental, incomplete, not for production
 
-## MVP Languages (Node.js and Python)
+## Supported Languages (Node.js, Python, Java)
 
 ### Node.js
 | Signal  | Status | Package                                              |
@@ -42,6 +42,22 @@ Python bootstrap: use `opentelemetry-sdk` + `opentelemetry-exporter-otlp-proto-g
 Auto-instrumentation: framework-specific package (e.g. `opentelemetry-instrumentation-fastapi`,
 `opentelemetry-instrumentation-django`, `opentelemetry-instrumentation-flask`).
 
+### Java (OpenTelemetry Java agent)
+| Signal  | Status | Mechanism                                                    |
+|---------|--------|--------------------------------------------------------------|
+| Traces  | Stable | Java agent — auto-instruments common libraries               |
+| Metrics | Stable | Java agent — auto                                            |
+| Logs    | Stable | Java agent — log-appender bridge (Logback / Log4j2 / JUL → OTLP) |
+| Auto    | Stable | `opentelemetry-javaagent.jar` (zero-code, JDK 8+)            |
+
+Java uses the OpenTelemetry Java **agent** (`-javaagent:opentelemetry-javaagent.jar`), NOT a
+manual SDK bootstrap file: it auto-instruments with no code change. Configure entirely via
+`OTEL_*` env vars (`OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES`, `OTEL_EXPORTER_OTLP_ENDPOINT`)
+— the generator emits an `otel-java.env` file plus a pinned agent download + run command (see the
+Java section in `instrumentation-gen`). The agent exports OTLP by default, so per-signal exporter
+env (`OTEL_TRACES_EXPORTER=otlp`, etc.) is redundant and omitted. "Logs = Stable" refers to the
+log-appender bridge (application logging frameworks → OTLP logs), not arbitrary log collection.
+
 ## Feature Gating Rules
 
 When generating code for a signal:
@@ -60,7 +76,6 @@ Never block an entire SDK generation request because one signal is Development-l
 
 | Language | Traces  | Metrics | Logs        |
 |----------|---------|---------|-------------|
-| Java     | Stable  | Stable  | Stable      |
 | Go       | Stable  | Stable  | Beta        |
 | .NET     | Stable  | Stable  | Stable      |
 | Ruby     | Beta    | Beta    | Development |

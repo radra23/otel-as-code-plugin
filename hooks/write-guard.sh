@@ -9,6 +9,7 @@ set -euo pipefail
 
 # Protected files the plugin generates and must not silently overwrite:
 #   tracing.{js,ts,py,go}, opentelemetry.{js,ts}, telemetry.{js,py}  — matched by basename
+#   otel-java.env (generated Java agent config)                       — matched by basename
 #   otelcol-agent.yaml, otelcol-gateway.yaml                          — matched by basename
 #   <…>/observability/<vendor>/{main,variables,outputs}.tf           — matched by path
 # (Terraform files are scoped to an observability module dir so unrelated main.tf /
@@ -84,7 +85,7 @@ fi
 BASENAME=$(basename "$FILE_PATH")
 blocked=0
 case "$BASENAME" in
-  tracing.js|tracing.ts|tracing.py|tracing.go|opentelemetry.js|opentelemetry.ts|telemetry.js|telemetry.py|otelcol-agent.yaml|otelcol-gateway.yaml)
+  tracing.js|tracing.ts|tracing.py|tracing.go|opentelemetry.js|opentelemetry.ts|telemetry.js|telemetry.py|otel-java.env|otelcol-agent.yaml|otelcol-gateway.yaml)
     blocked=1 ;;
 esac
 case "$FILE_PATH" in
