@@ -160,6 +160,15 @@ jobs:
           print("Plugin structure OK.")
           EOF
 
+      # The structural checks above are our own approximation of the plugin contract; this runs
+      # the real validator so CI fails the same way `claude plugin validate` does locally. It is a
+      # static structural check (no API auth needed) that exits non-zero on any violation. Pinned
+      # for reproducibility — bump deliberately alongside other version pins.
+      - name: Validate with the Claude Code plugin validator (--strict)
+        run: |
+          npm install -g @anthropic-ai/claude-code@2.1.251
+          claude plugin validate . --strict
+
   validate-terraform:
     name: Terraform validate (snapshots)
     runs-on: ubuntu-latest
