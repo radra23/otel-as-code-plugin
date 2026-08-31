@@ -58,10 +58,11 @@ you are about to emit (traces, metrics, logs). Then gate output by maturity leve
 - **Stable** → emit normally.
 - **Beta** → emit, but prepend a comment on the relevant block, e.g.
   `# Beta signal — API may change in a future OTel release` (JS: `// Beta signal — ...`).
-  In MVP this applies to Python **logs** (`opentelemetry-sdk` LoggerProvider).
+  No MVP signal (nodejs / python / java) is currently Beta.
 - **Development** → do **not** emit unless `experimental` is `true`. When blocked, omit the
   signal and add one line to the returned summary:
   `⚠ <signal> for <language> is Development-level; re-run /otel-instrument --experimental to include it.`
+  In MVP this applies to Python **logs** (`opentelemetry.sdk._logs`) — see the Python logs block below.
 
 When `experimental` is `true`:
 - Unlock Development-level signals (emit them with the Beta comment instead of blocking).
