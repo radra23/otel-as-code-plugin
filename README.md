@@ -8,7 +8,7 @@
 
 A Claude Code plugin — and a set of Codex skills — for OpenTelemetry instrumentation and observability-as-code.
 
-Instrument any Node.js or Python service, infer service identity from your repo,
+Instrument any Node.js, Python, or Java service, infer service identity from your repo,
 generate Terraform for Grafana, Datadog, New Relic, or Dash0 — all from your editor.
 
 ```bash
@@ -83,7 +83,7 @@ a command says "dispatch the `<x>` agent", read `agents/<x>.md` and do that work
 | Command | Purpose |
 |---|---|
 | `/otel-init` | First-run setup: detect services, prime context cache |
-| `/otel-instrument [lang]` | SDK bootstrap for Node.js or Python |
+| `/otel-instrument [lang]` | SDK bootstrap for Node.js / Python, or Java agent config |
 | `/otel-evaluate` | Read-only brownfield gap audit |
 | `/otel-collector [mode]` | otelcol-contrib config (agent \| gateway) |
 | `/otel-business-attrs` | Infer + confirm service identity and business metrics |
@@ -110,11 +110,14 @@ a command says "dispatch the `<x>` agent", read `agents/<x>.md` and do that work
 
 otel-as-code writes `.claude/otel-context.json` (ephemeral, gitignored) and `.claude/otel-services.json` (commit this — it's your team's service map).
 
-## Supported languages (MVP)
+## Supported languages
 
-Node.js (all signals: Stable) and Python (traces + metrics: Stable; logs: Beta).
+Node.js (all signals: Stable) and Python (traces + metrics: Stable; logs: Beta) via a generated
+SDK bootstrap (`tracing.js` / `tracing.py`). **Java** (all signals: Stable) via the zero-code
+OpenTelemetry Java **agent** — the generator emits an `otel-java.env` + a pinned agent download and
+run command, no source file.
 
-v1 will add: Java, Go, .NET, Ruby, PHP, Rust.
+v1 will add: Go, .NET, Ruby, PHP, Rust.
 
 ## Semconv version
 

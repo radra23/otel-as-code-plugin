@@ -8,10 +8,10 @@ argument-hint: "[language] [--experimental] [--force]"
 Generate OTel SDK bootstrap and OTLP wiring for this service.
 
 ## Flags
-- `[language]` — optional; `nodejs` or `python`. If omitted, detected from context JSON.
+- `[language]` — optional; `nodejs`, `python`, or `java`. If omitted, detected from context JSON.
 - `--experimental` — unlock pre-Stable signals (e.g. logs for Python). Passed to
   both `language-maturity` and `semconv-discipline` skills.
-- `--force` — overwrite existing bootstrap files (tracing.js / tracing.py).
+- `--force` — overwrite existing generated artifacts (tracing.js / tracing.py / otel-java.env).
   Required if the write-guard hook blocks a re-generation.
 
 ## Step 1: Load context
@@ -28,10 +28,14 @@ tree affecting service identity — apply the freshness rule from `/otel-init` S
 If `[language]` argument was given, use it.
 Otherwise use `context.services[0].language` (first detected service).
 
-If language is not `nodejs` or `python`:
-- Print: "⚠ <language> is not supported in MVP. Supported: nodejs, python.
-  v1 will add: java, go, dotnet, ruby, php, rust."
+If language is not `nodejs`, `python`, or `java`:
+- Print: "⚠ <language> is not supported yet. Supported: nodejs, python, java.
+  v1 will add: go, dotnet, ruby, php, rust."
 - Exit.
+
+Note: `java` uses the OpenTelemetry Java **agent** (zero-code auto-instrumentation), so the
+generated artifact is `otel-java.env` + run instructions, not a source bootstrap file. The
+`instrumentation-gen` subagent handles the per-language artifact shape.
 
 ## Step 3: Check signal maturity
 
@@ -42,21 +46,22 @@ If any signal is Development-level AND `--experimental` is NOT set:
 - Do not generate that signal's code.
 - Print: "Re-run with --experimental to generate Development-level signals."
 
-## Step 4: Check for existing bootstrap
+## Step 4: Check for existing artifact
 
-Look for `tracing.js` (Node.js) or `tracing.py` (Python) in the service root.
+Look for `tracing.js` (Node.js), `tracing.py` (Python), or `otel-java.env` (Java) in the service root.
 
 If found AND `--force` is NOT set:
-- Print: "⚠ Bootstrap file already exists: <path>. Use --force to overwrite."
+- Print: "⚠ Generated artifact already exists: <path>. Use --force to overwrite."
 - Exit.
 
 If found AND `--force` IS set:
-- Print: "↻ Overwriting existing bootstrap (--force)."
+- Print: "↻ Overwriting existing artifact (--force)."
 - Authorize the overwrite for the `write-guard` hook by listing the absolute path(s) the
-  subagent will overwrite (the existing `tracing.js` / `tracing.py` in the service root) in
-  the `.claude/.otel-force` sentinel, one per line. A slash-command flag cannot set an env
-  var for the hook process, so this file is how `--force` reaches the guard. Run, e.g.:
-  `mkdir -p .claude && printf '%s\n' "<abs path of tracing.js or tracing.py>" >> .claude/.otel-force`
+  subagent will overwrite (the existing `tracing.js` / `tracing.py` / `otel-java.env` in the
+  service root) in the `.claude/.otel-force` sentinel, one per line. A slash-command flag
+  cannot set an env var for the hook process, so this file is how `--force` reaches the guard.
+  Run, e.g.:
+  `mkdir -p .claude && printf '%s\n' "<abs path of tracing.js / tracing.py / otel-java.env>" >> .claude/.otel-force`
   (use the service's `rootDir` from the context JSON to build the absolute path).
 
 ## Step 5: Dispatch instrumentation-gen subagent

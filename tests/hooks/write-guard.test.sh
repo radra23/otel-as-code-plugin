@@ -136,6 +136,21 @@ else
 fi
 rm -rf "$TMP"
 
+# Test 9: Write to otel-java.env (the generated Java agent config) when it exists → block (exit 1)
+TMP=$(mktemp -d)
+echo "OTEL_SERVICE_NAME=checkout-api" > "$TMP/otel-java.env"
+INPUT="{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$TMP/otel-java.env\"}}"
+actual_exit=0
+echo "$INPUT" | bash "$HOOK" > /dev/null 2>&1 || actual_exit=$?
+if [ "$actual_exit" -eq 1 ]; then
+  echo "PASS: block existing otel-java.env"
+  PASS=$((PASS+1))
+else
+  echo "FAIL: block existing otel-java.env (expected 1, got $actual_exit)"
+  FAIL=$((FAIL+1))
+fi
+rm -rf "$TMP"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
