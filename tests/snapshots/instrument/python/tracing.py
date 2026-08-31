@@ -4,20 +4,55 @@
 import os
 from opentelemetry import trace, metrics
 from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.sdk.trace.export import (
+    BatchSpanProcessor,
+    ConsoleSpanExporter,
+    SimpleSpanProcessor,
+)
 from opentelemetry.sdk.metrics import MeterProvider
-from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+from opentelemetry.sdk.metrics.export import (
+    ConsoleMetricExporter,
+    PeriodicExportingMetricReader,
+)
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.semconv.resource import ResourceAttributes
 
-# `deployment.environment` was renamed to `deployment.environment.name`. That attribute
-# is still incubating, so its constant is not in the stable ResourceAttributes class; use
-# the current string literal so this matches the Node bootstrap (which emits the same key).
+# `deployment.environment.name` has no constant on the legacy ResourceAttributes class in
+# opentelemetry-semantic-conventions 0.65b0 — only the deprecated `DEPLOYMENT_ENVIRONMENT` —
+# so the key is written as a literal. Checked against the installed package; re-check rather
+# than assume if you bump the dependency.
 _DEPLOYMENT_ENVIRONMENT_NAME = "deployment.environment.name"
 
-_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
+# --- Exporter selection --------------------------------------------------------------
+# OTEL_TRACES_EXPORTER / OTEL_METRICS_EXPORTER select `otlp`, `console` or `none`. Building
+# the providers by hand (rather than via `opentelemetry-instrument`) means honouring them
+# here. The default is `none` when no endpoint is configured: defaulting to otlp would point
+# at localhost:4317, dropping every span while a reconnect loop burns CPU. `console` prints
+# spans to stdout with no collector running.
+_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+_default_exporter = "otlp" if _endpoint else "none"
+
+# This plugin standardizes on OTLP/gRPC (4317); the SDK default is http/protobuf (4318).
+os.environ.setdefault("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc")
+
+
+def _choice(var: str) -> str:
+    return (os.getenv(var) or _default_exporter).strip().lower()
+
+
+# Warn only when nothing is actually being exported — evaluated after the defaults are
+# applied, so an explicit OTEL_TRACES_EXPORTER=console is not told it emits nothing.
+if all(
+    _choice(v) == "none"
+    for v in ("OTEL_TRACES_EXPORTER", "OTEL_METRICS_EXPORTER", "OTEL_LOGS_EXPORTER")
+):
+    print(
+        "[otel] No OTEL_EXPORTER_OTLP_ENDPOINT is configured and no exporter was selected, so "
+        "this process emits no telemetry. Set OTEL_EXPORTER_OTLP_ENDPOINT for your collector, "
+        "or OTEL_TRACES_EXPORTER=console to print spans locally."
+    )
 
 resource = Resource.create({
     ResourceAttributes.SERVICE_NAME: os.getenv("OTEL_SERVICE_NAME", "inventory-api"),
@@ -27,20 +62,39 @@ resource = Resource.create({
     _DEPLOYMENT_ENVIRONMENT_NAME: os.getenv("DEPLOYMENT_ENV", "development"),
 })
 
-# Traces
-_tracer_provider = TracerProvider(resource=resource)
-_tracer_provider.add_span_processor(
-    BatchSpanProcessor(OTLPSpanExporter(endpoint=_endpoint))
-)
-trace.set_tracer_provider(_tracer_provider)
+# Traces. On `none` no provider is registered at all, leaving the API's default no-op in
+# place: spans are then never built, rather than built and dropped at export. Application
+# code calling tracer.start_as_current_span() keeps working either way.
+_traces = _choice("OTEL_TRACES_EXPORTER")
+_tracer_provider = None
+if _traces in ("otlp", "console"):
+    _tracer_provider = TracerProvider(resource=resource)
+    if _traces == "otlp":
+        _tracer_provider.add_span_processor(
+            BatchSpanProcessor(OTLPSpanExporter(endpoint=_endpoint or None))
+        )
+    else:
+        # Simple, not Batch: console output is for a human watching stdout, so it should
+        # appear as spans end rather than on the batch interval.
+        _tracer_provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
+    trace.set_tracer_provider(_tracer_provider)
 
 # Metrics
-_metric_reader = PeriodicExportingMetricReader(
-    OTLPMetricExporter(endpoint=_endpoint),
-    export_interval_millis=30_000,
-)
-_meter_provider = MeterProvider(resource=resource, metric_readers=[_metric_reader])
-metrics.set_meter_provider(_meter_provider)
+_metrics = _choice("OTEL_METRICS_EXPORTER")
+_meter_provider = None
+if _metrics in ("otlp", "console"):
+    _exporter = (
+        OTLPMetricExporter(endpoint=_endpoint or None)
+        if _metrics == "otlp"
+        else ConsoleMetricExporter()
+    )
+    _meter_provider = MeterProvider(
+        resource=resource,
+        metric_readers=[
+            PeriodicExportingMetricReader(_exporter, export_interval_millis=30_000)
+        ],
+    )
+    metrics.set_meter_provider(_meter_provider)
 
 
 def instrument_fastapi(app):
@@ -51,5 +105,7 @@ def instrument_fastapi(app):
 
 
 def shutdown():
-    _tracer_provider.shutdown()
-    _meter_provider.shutdown()
+    if _tracer_provider is not None:
+        _tracer_provider.shutdown()
+    if _meter_provider is not None:
+        _meter_provider.shutdown()

@@ -28,7 +28,11 @@ the single source of truth). If `<vendor>` is not in that list:
 ## Step 2: Load skills and context
 
 Read the `otel-as-code:terraform-patterns` skill — apply all backend-specific patterns.
-Check `.claude/otel-context.json`. Run inline scan if stale/absent.
+Check `.claude/otel-context.json`. Apply the freshness rule from `/otel-init` Step 1
+(identity-input fingerprint, not `HEAD`). If stale or absent, dispatch
+`otel-as-code:repo-context-scanner` **passing the existing cache as `priorContext`** and write
+what it returns — a refresh is a merge, never a replace (see the cache ownership contract in
+`agents/repo-context-scanner.md`).
 
 If `context.confirmedAt` is null (business attrs not confirmed):
 - Print: "⚠ Business attributes have not been confirmed yet. Running /otel-business-attrs first
@@ -43,10 +47,15 @@ If `<output_dir>/*.tf` files exist AND `--force` is NOT set:
 - Exit.
 
 If they exist AND `--force` IS set:
-- Authorize the overwrite for the `write-guard` hook by listing the absolute paths of the
-  module files (`main.tf`, `variables.tf`, `outputs.tf`) under `<output_dir>` in the
-  `.claude/.otel-force` sentinel, one per line (this is how `--force` reaches the hook):
-  `mkdir -p .claude && for f in main.tf variables.tf outputs.tf; do printf '%s\n' "$PWD/<output_dir>/$f" >> .claude/.otel-force; done`
+- Print which files will be regenerated from scratch and confirm before writing — `--force`
+  discards hand edits to the module.
+- Authorize the overwrite for the `write-guard` hook by listing the module files (`main.tf`,
+  `variables.tf`, `outputs.tf`) under `<output_dir>` in the `.claude/.otel-force` sentinel, one
+  per line (this is how `--force` reaches the hook):
+  `mkdir -p .claude && for f in main.tf variables.tf outputs.tf; do printf '%s\n' "<output_dir>/$f" >> .claude/.otel-force; done`
+  Repo-relative or absolute both work: the guard normalises both sides before comparing, so the
+  sentinel does not have to match the host's path convention. It stays path-scoped — a file you
+  do not list is still protected.
 
 ## Step 4: Dispatch terraform-gen subagent
 

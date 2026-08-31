@@ -33,11 +33,16 @@ directory is elsewhere, resolve them from `git rev-parse --show-toplevel`.
 - **Hooks DO run in Codex.** `.codex/hooks.json` ports the guardrails to Codex's
   `PreToolUse`/`PostToolUse` hooks (matching `apply_patch`/file edits) via thin adapters in
   `hooks/codex/` that reuse the same `hooks/*.sh` logic:
-  - `write-guard` → PreToolUse: **denies** overwriting an existing `tracing.js` / `tracing.py`,
-    `otelcol-*.yaml`, or `infra/observability/<vendor>/*.tf`. A denial means regenerate deliberately.
+  - `write-guard` → PreToolUse: **denies** overwriting an existing generated bootstrap
+    (`tracing.*` / `telemetry.*` / `opentelemetry.*` for any supported extension, plus
+    `otel-java.env` and `otelcol-*.yaml` — the set is derived in `hooks/otel-paths.sh`) or an
+    `infra/observability/<vendor>/*.tf`. A denial means regenerate deliberately.
+    `apply_patch` reports paths relative to the session cwd; the guard normalises them before
+    matching the `.claude/.otel-force` sentinel, so a relative entry there is honoured.
   - confirm-before-write → PreToolUse: **denies** writing an `otel-context.json` that carries an
-    unconfirmed `biz.*` attribute. NOTE: only whole-file writes are deep-checked; patch-style
-    edits are not — so always present business attributes for explicit confirmation.
+    unconfirmed business attribute. NOTE: only whole-file writes are deep-checked; patch-style
+    edits are not — so always present business attributes for explicit confirmation. Present
+    them already namespaced (`com.myorg.*`); a bare `biz.*` name is a placeholder, never written.
   - `semconv-lint` → PostToolUse: surfaces semconv warnings on OTel file writes (advisory).
   They load automatically when Codex runs with this repo as the git root (the hook commands use
   `git rev-parse --show-toplevel` to find the adapters). SessionEnd/`session-summary` is not

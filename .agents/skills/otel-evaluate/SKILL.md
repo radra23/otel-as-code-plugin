@@ -17,3 +17,7 @@ Follow the canonical procedure in this repo — it is the single source of truth
 Args: `$ARGUMENTS`.
 
 This workflow is read-only — it produces an audit report and never rewrites instrumentation.
+Two things to get right: read the files named in `existingOtel.bootstrapFiles` (`sdkPackages`
+holds npm/PyPI specifiers, not paths), and treat the cache's `derived` judgements as claims to
+re-verify against source rather than findings to repeat. When offering next steps, say plainly
+that `--force` is a full regeneration that discards hand edits, and prefer `--fix <ids>`.

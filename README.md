@@ -95,13 +95,35 @@ a command says "dispatch the `<x>` agent", read `agents/<x>.md` and do that work
 | Flag | Commands | Effect |
 |---|---|---|
 | `--experimental` | instrument, collector, backend | Unlock pre-Stable semconv conventions |
-| `--force` | instrument, backend | Overwrite existing generated files |
+| `--service <id>` | instrument | Pick the target service instead of being prompted |
+| `--fix <ids>` | instrument | Apply only these `/otel-evaluate` findings, in place |
+| `--force` | instrument, backend | **Full regeneration** — overwrites hand edits (see below) |
 | `--kind` | backend | Emit one artifact: dashboard \| alerts \| slo |
 | `--output-dir` | backend | Override default `infra/observability/<vendor>/` |
 
+`--force` regenerates a file from scratch; it is not a patch. By the time regeneration is worth
+running the bootstrap has usually been hand-refined, so `/otel-instrument` prints what it will
+overwrite and asks first. To apply an audit's findings without losing those edits, use
+`--fix <ids>` with the finding IDs from the `/otel-evaluate` report.
+
 ## What gets generated
 
-**SDK bootstrap** (`tracing.js` or `tracing.py`): OTLP export of traces + metrics to a local Collector. Drop-in for your service entry point.
+**SDK bootstrap** (`tracing.js` or `tracing.py`): traces + metrics + logs, with the exporter for
+each signal selected by the spec's own `OTEL_TRACES_EXPORTER` / `OTEL_METRICS_EXPORTER` /
+`OTEL_LOGS_EXPORTER` variables (`otlp` | `console` | `none`). Drop-in for your service entry
+point.
+
+Two defaults worth knowing:
+
+- **No endpoint configured → every exporter defaults to `none`,** not `otlp`. The SDKs' own
+  default points at `localhost:4317`, which in a deployed environment drops all telemetry while
+  a reconnect loop burns CPU. Silence is the safer failure.
+- **`OTEL_TRACES_EXPORTER=console` prints spans to stdout** with no collector running, so you can
+  see your first span in a minute.
+
+Because of the first one, instrumenting is not the last step: `/otel-instrument` finishes by
+naming the deployment config files that need `OTEL_EXPORTER_OTLP_ENDPOINT` and offering to write
+the settings.
 
 **Collector config** (`otelcol-agent.yaml` or `otelcol-gateway.yaml`): Ready to run with `otelcol-contrib`. Includes cardinality guardrails.
 
@@ -109,7 +131,18 @@ a command says "dispatch the `<x>` agent", read `agents/<x>.md` and do that work
 
 ## Context cache
 
-otel-as-code writes `.claude/otel-context.json` (ephemeral, gitignored) and `.claude/otel-services.json` (commit this — it's your team's service map).
+otel-as-code writes `.claude/otel-context.json` (ephemeral, gitignored) and
+`.claude/otel-services.json` (commit this — it's your team's service map).
+
+Refreshing the cache is a **merge, not a replace**: a re-scan updates facts read from the repo
+and carries over everything you confirmed (business attributes, namespace, resolved service-name
+conflicts) untouched. Freshness is keyed to a fingerprint of the service-identity files —
+manifests, Dockerfiles, CODEOWNERS — so commits that only touch application code don't trigger a
+full re-scan.
+
+If your `.gitignore` ignores all of `.claude/`, `/otel-init` will point out that the service map
+is being ignored with it, and offer the `.claude/*` + `!.claude/otel-services.json` rewrite —
+git can't un-ignore a file inside an excluded directory.
 
 ## Supported languages
 
@@ -119,6 +152,11 @@ OpenTelemetry Java **agent** — the generator emits an `otel-java.env` + a pinn
 run command, no source file.
 
 v1 will add: Go, .NET, Ruby, PHP, Rust.
+
+**Browser / RUM is out of scope.** `/otel-instrument` targets server-side runtimes, and it
+selects a *service* (prompting when more than one qualifies) rather than assuming the first one
+detected. A browser SPA has `language: nodejs` but `runtime: browser`; the command refuses it
+with the reason instead of generating a Node SDK bootstrap that cannot run in a bundle.
 
 ## Semconv version
 

@@ -13,6 +13,25 @@ Experimental conventions (GenAI, profiling, system) require the `--experimental`
 > semconv version is defined. Commands and subagents stamp it into generated file headers
 > (via the `<SEMCONV_VERSION>` placeholder), and the `semconv-lint` hook reads it back out of
 > this file at runtime. Bump it here only — the weekly CI drift job updates this line.
+>
+> **It is the specification version, not a package version.** The SDK packages carry their own,
+> independent numbering — `@opentelemetry/semantic-conventions` and
+> `opentelemetry-semantic-conventions` each release on their own cadence and will not equal
+> this number. Never treat the two as the same, and never derive one from the other.
+>
+> Which constants a package exports, and from which entry point, is a **property of the
+> installed package, not of this version**. Check it rather than asserting it:
+>
+> ```
+> node -e "const s=require('@opentelemetry/semantic-conventions'); console.log(s.ATTR_SERVICE_NAMESPACE)"
+> python -c "from opentelemetry.semconv.resource import ResourceAttributes as R; print(getattr(R,'DEPLOYMENT_ENVIRONMENT_NAME','<absent>'))"
+> ```
+>
+> A generated comment claiming an attribute "is incubating", "is not on the root export", or
+> "was already stable at <version>" is a claim about a package release. It ages into a confident
+> falsehood the moment the dependency moves, and it costs a verification pass to catch. If a
+> workaround is genuinely needed, state what was observed and at what package version; if
+> nothing needs explaining, write nothing.
 
 ## Resource vs Span Attributes
 
@@ -62,7 +81,12 @@ Use the NEW names (1.23+ stable):
 
 Custom attributes MUST use a reverse-DNS namespace prefix:
 - CORRECT: `com.myorg.checkout.cart_id`
-- WRONG: `cartId`, `cart_id`, `checkout_cart_id`
+- WRONG: `cartId`, `cart_id`, `checkout_cart_id`, `biz.checkout.cart_id`
+
+This applies to business attributes too. `biz.*` appears in `business-attr-ux` only as a
+pre-namespace **placeholder shape** for inferred candidates; it is never a name that gets
+written. Candidates are presented already namespaced once the namespace is known, so the string
+the user approves is the conformant one — see "Business Attributes — Always Confirm" there.
 
 Infer the namespace from:
 1. npm scope: `@myorg/service` → `com.myorg`

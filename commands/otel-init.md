@@ -9,31 +9,58 @@ This command is safe to re-run; it will refresh the context cache if stale.
 
 ## Step 1: Check context cache freshness
 
+**This step is the single source of truth for cache freshness.** Every other /otel-* command
+says "apply the freshness rule from `/otel-init` Step 1" and means exactly this.
+
 Read `.claude/otel-context.json` if it exists.
 
-If it exists:
-- Get current git HEAD: run `git rev-parse HEAD`
-- Compare the `gitHash` field in the JSON to the current HEAD.
-- ALSO check whether the working tree is dirty in a way that affects service identity —
-  a matching HEAD does not guarantee a fresh scan if identity inputs changed since the
-  last commit. Run:
-  `git status --porcelain -- '*package.json' '*pyproject.toml' '*go.mod' '*pom.xml' '*build.gradle' '*Dockerfile' 'CODEOWNERS' '.github/CODEOWNERS'`
-  and treat any newly added service directory as identity-affecting too.
-- The cache is CURRENT only if BOTH hold: the `gitHash` matches HEAD AND that status output
-  is empty.
-  - If current: print "✓ Context cache is current (git: <hash>)" and skip to Step 4.
-  - If the hash differs OR identity files are dirty: print
-    "↻ Context cache is stale (<reason: commit changed | uncommitted changes to <files>>) — re-scanning..."
-    and continue to Step 2.
-- If this is not a git repo (`git rev-parse` fails): the cache cannot be verified, so treat
-  it as stale and re-scan.
+If it does not exist: print "○ No context cache found — running first scan..." and go to Step 2.
 
-If it does not exist: print "○ No context cache found — running first scan..."
+If `schemaVersion` is missing or lower than `"2"`: the cache predates the current schema.
+Treat it as stale, but still pass it to the scanner as `priorContext` (Step 2) — the user-owned
+fields carry over unchanged. Print
+"↻ Context cache uses an older schema — re-scanning (your confirmed answers are preserved)."
+
+Otherwise decide freshness from **service-identity inputs**, not from `HEAD`. A commit that
+touched only application code cannot change service identity, and re-scanning on every commit
+costs minutes per command for nothing.
+
+1. Rebuild the candidate identity-input list:
+   ```
+   { git ls-files; git ls-files --others --exclude-standard; } \
+     | grep -E '(^|/)(package\.json|pyproject\.toml|requirements\.txt|go\.mod|Cargo\.toml|pom\.xml|build\.gradle(\.kts)?|Dockerfile|host\.json|serverless\.yml|CODEOWNERS)$' \
+     | sort
+   ```
+   If this set differs from `freshness.identityInputs` in the cache, the cache is STALE
+   (a service was added or removed).
+2. Otherwise recompute the fingerprint over that same list and compare to
+   `freshness.identityFingerprint`:
+   ```
+   git hash-object <the paths above> | sha256sum | cut -c1-16
+   ```
+   If it differs, the cache is STALE (a manifest changed). If it matches, the cache is CURRENT
+   even when `HEAD` has moved.
+3. If this is not a git repo (`git rev-parse` fails), fall back to `sha256sum` over the same
+   paths; if that also fails, treat the cache as stale.
+
+- If CURRENT: print "✓ Context cache is current (identity: <fingerprint>)" and skip to Step 4.
+- If STALE: print "↻ Context cache is stale (<reason: new/removed manifest <path> | <path>
+  changed>) — re-scanning, confirmed answers preserved..." and continue to Step 2.
 
 ## Step 2: Invoke repo-context-scanner
 
 Dispatch the `otel-as-code:repo-context-scanner` subagent with the repo root as context.
-Wait for its JSON response.
+
+**If a cache already existed, pass its full contents as `priorContext`.** The scanner merges it
+per the cache ownership contract in `agents/repo-context-scanner.md` — scanner-owned fields are
+refreshed from disk, user-owned fields (`businessAttrs`, `confirmedAt`, `namespace`,
+`deploymentEnvironment`, resolved conflicts, user-confirmed team/namespace) are carried over
+verbatim. A refresh is a MERGE, never a replace. Writing a bare scan over a confirmed cache
+silently discards every answer `/otel-business-attrs` collected, and the user is not told.
+
+Wait for the JSON response. Never write a scanner response whose user-owned fields are empty
+over a cache where they were not — if that happens the merge did not run; re-dispatch with
+`priorContext` rather than writing the result.
 
 If the subagent returns an empty `services` array:
 - Print: "No services detected. Is this an application repository? Check the service
@@ -42,13 +69,22 @@ If the subagent returns an empty `services` array:
 
 ## Step 3: Present detected service boundaries
 
-Print a table:
+Print a table. `Runtime` is shown next to `Language` because they answer different questions
+and the difference decides what can be instrumented:
 
 ```
 Detected services:
-  #  Service Name       Language   Framework   Root Dir    Confidence
-  1  checkout-api       nodejs     express     .           0.97 (package.json#name)
-  2  worker             nodejs     unknown     worker/     0.70 (dir name)
+  #  Service Name       Language   Runtime   Framework   Root Dir    Confidence
+  1  portal-web         nodejs     browser   vite        web/        0.97 (package.json#name)
+  2  checkout-api       nodejs     node      express     api/        0.97 (package.json#name)
+```
+
+For any service with `instrumentable: false`, print its `instrumentableReason` beneath the
+table so the exclusion is visible now rather than discovered later by /otel-instrument:
+
+```
+  ⓘ portal-web is not an instrumentation target: runtime is browser; browser/RUM
+    instrumentation is out of scope for the MVP.
 ```
 
 If there are any conflicts in the scanner response, show the conflict resolution block
@@ -60,6 +96,7 @@ If the user types 'n' or 'edit':
 - Show numbered list of services
 - Ask: "Enter a number to rename/remove, or 'add' to add a service manually"
 - Handle the edit inline; repeat until user confirms
+- Mark any manually added service `"nameSource": "user-added"` so a later re-scan keeps it
 
 ## Step 4: Write outputs
 
@@ -72,11 +109,29 @@ Write `.claude/otel-services.json`:
 }
 ```
 
-Write `.claude/otel-context.json` with the full scanner JSON output.
+Write `.claude/otel-context.json` with the full (merged) scanner JSON output.
 
-Update `.gitignore`: add `.claude/otel-context.json` and `.claude/.otel-force` if not present
-(both are ephemeral — the context cache and the transient `--force` sentinel).
-Do NOT add `.claude/otel-services.json` — users should commit the service map.
+**Update `.gitignore`.** `.claude/otel-context.json` and `.claude/.otel-force` are ephemeral and
+must be ignored; `.claude/otel-services.json` is the shared service map and must stay
+committable. Inspect the existing rules before adding anything, because a blanket ignore
+silently swallows the service map and **git cannot un-ignore a file inside an excluded
+directory** — the directory rule itself has to change:
+
+- If `.gitignore` contains a blanket `.claude` or `.claude/` rule, that rule must be rewritten,
+  not appended to. Tell the user what you found and what it costs, then rewrite it:
+  ```
+  ⚠ .gitignore:<line> ignores all of .claude/, so .claude/otel-services.json is ignored too.
+    Git cannot un-ignore a file inside an excluded directory, so the directory rule has to
+    become a contents rule plus a negation. Rewriting:
+      -  .claude
+      +  .claude/*
+      +  !.claude/otel-services.json
+  ```
+  Do not apply the rewrite silently and do not leave it unmentioned — this is the user's
+  ignore policy, and other tooling may depend on it.
+- If there is no blanket rule, append the two specific paths if absent:
+  `.claude/otel-context.json` and `.claude/.otel-force`.
+- Do NOT add `.claude/otel-services.json` in either case — users should commit the service map.
 
 ## Step 5: Show recommended next steps
 
