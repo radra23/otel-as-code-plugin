@@ -12,6 +12,14 @@ SEMCONV_VERSION=$(grep -oE 'SEMCONV_VERSION:[[:space:]]*[0-9]+\.[0-9]+\.[0-9]+' 
   "$PLUGIN_ROOT/skills/semconv-discipline/SKILL.md" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
 SEMCONV_VERSION="${SEMCONV_VERSION:-unknown}"
 
+# Strict mode: hard-block (exit 2) on SEVERE violations instead of only warning. Opt-in via
+# OTEL_STRICT=1 (env, for CI) or a .claude/.otel-strict sentinel file (mirrors write-guard's
+# --force pattern so a repo/session can enable it). Default stays advisory (always exit 0).
+STRICT=0
+[ "${OTEL_STRICT:-0}" = "1" ] && STRICT=1
+STRICT_SENTINEL="${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude/.otel-strict"
+[ -f "$STRICT_SENTINEL" ] && STRICT=1
+
 INPUT=$(cat)
 
 # Extract file path written
@@ -39,34 +47,43 @@ if [ "$is_otel_file" -eq 0 ] || [ ! -f "$FILE_PATH" ]; then
 fi
 
 WARNINGS=0
+SEVERE=0
+SEVERE_MSGS=""
 CONTENT=$(cat "$FILE_PATH" 2>/dev/null || echo "")
 
-# Rule 1: service.name / service.version / service.namespace as span attribute
+# severe: an unambiguous, deterministic violation with a known fix (Rules 1-4). Shown on
+# stdout like any warning; additionally captured so strict mode can hard-block on it (exit 2,
+# details on stderr). warn-only rules (5-7) keep using plain echo + WARNINGS++.
+severe() {  # $1 = full message (may be multiline)
+  printf '%s\n' "$1"
+  SEVERE_MSGS="${SEVERE_MSGS}${1}
+"
+  SEVERE=$((SEVERE + 1))
+  WARNINGS=$((WARNINGS + 1))
+}
+
+# Rule 1 (severe): service.name / service.version / service.namespace as span attribute
 if echo "$CONTENT" | grep -qE "setAttribute\(['\"]service\.(name|version|namespace|instance)"; then
-  echo "⚠ otel-lint [$FILE_PATH]: service.name / service.version / service.namespace must be Resource attributes, not span attributes."
-  echo "  → Move to Resource({ [ATTR_SERVICE_NAME]: '...' }) in SDK initialization."
-  WARNINGS=$((WARNINGS+1))
+  severe "⚠ otel-lint [$FILE_PATH]: service.name / service.version / service.namespace must be Resource attributes, not span attributes.
+  → Move to Resource({ [ATTR_SERVICE_NAME]: '...' }) in SDK initialization."
 fi
 
-# Rule 2: deprecated http.method
+# Rule 2 (severe): deprecated http.method
 if echo "$CONTENT" | grep -qE "setAttribute\(['\"]http\.method['\"]|['\"]http\.method['\"]"; then
-  echo "⚠ otel-lint [$FILE_PATH]: 'http.method' is deprecated since semconv 1.23."
-  echo "  → Replace with 'http.request.method'."
-  WARNINGS=$((WARNINGS+1))
+  severe "⚠ otel-lint [$FILE_PATH]: 'http.method' is deprecated since semconv 1.23.
+  → Replace with 'http.request.method'."
 fi
 
-# Rule 3: deprecated http.url
+# Rule 3 (severe): deprecated http.url
 if echo "$CONTENT" | grep -qE "['\"]http\.url['\"]"; then
-  echo "⚠ otel-lint [$FILE_PATH]: 'http.url' is deprecated since semconv 1.23."
-  echo "  → Replace with 'url.full'."
-  WARNINGS=$((WARNINGS+1))
+  severe "⚠ otel-lint [$FILE_PATH]: 'http.url' is deprecated since semconv 1.23.
+  → Replace with 'url.full'."
 fi
 
-# Rule 4: deprecated http.status_code
+# Rule 4 (severe): deprecated http.status_code
 if echo "$CONTENT" | grep -qE "['\"]http\.status_code['\"]"; then
-  echo "⚠ otel-lint [$FILE_PATH]: 'http.status_code' is deprecated since semconv 1.23."
-  echo "  → Replace with 'http.response.status_code'."
-  WARNINGS=$((WARNINGS+1))
+  severe "⚠ otel-lint [$FILE_PATH]: 'http.status_code' is deprecated since semconv 1.23.
+  → Replace with 'http.response.status_code'."
 fi
 
 # Rule 5: Custom attribute without namespace prefix
@@ -105,4 +122,15 @@ if [ "$WARNINGS" -gt 0 ]; then
   echo "  $WARNINGS semconv warning(s) — review before committing. (otel-as-code lint, semconv $SEMCONV_VERSION)"
 fi
 
-exit 0  # Always advisory
+# Strict mode: hard-block on severe violations. Exit 2 with the severe details on stderr so
+# Claude Code feeds them back as must-fix (the write already happened — PostToolUse). Warn-only
+# violations never block; default (non-strict) mode always exits 0, unchanged.
+if [ "$STRICT" -eq 1 ] && [ "$SEVERE" -gt 0 ]; then
+  {
+    echo "otel-as-code semconv-lint (strict): $SEVERE severe violation(s) must be fixed before proceeding:"
+    printf '%s' "$SEVERE_MSGS"
+  } >&2
+  exit 2
+fi
+
+exit 0  # Advisory (default), or strict with no severe violations

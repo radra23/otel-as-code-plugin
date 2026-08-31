@@ -18,6 +18,7 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
 - Registered in `hooks/hooks.json` (NOT inline in plugin.json): PreToolUse/PostToolUse matcher `Write|Edit` → write-guard / semconv-lint; SessionEnd → session-summary; each invoked as `bash "${CLAUDE_PLUGIN_ROOT}/hooks/<name>.sh"`.
 - Read stdin JSON keys `tool_name` and `tool_input.file_path` (NOT `tool`/`input`). Parse with `python3`, not `jq`.
 - `--force` reaches the write-guard via a path-scoped `.claude/.otel-force` sentinel (a slash-command flag can't set env for the hook process).
+- semconv-lint is advisory by default (exit 0); **strict mode** hard-blocks (exit 2) on *severe* violations only — service.*-as-span-attr + deprecated http.method/http.url/http.status_code (Rules 1-4); heuristic/judgment rules (5-7) stay warn-only. Opt in via `OTEL_STRICT=1` (env, e.g. CI) or a `.claude/.otel-strict` sentinel (same dual pattern as `--force`). Codex PostToolUse can't deny, so its adapter reframes the block as a must-fix `additionalContext`.
 - Tests: `bash tests/hooks/<name>.test.sh`; feed the REAL payload (`tool_name`/`tool_input`); wire every new test into the `lint-hooks` job in `.github/workflows/ci.yml`.
 
 ## Conventions
