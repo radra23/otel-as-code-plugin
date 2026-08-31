@@ -52,11 +52,12 @@ variable "grafana_service_account_token" {
 - `grafana_rule_group` requires a `folder_uid` (from the folder resource) and `interval_seconds`
 - SLO `query` block uses PromQL expressions; prefer `rate()` over `irate()` for stability
 - Pin `~> 4.0` (current major); the 2.x → 3.x → 4.x jumps each changed resource schemas — don't copy older-major patterns
+- **Filter by `job`, NOT `service_name`.** On a default OTLP → Prometheus pipeline, `service.name` is mapped to the **`job`** label (and `service.instance.id` → `instance`); resource attributes are NOT added as metric labels — they live only on the separate `target_info` series (`otlp.promote_resource_attributes` defaults to `[]`). So `{service_name="..."}` returns NO DATA — a silently-empty panel/alert. Use `{job="<name>"}`; when `service.namespace` is set, `job` becomes `<namespace>/<name>`, so filter `{job="<namespace>/<name>"}`. (Only emit `{service_name="..."}` if the user's Prometheus receiver sets `otlp.promote_resource_attributes: [service.name]`.)
 
 ### OTel-specific dashboard panels to generate
-- Request rate: `rate(http_server_request_duration_seconds_count{service_name="..."}[5m])`
-- Error rate: `rate(http_server_request_duration_seconds_count{http_response_status_code=~"5.."}[5m])`
-- P99 latency: `histogram_quantile(0.99, rate(http_server_request_duration_seconds_bucket[5m]))`
+- Request rate: `rate(http_server_request_duration_seconds_count{job="..."}[5m])`
+- Error rate: `rate(http_server_request_duration_seconds_count{job="...",http_response_status_code=~"5.."}[5m])`
+- P99 latency: `histogram_quantile(0.99, rate(http_server_request_duration_seconds_bucket{job="..."}[5m]))`
 
 ---
 
@@ -179,3 +180,10 @@ alone for Dash0-specific field names.
 
 Key principle: Dash0 uses OTel attribute names natively in query expressions, so no translation
 layer is needed between OTel semconv and the monitoring query syntax.
+
+Service filter: because Dash0 is OTel-native, its queries CAN filter by service directly —
+`service.name` in the Query Builder, or `service_name` (dots→underscores) in PromQL panels. This
+is unlike a vanilla OTLP→Prometheus pipeline, where `service.name` is only the `job` label and
+`{service_name="..."}` returns no data (see the Grafana gotcha above). So the Dash0 golden keeps
+`{service_name="..."}` intentionally — verify against a live Dash0 instance, as the exact PromQL
+label spelling depends on the panel/query surface.

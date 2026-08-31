@@ -71,7 +71,7 @@ resource "grafana_dashboard" "otel" {
         gridPos = { h = 8, w = 12, x = 0, y = 0 }
         targets = [{
           refId = "A"
-          expr  = "sum(rate(http_server_request_duration_seconds_count{service_name=\"${var.service_name}\"}[5m]))"
+          expr  = "sum(rate(http_server_request_duration_seconds_count{job=\"${var.service_name}\"}[5m]))"
         }]
       },
       {
@@ -80,7 +80,7 @@ resource "grafana_dashboard" "otel" {
         gridPos = { h = 8, w = 12, x = 12, y = 0 }
         targets = [{
           refId = "A"
-          expr  = "sum(rate(http_server_request_duration_seconds_count{service_name=\"${var.service_name}\",http_response_status_code=~\"5..\"}[5m]))"
+          expr  = "sum(rate(http_server_request_duration_seconds_count{job=\"${var.service_name}\",http_response_status_code=~\"5..\"}[5m]))"
         }]
       },
       {
@@ -89,7 +89,7 @@ resource "grafana_dashboard" "otel" {
         gridPos = { h = 8, w = 24, x = 0, y = 8 }
         targets = [{
           refId = "A"
-          expr  = "histogram_quantile(0.99, sum(rate(http_server_request_duration_seconds_bucket{service_name=\"${var.service_name}\"}[5m])) by (le))"
+          expr  = "histogram_quantile(0.99, sum(rate(http_server_request_duration_seconds_bucket{job=\"${var.service_name}\"}[5m])) by (le))"
         }]
       },
     ]
@@ -117,7 +117,7 @@ resource "grafana_rule_group" "otel" {
       }
       model = jsonencode({
         refId = "A"
-        expr  = "sum(rate(http_server_request_duration_seconds_count{service_name=\"${var.service_name}\",http_response_status_code=~\"5..\"}[5m])) / sum(rate(http_server_request_duration_seconds_count{service_name=\"${var.service_name}\"}[5m]))"
+        expr  = "sum(rate(http_server_request_duration_seconds_count{job=\"${var.service_name}\",http_response_status_code=~\"5..\"}[5m])) / sum(rate(http_server_request_duration_seconds_count{job=\"${var.service_name}\"}[5m]))"
       })
     }
 
@@ -147,7 +147,7 @@ resource "grafana_slo" "otel" {
   query {
     type = "freeform"
     freeform {
-      query = "1 - (sum(rate(http_server_request_duration_seconds_count{service_name=\"${var.service_name}\",http_response_status_code=~\"5..\"}[5m])) / sum(rate(http_server_request_duration_seconds_count{service_name=\"${var.service_name}\"}[5m])))"
+      query = "1 - (sum(rate(http_server_request_duration_seconds_count{job=\"${var.service_name}\",http_response_status_code=~\"5..\"}[5m])) / sum(rate(http_server_request_duration_seconds_count{job=\"${var.service_name}\"}[5m])))"
     }
   }
 
