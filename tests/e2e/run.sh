@@ -16,7 +16,7 @@ cleanup() {
   # metrics/logs pipelines (Jaeger's OTLP receiver only accepts traces) — see the
   # "Expected collector errors" section in README.md before treating those as the failure.
   echo "--- collector + app logs (tail, timestamped) ---"
-  docker compose logs --timestamps --tail=60 jaeger collector node-app python-app 2>/dev/null || true
+  docker compose logs --timestamps --tail=60 jaeger collector node-app python-app java-app 2>/dev/null || true
   echo "--- jaeger /api/services (what actually landed) ---"
   curl -fsS "http://localhost:16686/api/services" 2>/dev/null && echo || echo "(jaeger /api/services unreachable)"
   docker compose down -v --remove-orphans 2>/dev/null || true
@@ -28,7 +28,7 @@ cleanup() {
 trap cleanup EXIT
 
 # 1. seed throwaway app copies (fixtures stay pristine)
-rm -rf "$WORK"; mkdir -p "$WORK/nodejs" "$WORK/python"
+rm -rf "$WORK"; mkdir -p "$WORK/nodejs" "$WORK/python" "$WORK/java"
 cp -R ../../fixtures/nodejs-greenfield/. "$WORK/nodejs/"
 cp ../snapshots/instrument/nodejs/tracing.js "$WORK/nodejs/tracing.js"
 cp ../snapshots/instrument/nodejs/package.json "$WORK/nodejs/package.json"   # instrumented manifest
@@ -42,6 +42,14 @@ import tracing
 from app import app
 tracing.instrument_fastapi(app)
 PY
+
+# Java: pristine fixture (App.java) + golden agent config (otel-java.env) + the pinned OTel Java
+# agent JAR (downloaded here over HTTPS, like the pinned otelcol binary in collector-validate.sh).
+cp ../../fixtures/java-greenfield/App.java "$WORK/java/App.java"
+cp ../snapshots/instrument/java/otel-java.env "$WORK/java/otel-java.env"
+OTEL_JAVA_AGENT_VERSION=2.31.1
+curl -fsSLo "$WORK/java/opentelemetry-javaagent.jar" \
+  "https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v${OTEL_JAVA_AGENT_VERSION}/opentelemetry-javaagent.jar"
 
 # 2. up + wait for jaeger health
 docker compose up -d
@@ -83,6 +91,12 @@ for i in 1 2 3 4 5; do
     -d '{"sku":"sku-1","quantity":1,"warehouse":"us-east-1"}' >/dev/null || true
 done
 
+wait_ready "http://localhost:8080"
+for i in 1 2 3 4 5; do
+  curl -fsS "http://localhost:8080/health" >/dev/null || true
+  curl -fsS "http://localhost:8080/pay" >/dev/null || true
+done
+
 # 4. assert (Jaeger reachable on host 16686)
 JA="http://localhost:16686"
 # Check BOTH services in one run (don't fail-fast on the first) so a single CI run reports
@@ -92,6 +106,8 @@ POLL_TIMEOUT=40 bash assert-traces.sh --jaeger "$JA" --service checkout-api \
   --expect service.name=checkout-api,service.version=1.4.2,service.namespace=storefront || rc=1
 POLL_TIMEOUT=40 bash assert-traces.sh --jaeger "$JA" --service inventory-api \
   --expect service.name=inventory-api,service.version=0.3.1,service.namespace=storefront,deployment.environment.name=e2e || rc=1
+POLL_TIMEOUT=40 bash assert-traces.sh --jaeger "$JA" --service payments-api \
+  --expect service.name=payments-api,service.version=1.0.0,service.namespace=storefront,deployment.environment.name=e2e || rc=1
 
 if [ "$rc" -eq 0 ]; then
   echo "E2E PASS: traces for both services landed with correct service.* attrs"
