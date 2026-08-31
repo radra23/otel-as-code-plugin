@@ -56,8 +56,15 @@ fi
 
 [ -n "$JAEGER" ] || { echo "live mode needs --jaeger <url>" >&2; exit 2; }
 deadline=$(( $(date +%s) + ${POLL_TIMEOUT:-30} ))
+# Jaeger's /api/traces requires a time range (microsecond-epoch start/end). Without it the
+# endpoint returns an empty result even when the service's traces exist (as /api/services
+# confirms) — the original query omitted the range and so never matched. Use a wide window:
+# 1h back to 5min forward, covering spans created during the poll.
+_now_us=$(( $(date +%s) * 1000000 ))
+_start_us=$(( _now_us - 3600000000 ))
+_end_us=$(( _now_us + 300000000 ))
 while :; do
-  if curl -fsS "$JAEGER/api/traces?service=$SERVICE&limit=1" 2>/dev/null | check "$SERVICE" "$EXPECT"; then
+  if curl -fsS "$JAEGER/api/traces?service=$SERVICE&limit=1&start=$_start_us&end=$_end_us" 2>/dev/null | check "$SERVICE" "$EXPECT"; then
     exit 0
   fi
   [ "$(date +%s)" -lt "$deadline" ] || { echo "FAIL: no matching trace for $SERVICE within ${POLL_TIMEOUT:-30}s" >&2; exit 1; }
