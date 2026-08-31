@@ -51,8 +51,10 @@ If they exist AND `--force` IS set:
   discards hand edits to the module.
 - Authorize the overwrite for the `write-guard` hook by listing the module files (`main.tf`,
   `variables.tf`, `outputs.tf`) under `<output_dir>` in the `.claude/.otel-force` sentinel, one
-  per line (this is how `--force` reaches the hook):
-  `mkdir -p .claude && for f in main.tf variables.tf outputs.tf; do printf '%s\n' "<output_dir>/$f" >> .claude/.otel-force; done`
+  per line (this is how `--force` reaches the hook). **Truncate the sentinel first** (`:>`) so a
+  leftover from an aborted earlier run can never grant a standing overwrite authorization, then
+  append the three module files:
+  `mkdir -p .claude && :> .claude/.otel-force && for f in main.tf variables.tf outputs.tf; do printf '%s\n' "<output_dir>/$f" >> .claude/.otel-force; done`
   Repo-relative or absolute both work: the guard normalises both sides before comparing, so the
   sentinel does not have to match the host's path convention. It stays path-scoped — a file you
   do not list is still protected.
