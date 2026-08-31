@@ -17,6 +17,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The hooks source hooks/otel-paths.sh and shell out to hooks/otel-force-match.py.
+      # Neither is registered in hooks.json, so nothing else would catch a syntax error in
+      # them until a hook silently failed open at runtime.
+      - name: Syntax-check hook scripts and helpers
+        run: |
+          for f in hooks/*.sh; do bash -n "$f"; done
+          python3 -m py_compile hooks/otel-force-match.py
+
       - name: Run write-guard tests
         run: bash tests/hooks/write-guard.test.sh
 

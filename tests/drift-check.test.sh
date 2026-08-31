@@ -19,7 +19,16 @@ def check(name, cond):
 
 np = dict(d.node_pins())
 check("node pins parsed (@opentelemetry/sdk-node)", "@opentelemetry/sdk-node" in np and np["@opentelemetry/sdk-node"][0].isdigit())
-check("node pins count >= 6", len(np) >= 6)
+# Tie the coverage assertion to the golden bootstrap's own dependency list rather than a
+# magic count: the drift job must see every package the generator actually emits, and
+# legitimately adding or dropping one must not require editing a number here.
+import json
+golden = json.load(open("tests/snapshots/instrument/nodejs/package.json"))
+expected = {k for k in golden["dependencies"] if k.startswith("@opentelemetry/")}
+missing = expected - set(np)
+check(f"node pins cover every generated dependency ({len(expected)})", not missing)
+if missing:
+    print("  not found by node_pins():", ", ".join(sorted(missing)))
 pp = dict(d.python_pins())
 check("python pins parsed (opentelemetry-sdk)", "opentelemetry-sdk" in pp)
 tf = dict(d.tf_pins())

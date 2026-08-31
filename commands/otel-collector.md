@@ -18,7 +18,11 @@ guardrails from that skill throughout this command.
 
 ## Step 2: Load context
 
-Check `.claude/otel-context.json`. Run inline scan if stale/absent.
+Check `.claude/otel-context.json`. Apply the freshness rule from `/otel-init` Step 1
+(identity-input fingerprint, not `HEAD`). If stale or absent, dispatch
+`otel-as-code:repo-context-scanner` **passing the existing cache as `priorContext`** and write
+what it returns — a refresh is a merge, never a replace (see the cache ownership contract in
+`agents/repo-context-scanner.md`).
 
 ## Step 3: Determine output path
 

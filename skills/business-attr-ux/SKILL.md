@@ -36,9 +36,26 @@ Example sources that reach Tier 3:
 - Domain inferred from git remote URL → confidence 0.40
 
 ### Business Attributes — Always Confirm
-Any attribute in the `biz.*` namespace, or any candidate business metric,
-is ALWAYS presented as Tier 2 (approval required), regardless of confidence score.
-Business semantics are NEVER assumed. This rule overrides the Tier 1 threshold.
+Any candidate business metric or business attribute is ALWAYS presented as Tier 2 (approval
+required), regardless of confidence score. Business semantics are NEVER assumed. This rule
+overrides the Tier 1 threshold.
+
+**`biz.` is a placeholder, never a name that gets written.** Inference produces a bare
+shape like `biz.checkout.conversion_rate`, but `semconv-discipline` requires every custom
+attribute to carry a reverse-DNS prefix and names bare prefixes as WRONG. Both rules cannot be
+followed at once, so resolve it before the user sees the row rather than after they approve it:
+
+- If `namespaceHint` is known (or the user has supplied a namespace), **present candidates
+  already namespaced** — `com.myorg.checkout.conversion_rate`. What the user approves is then
+  exactly what gets written.
+- If no namespace is known yet, ask for it *before* presenting business candidates. That
+  question is Step 3 of `/otel-business-attrs`; run it first when there are candidates to show.
+- If a candidate is somehow shown as `biz.*`, say in the same breath that `biz.` is a
+  placeholder that will be replaced at write time, and record the pre-namespace form as
+  `candidateName` alongside the final `name`.
+
+Never write a bare `biz.*` name to the context cache: it is non-conformant, and the user
+approved a different string than the one that reaches disk.
 
 **Enforced, not just requested.** Each `businessAttrs` entry written to
 `.claude/otel-context.json` MUST carry `"confirmed": true`, set only after the user
@@ -73,9 +90,9 @@ Format:
 Actions: [A]pprove all  [number] approve one  [E number] edit  [R number] remove
 →
 
-● Business attributes (always confirm):
-  #  Attribute                       Candidate                   Source
-  1  biz.checkout.conversion_rate    route POST /checkout         AST inference
+● Business attributes (always confirm) — namespace com.myorg:
+  #  Attribute                              Candidate             Source
+  1  com.myorg.checkout.conversion_rate     route POST /checkout   AST inference
 
 Actions: [A]pprove  [R number] reject
 →
@@ -111,57 +128,52 @@ Rules:
 
 ## Written Output Format
 
-On approval, write (or update) `.claude/otel-context.json`:
+`agents/repo-context-scanner.md` owns the context-JSON schema — do not restate it here, or the
+two copies drift and later commands read whichever they happen to find. This section covers
+only the fields **this** skill is responsible for producing.
+
+On approval, update `.claude/otel-context.json` in place, changing only:
 
 ```json
 {
-  "schemaVersion": "1",
-  "scannedAt": "<ISO-8601 timestamp>",
-  "gitHash": "<current HEAD commit hash>",
-  "pluginVersion": "0.1.0",
-  "services": [
-    {
-      "id": "checkout-api",
-      "name": "checkout-api",
-      "nameSource": "package.json#name",
-      "nameConfidence": 0.97,
-      "rootDir": ".",
-      "language": "nodejs",
-      "languageVersion": "20",
-      "framework": "express",
-      "hasDockerfile": true,
-      "existingOtel": {
-        "hasTraces": false,
-        "hasMetrics": false,
-        "hasLogs": false,
-        "sdkVersion": null,
-        "sdkPackages": [],
-        "conformanceIssues": []
-      },
-      "namespace": "payments",
-      "namespaceSource": "dir-structure",
-      "namespaceConfidence": 0.71,
-      "team": "@payments-team",
-      "teamSource": "CODEOWNERS",
-      "teamConfidence": 0.63
-    }
-  ],
-  "conflicts": [],
-  "namespaceHint": "com.myorg",
-  "namespaceSource": "npm-scope",
+  "namespace": "com.myorg",
+  "deploymentEnvironment": "production",
+  "confirmedAt": "<ISO-8601 timestamp>",
   "businessAttrs": [
     {
-      "name": "biz.checkout.conversion_rate",
+      "name": "com.myorg.checkout.conversion_rate",
+      "candidateName": "biz.checkout.conversion_rate",
       "source": "route POST /checkout (AST inference)",
       "confidence": 0.42,
       "confirmed": true,
       "confirmedAt": "<ISO-8601 timestamp>"
     }
-  ],
-  "confirmedAt": "<ISO-8601 timestamp>"
+  ]
 }
 ```
 
+and, per service, the identity fields the user confirmed:
+
+```json
+{
+  "namespace": "payments",
+  "namespaceSource": "user-confirmed",
+  "namespaceConfidence": 0.71,
+  "team": "@payments-team",
+  "teamSource": "user-confirmed",
+  "teamConfidence": 0.63
+}
+```
+
+plus `resolvedValue` / `resolvedSource` / `resolvedAt` / `"conflict_resolved": true` on each
+entry in `conflicts` the user settled.
+
+All of these are **user-owned** fields in the cache ownership contract: a later re-scan carries
+them over verbatim and must never reset them to `null` or `[]`. Mark a confirmed namespace or
+team `"user-confirmed"` as its source — that marker is what tells the scanner not to overwrite
+it with a fresh inference.
+
 Every object in `businessAttrs` MUST include `"confirmed": true` — the `write-guard` hook
 rejects the whole file otherwise. Omit attributes the user rejected or did not review; never
-write them with `"confirmed": false` expecting them to be ignored.
+write them with `"confirmed": false` expecting them to be ignored. Never write a bare `biz.*`
+name; keep the pre-namespace form in `candidateName`.

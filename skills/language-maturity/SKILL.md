@@ -15,6 +15,34 @@ in the `semconv-discipline` skill — the single source of truth)
 - **Beta** — feature-complete but may have minor API changes
 - **Development** — experimental, incomplete, not for production
 
+## Runtime gating — what this matrix is about
+
+Every row below describes a **server-side runtime**. The matrix is indexed by the service's
+`runtime` field from the context cache, NOT by `language`: those are different questions, and
+conflating them is how a Vite + React SPA (`language: nodejs`, `runtime: browser`) gets a
+`@opentelemetry/sdk-node` bootstrap that cannot run and breaks the build.
+
+| `runtime` | In scope? | Notes                                                             |
+|-----------|-----------|-------------------------------------------------------------------|
+| `node`    | yes       | Node.js row below                                                 |
+| `python`  | yes       | Python row below                                                  |
+| `jvm`     | yes       | Java agent row below                                              |
+| `browser` | **no**    | Out of scope for the MVP — see "Browser / RUM" below              |
+| `go` `dotnet` `ruby` `php` `rust` | not yet | v1 additions table at the end          |
+
+### Browser / RUM — out of scope, deliberately
+
+Browser instrumentation is a different product: a different SDK
+(`@opentelemetry/sdk-trace-web` + `@opentelemetry/auto-instrumentations-web`), a different
+delivery path (bundled into the page, not preloaded with `node -r`), a different transport
+(OTLP/HTTP with CORS, never gRPC), and a different signal set (document load, resource timing,
+user interactions — not inbound HTTP server spans). None of the server-side generation in this
+plugin applies to it.
+
+`/otel-instrument` must therefore **refuse** a service with `runtime: browser` and say why,
+rather than generating a near-miss. This is stated here as well as in the MVP docs because the
+only other way to discover it is to try it.
+
 ## Supported Languages (Node.js, Python, Java)
 
 ### Node.js
@@ -82,6 +110,9 @@ Never block an entire SDK generation request because one signal is Development-l
 | PHP      | Stable  | Beta    | Development |
 | Rust     | Beta    | Beta    | Development |
 | Swift    | Beta    | Development | Development |
+
+Browser/RUM is not on this list: it is a scope decision, not a maturity one (the web SDK's
+traces are Stable). See "Browser / RUM" above.
 
 ## --experimental Flag Behavior
 
