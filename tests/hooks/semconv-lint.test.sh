@@ -123,6 +123,16 @@ check_rc "no-python + strict -> exit 2 (fail closed)" 2 "$RC"
 set +e; emit "$SEV/tracing.js" | OTEL_HOOK_PYTHON= bash "$HOOK" >/dev/null 2>&1; RC=$?; set -e
 check_rc "no-python + advisory -> exit 0 (skip)" 0 "$RC"
 
+# Test 13/14 (#54): interpreter RESOLVES but does not RUN (Windows `python3` alias stub) — same
+# guarantee as no-python: strict fails closed (exit 2), advisory skips (exit 0). Before the fix
+# the naive `command -v` picked the stub, the parse produced nothing, and strict never blocked.
+STUBDIR=$(mktemp -d); printf '#!/bin/sh\nexit 9\n' > "$STUBDIR/py-stub"; chmod +x "$STUBDIR/py-stub"
+set +e; emit "$SEV/tracing.js" | OTEL_HOOK_PYTHON="$STUBDIR/py-stub" OTEL_STRICT=1 bash "$HOOK" >/dev/null 2>&1; RC=$?; set -e
+check_rc "stub interpreter + strict -> exit 2 (fail closed)" 2 "$RC"
+set +e; emit "$SEV/tracing.js" | OTEL_HOOK_PYTHON="$STUBDIR/py-stub" bash "$HOOK" >/dev/null 2>&1; RC=$?; set -e
+check_rc "stub interpreter + advisory -> exit 0 (skip)" 0 "$RC"
+rm -rf "$STUBDIR"
+
 rm -rf "$SEV" "$WRN" "$CLN"
 
 echo ""

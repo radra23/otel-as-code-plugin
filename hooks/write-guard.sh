@@ -126,7 +126,7 @@ fi
 # which silently turned --force into a no-op. See hooks/otel-force-match.py.
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 FORCE_FILE="$PROJECT_DIR/.claude/.otel-force"
-if [ -f "$FORCE_FILE" ] && python3 "$(dirname "${BASH_SOURCE[0]}")/otel-force-match.py" \
+if [ -f "$FORCE_FILE" ] && "$PY" "$(dirname "${BASH_SOURCE[0]}")/otel-force-match.py" \
      "$FILE_PATH" "$PROJECT_DIR" "$FORCE_FILE" 2>/dev/null; then
   exit 0
 fi
