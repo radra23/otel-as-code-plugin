@@ -27,11 +27,11 @@ jobs:
         run: |
           # `gh label create --force` creates a label or updates its color/description if it
           # already exists — idempotent, and needs no third-party action. JSON (not YAML) so the
-          # parser is stdlib python3, matching the rest of this repo's tooling.
-          python3 -c "import json,sys
-for l in json.load(open('.github/labels.json')):
-    print('\t'.join((l['name'], l['color'], l['description'])))" \
-          | while IFS=$'\t' read -r name color desc; do
-              echo "syncing label: $name"
-              gh label create "$name" --color "$color" --description "$desc" --force
-            done
+          # parser is stdlib python3, matching the rest of this repo's tooling. The python is a
+          # single line on purpose: a multi-line -c would need every line indented into this
+          # block scalar or it breaks the workflow YAML.
+          python3 -c "import json; [print(chr(9).join((l['name'], l['color'], l['description']))) for l in json.load(open('.github/labels.json'))]" \
+            | while IFS=$'\t' read -r name color desc; do
+                echo "syncing label: $name"
+                gh label create "$name" --color "$color" --description "$desc" --force
+              done
