@@ -138,7 +138,12 @@ variable "newrelic_region" {
 3. `newrelic_service_level` — SLOs; `events` block uses `valid_events` / `good_events` (and optionally `bad_events`) NRQL query blocks — NOT `valid` / `good`
 
 ### Key gotchas
-- `account_id` is required on EVERY resource; there is no provider-level default
+- `account_id` has no provider-level default and must be set per resource — but WHERE differs by
+  resource. It is a top-level argument on `newrelic_one_dashboard`, `newrelic_alert_policy`, and
+  `newrelic_nrql_alert_condition`. On `newrelic_service_level` there is **no** top-level
+  `account_id` — it goes inside the `events` block (a top-level `account_id` there fails
+  `terraform validate` with "An argument named account_id is not expected here"). Verified against
+  `newrelic/newrelic` v3.x via `terraform providers schema -json`; re-check if you bump the pin.
 - `newrelic_nrql_alert_condition` requires an `alert_policy_id`; always create `newrelic_alert_policy` first
 - Service level `good` query denominator must return a rate between 0 and 1 — divide by total count
 - NRQL uses `FROM Span` for OTel trace data; attribute names follow OTel semconv directly
