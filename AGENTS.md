@@ -8,7 +8,7 @@ Cross-agent instructions for this repo, read by Codex (and other agents that hon
 
 ## What this is
 otel-as-code is a toolkit for OpenTelemetry instrumentation and observability-as-code:
-instrument a codebase (Node.js / Python), infer service identity from the repo, and generate
+instrument a codebase (Node.js / Python / Java / .NET), infer service identity from the repo, and generate
 vendor-neutral Terraform for Grafana / Datadog / New Relic / Dash0. It ships as a Claude Code
 plugin AND as Codex skills.
 

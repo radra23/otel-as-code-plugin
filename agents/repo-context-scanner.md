@@ -180,15 +180,17 @@ found none.
    Then set two booleans — they answer DIFFERENT questions; one flag cannot carry both without
    hiding an already-instrumented service as "nothing to do here":
    - `generatorSupported` — can `instrumentation-gen` emit a bootstrap for this runtime today?
-     `true` for `node`, `python`, `jvm`; `false` otherwise. This drives `/otel-instrument`'s
-     candidate list.
+     `true` for `node`, `python`, `jvm`, `dotnet`; `false` otherwise. This drives
+     `/otel-instrument`'s candidate list. (For `dotnet`, generation additionally requires a
+     hosted app — ASP.NET Core or Generic Host; a plain console app is refused downstream at
+     generation time, so `generatorSupported` stays `true` here.)
    - `inScope` — is this service a candidate for observability work at all? `false` ONLY for a
      genuinely out-of-scope runtime (a `browser` bundle — per ROADMAP "Not planned"); `true`
-     otherwise, INCLUDING a runtime merely outside today's codegen (`dotnet`, `go` — first-class
-     OTel runtimes on the roadmap, and often already instrumented by hand). `/otel-evaluate` is
+     otherwise, INCLUDING a runtime merely outside today's codegen (`go` — a first-class
+     OTel runtime on the roadmap, and often already instrumented by hand). `/otel-evaluate` is
      read-only and language-agnostic and must never be filtered out by a missing generator.
    - `instrumentableReason` — one line, set when either flag is `false`, naming which and why:
-     `"generatorSupported:false — runtime dotnet not in instrumentation-gen's set (node/python/jvm); inScope:true (first-class OTel runtime, roadmap)"`
+     `"generatorSupported:false — runtime go not in instrumentation-gen's set (node/python/jvm/dotnet); inScope:true (first-class OTel runtime, roadmap)"`
      or `"generatorSupported:false, inScope:false — runtime browser; browser/RUM is out of scope (ROADMAP: Not planned)"`.
 
 4. Determine `host` — **how the process is started**, which decides whether an inbound HTTP

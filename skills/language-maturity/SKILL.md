@@ -27,8 +27,9 @@ conflating them is how a Vite + React SPA (`language: nodejs`, `runtime: browser
 | `node`    | yes       | Node.js row below                                                 |
 | `python`  | yes       | Python row below                                                  |
 | `jvm`     | yes       | Java agent row below                                              |
+| `dotnet`  | yes       | .NET code-based SDK (all signals Stable) — see the .NET row below |
 | `browser` | **no**    | Out of scope for the MVP — see "Browser / RUM" below              |
-| `go` `dotnet` `ruby` `php` `rust` | not yet | v1 additions table at the end          |
+| `go` `ruby` `php` `rust` | not yet | v1 additions table at the end                       |
 
 ### Browser / RUM — out of scope, deliberately
 
@@ -43,7 +44,7 @@ plugin applies to it.
 rather than generating a near-miss. This is stated here as well as in the MVP docs because the
 only other way to discover it is to try it.
 
-## Supported Languages (Node.js, Python, Java)
+## Supported Languages (Node.js, Python, Java, .NET)
 
 ### Node.js
 | Signal  | Status | Package                                              |
@@ -93,6 +94,23 @@ Java section in `instrumentation-gen`). The agent exports OTLP by default, so pe
 env (`OTEL_TRACES_EXPORTER=otlp`, etc.) is redundant and omitted. "Logs = Stable" refers to the
 log-appender bridge (application logging frameworks → OTLP logs), not arbitrary log collection.
 
+### .NET (code-based SDK)
+| Signal  | Status | Mechanism                                                          |
+|---------|--------|--------------------------------------------------------------------|
+| Traces  | Stable | `OpenTelemetry.Instrumentation.AspNetCore` / `.Http` + OTLP exporter |
+| Metrics | Stable | same instrumentation packages, `WithMetrics`                       |
+| Logs    | Stable | `builder.Logging.AddOpenTelemetry(...)` (ILogger → OTLP)           |
+| Auto    | n/a    | code-based DI wiring, not a profiler (the zero-code agent is a v1 follow-up) |
+
+.NET uses a **code-based** SDK wired into the DI container — the generator emits a marker-stamped
+`OpenTelemetry.cs` (a `public static IServiceCollection AddOtelObservability(...)` extension) and
+prints the single `Program.cs` line + `dotnet add package` commands, rather than editing the
+user's files (see the .NET section in `instrumentation-gen`). All signals are Stable, so nothing
+is gated behind `--experimental`. Traces + metrics ship in the extension; logs wire on
+`builder.Logging` (a separate line) so they are offered as a printed optional add-on rather than
+folded into the one-liner. Requires a hosted app (ASP.NET Core / Generic Host); a plain console
+app has no `IServiceCollection` and is refused.
+
 ## Feature Gating Rules
 
 When generating code for a signal:
@@ -112,7 +130,6 @@ Never block an entire SDK generation request because one signal is Development-l
 | Language | Traces  | Metrics | Logs        |
 |----------|---------|---------|-------------|
 | Go       | Stable  | Stable  | Beta        |
-| .NET     | Stable  | Stable  | Stable      |
 | Ruby     | Beta    | Beta    | Development |
 | PHP      | Stable  | Beta    | Development |
 | Rust     | Beta    | Beta    | Development |

@@ -216,7 +216,10 @@ expect_blocked() {
   rm -rf "$tmp"
 }
 
-for name in telemetry.ts telemetry.go tracing.mjs opentelemetry.py tracing.rb; do
+# OpenTelemetry.cs is the .NET SDK wiring file. It is PascalCase by C# convention, so it does NOT
+# match the lowercase <stem>.<ext> grid (opentelemetry.cs would) — it is guarded only because it is
+# an exact entry in OTEL_FIXED_NAMES. This case is what proves that entry is load-bearing.
+for name in telemetry.ts telemetry.go tracing.mjs opentelemetry.py tracing.rb OpenTelemetry.cs; do
   expect_blocked "$name"
 done
 

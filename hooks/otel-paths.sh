@@ -21,8 +21,11 @@ OTEL_STEMS=(tracing telemetry opentelemetry)
 # otel-java.env below — the generator never writes a tracing.java.
 OTEL_EXTS=(js mjs cjs ts mts cts py go cs rb php rs)
 
-# Fixed-name artifacts that carry no stem/extension pattern.
-OTEL_FIXED_NAMES=(otel-java.env otelcol-agent.yaml otelcol-gateway.yaml)
+# Fixed-name artifacts that carry no stem/extension pattern. OpenTelemetry.cs is the .NET SDK
+# wiring class: matching here is exact and case-sensitive, and .NET convention names the file
+# PascalCase, so the lowercase `opentelemetry.cs` produced by the stem×ext grid would NOT cover
+# it — this line is what actually guards the generated .NET file.
+OTEL_FIXED_NAMES=(otel-java.env otelcol-agent.yaml otelcol-gateway.yaml OpenTelemetry.cs)
 
 # otel_is_generated_basename <basename> — true when the basename is one this plugin
 # generates. Matching is exact (not a suffix glob), so a user's `request-tracing.js` is
