@@ -13,7 +13,10 @@ Generate OTel SDK bootstrap and OTLP wiring for one service.
 - `--service <id>` — the service to instrument, by `id` from the context JSON. Skips the
   Step 2 prompt.
 - `--fix <ids>` — apply only the findings with these IDs from the most recent
-  `/otel-evaluate` report (e.g. `--fix SC-2,SH-1`). Scopes regeneration to those findings
+  `/otel-evaluate` report. IDs are the `<CAT>-<id>` form that report emits (e.g.
+  `--fix CV-a1b2,SH-2a55`), and in a multi-service repo they are service-qualified
+  (`--fix bot:CV-a1b2`) — see the finding-ID scheme in `agents/brownfield-auditor.md`. Scopes
+  regeneration to those findings
   instead of rewriting whole files. See Step 5.
 - `--experimental` — unlock pre-Stable signals (e.g. logs for Python). Passed to
   both `language-maturity` and `semconv-discipline` skills.
