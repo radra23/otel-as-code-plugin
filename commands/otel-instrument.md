@@ -1,6 +1,6 @@
 ---
 description: Generate OTel SDK bootstrap and OTLP wiring for this service
-argument-hint: "[language] [--service <id>] [--fix <ids>] [--experimental] [--force]"
+argument-hint: "[language] [--service <id>] [--fix <ids>] [--experimental] [--force] [--dry-run]"
 ---
 
 # /otel-instrument [language] [--service <id>] [--fix <ids>] [--experimental] [--force]
@@ -23,6 +23,11 @@ Generate OTel SDK bootstrap and OTLP wiring for one service.
 - `--force` — overwrite existing generated artifacts. Required if the write-guard hook blocks
   a re-generation. **`--force` is a full regeneration and discards hand edits** — read the
   warning in Step 4 before using it.
+- `--dry-run` — preview without writing. Generate exactly as normal, then print a unified diff of
+  each would-be file against what is on disk (or "would create" for a new file) and exit WITHOUT
+  writing — non-zero if anything would change, so it composes in CI. Pairs with `--force`: it is
+  the only way to see what a destructive regeneration would do before it discards your edits. See
+  the Dry run section.
 
 ## Step 1: Load context
 
@@ -167,6 +172,18 @@ Pass to `otel-as-code:instrumentation-gen`:
   `/otel-evaluate` report — each with its `file`, `line`, and required change. With a
   `fixList`, the subagent edits only those sites and leaves the rest of each file alone;
   it does not regenerate the file.
+
+## Dry run (`--dry-run`)
+
+If `--dry-run` was passed, do NOT let the subagent write and do NOT proceed to Steps 6–8's
+side effects. Instead: pass `dryRun: true` in the Step 5 dispatch, so `instrumentation-gen`
+returns each intended file as `{path, content}` rather than writing. Then, for each returned file:
+- if it exists on disk, print a unified diff of the returned content against the on-disk content
+  (e.g. write the content to a temp file and `git diff --no-index <disk> <tmp>`);
+- if it does not exist, print `would create <path> (<n> lines)`.
+Write nothing, do NOT touch the cache (Step 6) or the `.claude/.otel-force` sentinel, and exit
+**non-zero if any file would change** (zero if the diff is empty) so `--dry-run` composes in CI.
+This is the only way to preview a `--force` regeneration before it discards hand edits.
 
 ## Step 6: Record what was written back into the cache
 
