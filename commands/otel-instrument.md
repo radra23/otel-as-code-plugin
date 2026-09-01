@@ -238,28 +238,58 @@ Use `service.deployment.configFiles` and `service.deployment.endpointConfigured`
 context to make this concrete rather than generic:
 
 - **`endpointConfigured: true`** — print one line confirming where it is set, and move on.
-- **`endpointConfigured: false` and `configFiles` is non-empty** — name the exact files, and
-  offer to write the settings:
-  ```
-  ⚠ Not done yet: no OTLP endpoint is configured for this deployment.
-    Until one is set, every exporter defaults to "none" and this service emits nothing
-    in the deployed environment.
+- **`endpointConfigured: false` and `configFiles` is non-empty** — the highest-impact gap in the
+  whole flow (an instrumented service with no endpoint costs money and produces nothing), so do
+  more than name it: **detect the target type from the config file and emit the settings in that
+  file's own syntax**, then offer to write them in. Map the file to its shape:
 
-    Deployment config found: infra/main.tf (azurerm_linux_function_app app_settings)
-    Required settings:
-      OTEL_EXPORTER_OTLP_ENDPOINT = <your collector or vendor endpoint>
-      OTEL_EXPORTER_OTLP_PROTOCOL = grpc
-      OTEL_TRACES_EXPORTER  = otlp
-      OTEL_METRICS_EXPORTER = otlp
-      OTEL_LOGS_EXPORTER    = otlp
+  | Config file (`configFiles`) | Target | Emit as |
+  |---|---|---|
+  | `*.tf` on a function-app / app-service / container resource | Terraform | an `app_settings = { … }` / `env { … }` block on that resource |
+  | `*.bicep` | Bicep | `appSettings` array entries (`{ name: '…', value: '…' }`) |
+  | `k8s/*.yaml`, `*deployment*.yaml`, `values.yaml`/`Chart.yaml` | Kubernetes | an `env:` list on the container (or ConfigMap keys) |
+  | `docker-compose.y*ml` | Compose | an `environment:` map on the service |
 
-    Want me to add these to infra/main.tf? [y/N]
+  The settings, in every case (`DEPLOYMENT_ENV` ties to the deployment-environment default, see
+  the instrumentation-gen notes):
   ```
-  If the user accepts, write them into that file. This is the highest-impact gap in the whole
-  flow: an instrumented service with no endpoint costs money and produces nothing.
-- **`configFiles` empty or `endpointConfigured: null`** — say so plainly and list where the
-  settings usually go for this `host` (Terraform `app_settings`, a Bicep `appSettings` block, a
-  k8s `env:` / ConfigMap, `docker-compose.yml` `environment:`, a platform dashboard).
+  OTEL_EXPORTER_OTLP_ENDPOINT   # your collector or vendor OTLP endpoint (do NOT invent it)
+  OTEL_EXPORTER_OTLP_PROTOCOL = grpc
+  OTEL_TRACES_EXPORTER  = otlp
+  OTEL_METRICS_EXPORTER = otlp
+  OTEL_LOGS_EXPORTER    = otlp
+  DEPLOYMENT_ENV        # this target's environment, e.g. production
+  ```
+
+  Render them in the detected file's syntax — e.g. Terraform:
+  ```hcl
+  app_settings = {
+    OTEL_EXPORTER_OTLP_ENDPOINT = var.otel_exporter_otlp_endpoint
+    OTEL_EXPORTER_OTLP_PROTOCOL = "grpc"
+    OTEL_TRACES_EXPORTER        = "otlp"
+    OTEL_METRICS_EXPORTER       = "otlp"
+    OTEL_LOGS_EXPORTER          = "otlp"
+    DEPLOYMENT_ENV              = "production"
+  }
+  ```
+  or Kubernetes:
+  ```yaml
+  env:
+    - { name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector:4317" }
+    - { name: OTEL_EXPORTER_OTLP_PROTOCOL, value: "grpc" }
+    - { name: OTEL_TRACES_EXPORTER,  value: "otlp" }
+    - { name: OTEL_METRICS_EXPORTER, value: "otlp" }
+    - { name: OTEL_LOGS_EXPORTER,    value: "otlp" }
+    - { name: DEPLOYMENT_ENV,        value: "production" }
+  ```
+  Print the ⚠ banner, show the stanza in the right syntax, name the exact file, and ask
+  "Want me to add these to `<file>`? [y/N]". On yes, **merge into the existing resource/service
+  block** — read the file, find the right block, add only the missing keys; never append a
+  duplicate block. **Never invent the endpoint value**: leave it as a variable/placeholder the
+  user fills, and say so.
+- **`configFiles` empty or `endpointConfigured: null`** — no deployment file to write into. Print
+  the ⚠ banner and the `KEY=value` list, and name where the settings go for this `host` (a Bicep
+  `appSettings` block, a platform dashboard's app settings, a CI secret, etc.).
 
 Then, for local development:
 ```
