@@ -29,6 +29,10 @@ You will receive:
    header placeholder; never restate it from memory.
 10. `languageMaturityPath` — absolute path to the `language-maturity` SKILL.md; `Read` it for the
     per-language signal-maturity matrix (you cannot invoke the skill by name).
+11. `dryRun` (optional, default false) — when `true`, do NOT `Write` anything. Instead return
+    each file you WOULD write as a `{path, content}` object so the command can diff it against
+    disk. Generate exactly as you normally would (same `preserve`/`fixList` handling); only the
+    final write is suppressed.
 
 ## Runtime and host gating (apply before writing anything)
 

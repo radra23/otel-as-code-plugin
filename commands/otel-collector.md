@@ -1,6 +1,6 @@
 ---
 description: Generate an otelcol-contrib config (agent or gateway mode)
-argument-hint: "[agent|gateway] [--experimental]"
+argument-hint: "[agent|gateway] [--experimental] [--force] [--dry-run]"
 ---
 
 # /otel-collector [mode] [--experimental]
@@ -12,6 +12,10 @@ Generate an otelcol-contrib config for this service's Collector setup.
 - `--experimental` — include experimental processors/receivers
 - `--force` — overwrite an existing `otelcol-agent.yaml` / `otelcol-gateway.yaml`. Required if the
   write-guard hook blocks re-generation (it protects generated collector configs).
+- `--dry-run` — preview without writing. Generate the config as normal (Step 4) but, instead of
+  writing it in Step 5, print a unified diff of the would-be YAML against the on-disk file (or
+  "would create `<filename>`" if absent), write nothing, do NOT create the `.otel-force` sentinel,
+  and exit non-zero if it would change — so it composes in CI.
 
 ## Step 1: Load the collector-topology skill
 

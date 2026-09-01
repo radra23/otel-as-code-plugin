@@ -18,6 +18,9 @@ to the target directory. You run `terraform fmt` and `terraform validate` after 
 5. `experimental` — boolean, default false
 6. `terraformPatternsPath` — absolute path to the `terraform-patterns` SKILL.md, passed by the
    dispatching command; `Read` it for the per-backend patterns/gotchas (you have no `Skill` tool).
+7. `dryRun` (optional, default false) — when `true`, do NOT write the module files (and skip
+   `terraform fmt`/`validate`, which need files on disk). Generate as normal and return each file
+   as a `{path, content}` object so the command can diff it against disk.
 
 ## kind parameter behavior
 

@@ -1,6 +1,6 @@
 ---
 description: Generate Terraform for one observability backend (grafana | datadog | newrelic | dash0)
-argument-hint: "<vendor> [--kind all|dashboard|alerts|slo] [--output-dir <path>] [--experimental] [--force]"
+argument-hint: "<vendor> [--kind all|dashboard|alerts|slo] [--output-dir <path>] [--experimental] [--force] [--dry-run]"
 ---
 
 # /otel-backend <vendor> [--kind all|dashboard|alerts|slo] [--output-dir <path>] [--experimental] [--force]
@@ -15,6 +15,11 @@ source of truth (currently grafana, datadog, newrelic, dash0).
 - `--output-dir` — default `infra/observability/<vendor>/`
 - `--experimental` — include pre-Stable semconv in generated resource queries
 - `--force` — overwrite existing module files
+- `--dry-run` — preview without writing: pass `dryRun: true` to `terraform-gen` (Step 4) so it
+  returns each file as `{path, content}` instead of writing; print a unified diff of each against
+  on-disk (or "would create" for a new file), write nothing, do NOT create the `.otel-force`
+  sentinel, and exit non-zero if anything would change. `terraform fmt`/`validate` are skipped
+  (they need files on disk)
 
 ## Step 1: Validate vendor argument
 
