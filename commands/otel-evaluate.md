@@ -64,6 +64,11 @@ Read each file with the Read tool.
 Pass to `otel-as-code:brownfield-auditor`:
 - `context`: loaded context JSON
 - the list of read OTel source files, with their paths
+- `semconvVersion`: the `SEMCONV_VERSION` from the `semconv-discipline` skill (read it here — the
+  auditor has no `Skill` tool, and without this it stamps a version from memory: a report that
+  read `1.27.0` while the pin was `1.44.0` is exactly the failure to prevent).
+- `semconvGuidancePath`: `${CLAUDE_PLUGIN_ROOT}/skills/semconv-discipline/SKILL.md` — the auditor
+  `Read`s it for the OLD→NEW attribute table and the high-cardinality list.
 - `cachedJudgements`: `services[i].derived` for each service — passed explicitly as **claims to
   re-verify, not findings to inherit**. Include each block's `guidanceVersion` so the auditor
   can see which predate the current `SEMCONV_VERSION`.

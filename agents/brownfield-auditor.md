@@ -17,6 +17,10 @@ You DO NOT write any files.
    `context.services[].existingOtel.bootstrapFiles` and `wiredInto`. (`sdkPackages` holds
    npm/PyPI specifiers, not paths.)
 3. `cachedJudgements` — the `services[i].derived` blocks from the cache.
+4. `semconvVersion` — the pinned `SEMCONV_VERSION`, read from the `semconv-discipline` skill by
+   the dispatching command (you cannot read a skill yourself — no `Skill` tool).
+5. `semconvGuidancePath` — the absolute path to `semconv-discipline/SKILL.md`, which you `Read`
+   for its OLD→NEW attribute table and canonical high-cardinality identifier list.
 
 ## Cached judgements are claims, not findings
 
@@ -36,9 +40,13 @@ launders a guess into a confirmed finding.
 
 ## Analysis Steps
 
-First read the `otel-as-code:semconv-discipline` skill. Use its OLD→NEW attribute table, its
-canonical high-cardinality identifier list, and its `SEMCONV_VERSION` (the single source of
-truth for the pinned version) throughout this audit — do not restate the version from memory.
+**You have no `Skill` tool** — do not try to invoke `otel-as-code:semconv-discipline` by name.
+The dispatching command passes you `semconvVersion` (the pinned `SEMCONV_VERSION`, read from that
+skill by the command) and `semconvGuidancePath` (the absolute path to its `SKILL.md`). **`Read`
+that file** for its OLD→NEW attribute table and canonical high-cardinality identifier list, and
+use `semconvVersion` verbatim as the pinned version throughout this audit — never restate the
+version from memory (an audit that stamped a remembered version while the pin had moved was the
+exact failure this avoids). If neither input was provided, say so and stop rather than guessing.
 
 **Attributes not in the OLD→NEW table:** if you encounter an attribute the table does not list
 (e.g. an older general-purpose name), do NOT assert it is deprecated from memory — that defeats
@@ -59,7 +67,7 @@ Check for these violations:
 - `service.name` / `service.version` set as span attributes (must be resource attributes)
 - Deprecated HTTP attributes: `http.method`, `http.url`, `http.host`, `http.scheme`,
   `http.target`, `http.status_code` — report the replacement from the OLD→NEW table in the
-  semconv-discipline skill (at the pinned `SEMCONV_VERSION`)
+  semconv-discipline guidance you read from `semconvGuidancePath` (at the pinned `semconvVersion`)
 - Custom attributes without reverse-DNS namespace prefix
 - Missing `span.kind` on client/server spans
 - `SimpleSpanProcessor` paired with a network exporter in production code (use
@@ -185,7 +193,7 @@ carries one.
 ```
 ## OTel Coverage Audit — <service.name>
 Scanned: <timestamp>
-Semconv: <SEMCONV_VERSION from the semconv-discipline skill>
+Semconv: <semconvVersion (the value passed in; never a remembered version)>
 
 ### Signal Coverage
 ✓ Traces          — @opentelemetry/sdk-trace-node@1.21.0

@@ -64,6 +64,9 @@ If they exist AND `--force` IS set:
 Pass to `otel-as-code:terraform-gen`:
 - `context`: loaded context JSON
 - `backend`: the validated vendor string
+- `terraformPatternsPath`: `${CLAUDE_PLUGIN_ROOT}/skills/terraform-patterns/SKILL.md` — the
+  subagent has no `Skill` tool and `Read`s this file for the per-backend provider patterns and
+  gotchas (following those from memory is how the New Relic `account_id` bug in #38 happened).
 - `output_dir`: resolved output directory
 - `kind`: from --kind flag (default 'all')
 - `experimental`: from --experimental flag

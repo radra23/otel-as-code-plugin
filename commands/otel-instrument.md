@@ -32,7 +32,9 @@ Check `.claude/otel-context.json`. Apply the freshness rule from `/otel-init` St
 (identity-input fingerprint, not `HEAD`). If stale or absent:
 - Run `/otel-init` logic inline — dispatch `otel-as-code:repo-context-scanner` **passing the
   existing cache as `priorContext`** so confirmed answers survive, and write what it returns.
-  A refresh is a merge, never a replace (see `agents/repo-context-scanner.md`).
+  A refresh is a merge, never a replace (see `agents/repo-context-scanner.md`). Pass the same
+  `semconvVersion` + `semconvGuidancePath` inputs `/otel-init` Step 2 does — the scanner has no
+  `Skill` tool and cannot read the guidance itself.
 - Do NOT print the /otel-init success message; just run the scan silently.
 
 ## Step 2: Select the target SERVICE
@@ -155,6 +157,10 @@ Pass to `otel-as-code:instrumentation-gen`:
 - `runtime` / `host`: from the selected service — these decide whether an inbound HTTP server
   exists to instrument (see the serverless section of `instrumentation-gen`)
 - `experimental`: boolean from --experimental flag
+- `semconvVersion`: the `SEMCONV_VERSION` from the `semconv-discipline` skill (the subagent has no
+  `Skill` tool; it stamps this into the header and must not restate it from memory)
+- `languageMaturityPath`: `${CLAUDE_PLUGIN_ROOT}/skills/language-maturity/SKILL.md` — the subagent
+  `Read`s it for the per-language signal-maturity matrix
 - `existingArtifacts`: the paths resolved in Step 4
 - `preserve`: the current content of each file being overwritten, when `--force` was used
 - `fixList`: when `--fix <ids>` was given, the findings with those IDs from the most recent
