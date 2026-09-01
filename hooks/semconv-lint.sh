@@ -20,13 +20,24 @@ STRICT=0
 STRICT_SENTINEL="${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude/.otel-strict"
 [ -f "$STRICT_SENTINEL" ] && STRICT=1
 
-# Resolve a JSON parser (jq is not assumed). Without python we cannot parse the payload or run
-# the checks: in strict mode that would silently drop the block guarantee, so fail closed
-# (exit 2); in advisory (default) mode, skip quietly (exit 0) with a note. OTEL_HOOK_PYTHON
-# overrides the interpreter (the tests set it empty to simulate absence).
-PY="${OTEL_HOOK_PYTHON-$(command -v python3 || command -v python || true)}"
+# Resolve a JSON parser that ACTUALLY RUNS (jq is not assumed). `command -v` is not enough: on
+# Windows `python3` is commonly an App Execution Alias stub that is on PATH and resolves but
+# errors when run — trusting it left the lint parsing nothing, so strict mode's block guarantee
+# silently evaporated. Verify each candidate by executing it; the first working one wins (a real
+# Python is often `python` when `python3` is the stub). If none run: in strict mode fail closed
+# (exit 2), in advisory (default) mode skip quietly (exit 0). OTEL_HOOK_PYTHON overrides the probe
+# (the tests set it — empty — to simulate absence); when set it is the only candidate and must run.
+py_runs() { printf '' | "$@" -c 'pass' >/dev/null 2>&1; }
+PY=""
+if [ "${OTEL_HOOK_PYTHON+set}" = "set" ]; then
+  if [ -n "$OTEL_HOOK_PYTHON" ] && py_runs "$OTEL_HOOK_PYTHON"; then PY="$OTEL_HOOK_PYTHON"; fi
+else
+  for cand in python3 python; do
+    if command -v "$cand" >/dev/null 2>&1 && py_runs "$cand"; then PY="$cand"; break; fi
+  done
+fi
 if [ -z "$PY" ]; then
-  echo "otel-as-code semconv-lint: no python3 on PATH — cannot lint this write." >&2
+  echo "otel-as-code semconv-lint: no WORKING python found (python3/python absent or non-functional — on Windows, python3 may be a Store alias stub). Cannot lint this write." >&2
   [ "$STRICT" -eq 1 ] && exit 2 || exit 0
 fi
 
