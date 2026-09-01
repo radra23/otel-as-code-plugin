@@ -6,10 +6,12 @@ acceptance criteria (see `DESIGN.md`):
 
 - **#1 — trace flow (+ Python `--experimental` logs).** The golden agent Collector
   config (`tests/snapshots/collector/otelcol-agent.yaml.snap`) routes real OTLP
-  traffic from the golden Node.js and Python SDK bootstraps AND a Java service under
-  the OpenTelemetry Java **agent**, through the *actual* golden Collector config, into
-  Jaeger — and the resulting traces carry the correct `service.*` resource
-  attributes. The Python app is seeded with the `--experimental` bootstrap
+  traffic from the golden Node.js and Python SDK bootstraps, a Java service under
+  the OpenTelemetry Java **agent**, AND a Next.js app instrumented via the golden
+  `instrumentation.js` register hook (`@vercel/otel`, over OTLP/HTTP), through the
+  *actual* golden Collector config, into Jaeger — and the resulting traces carry the
+  correct `service.*` resource attributes. The Python app is seeded with the
+  `--experimental` bootstrap
   (traces + metrics + the Development-level logs pipeline), and the run additionally
   asserts that a stdlib log it emits is exported as an OTLP **log record** with the
   right `service.name` (proving the #12 logs path end-to-end). Run locally:
@@ -53,23 +55,32 @@ every push/PR. #4 stays local-only.
    `tests/snapshots/instrument/java/otel-java.env`, and downloads the pinned OTel
    Java agent JAR (v2.31.1) — no source instrumentation; the agent auto-instruments
    the JDK `com.sun.net.httpserver` app at runtime.
+   For Next.js it copies the pristine `fixtures/nextjs-greenfield/` App Router app +
+   the golden `tests/snapshots/instrument/nextjs/{instrumentation.js,package.json}`
+   (the register hook + `@vercel/otel` manifest); the container runs `npm install`,
+   `next build`, and `next start`, and Next.js 15 auto-detects `instrumentation.js`.
 2. Brings up `docker-compose.yml`: `jaeger` (native OTLP receiver on `:4317`),
    `collector` (the golden agent config **plus** `collector-logs-overlay.yaml`, a
    deep-merged second `--config` that fans the logs pipeline out to a `file` exporter
    writing `.work/collector-out/logs.json` — the golden snapshot is not modified),
    `node-app`
    (checkout-api, publishes `3000:3000`), `python-app` (inventory-api, publishes
-   `8000:8000`), and `java-app` (payments-api, `eclipse-temurin` JDK running under
-   `-javaagent`, publishes `8080:8080`).
-3. Drives load against **all three** apps from the host, over the published ports —
-   `curl` against `localhost:3000`, `localhost:8000`, and `localhost:8080` — every
-   wait (app readiness, trace poll) is bounded so a hung stack can't hang CI.
+   `8000:8000`), `java-app` (payments-api, `eclipse-temurin` JDK running under
+   `-javaagent`, publishes `8080:8080`), and `nextjs-app` (web-frontend, exporting to
+   the collector's **HTTP** port `4318` since `@vercel/otel` is OTLP/HTTP only,
+   publishes `3001:3000`).
+3. Drives load against **all four** apps from the host, over the published ports —
+   `curl` against `localhost:3000`, `localhost:8000`, `localhost:8080`, and
+   `localhost:3001` — every wait (app readiness, trace poll) is bounded so a hung
+   stack can't hang CI. The Next.js app gets a larger readiness timeout because it
+   runs `npm install` + `next build` inline.
 4. Asserts, via `assert-traces.sh` against Jaeger's query API on
-   `localhost:16686`, that all three services produced traces with the expected
+   `localhost:16686`, that all four services produced traces with the expected
    `service.*` attributes:
    - `checkout-api`: `service.name=checkout-api,service.version=1.4.2,service.namespace=storefront`
    - `inventory-api`: `service.name=inventory-api,service.version=0.3.1,service.namespace=storefront,deployment.environment.name=e2e`
    - `payments-api`: `service.name=payments-api,service.version=1.0.0,service.namespace=storefront,deployment.environment.name=e2e`
+   - `web-frontend` (Next.js): `service.name=web-frontend,service.version=2.1.0,service.namespace=storefront,deployment.environment.name=e2e`
 5. Asserts, via `assert-logs.sh` against `.work/collector-out/logs.json`, that the
    Python app's `reserved sku=...` log (emitted on `/inventory/reserve`, bridged to
    OTLP by the `--experimental` bootstrap) arrived as a log record with
@@ -110,10 +121,15 @@ exporter defaults to TLS regardless of an `http://` endpoint scheme, so
 | `otel/opentelemetry-collector-contrib` | `0.128.0` |
 | `node` (base image) | `20-bookworm-slim` |
 | `python` (base image) | `3.12-slim-bookworm` |
+| `eclipse-temurin` (base image) | `21-jdk-jammy` |
+| OTel Java agent | `2.31.1` |
+| `next` / `react` (Next.js fixture) | `15.1.12` / `19.0.0` |
+| `@vercel/otel` (Next.js instrument snapshot) | `1.14.2` |
 
 ## Fixtures stay pristine
 
-`fixtures/nodejs-greenfield/` and `fixtures/python-greenfield/` are never written
-to. `run.sh` copies them into `tests/e2e/.work/` (gitignored, recreated and
-removed on every run) and layers the golden generated artifacts on top of the
+`fixtures/nodejs-greenfield/`, `fixtures/python-greenfield/`, and
+`fixtures/nextjs-greenfield/` are never written to. `run.sh` copies them into
+`tests/e2e/.work/` (gitignored, recreated and removed on every run) and layers the
+golden generated artifacts on top of the
 copies there.

@@ -118,6 +118,16 @@ jobs:
           test -f fixtures/python-greenfield/Dockerfile
           ! grep -q "opentelemetry" fixtures/python-greenfield/pyproject.toml
 
+      - name: Check nextjs-greenfield fixture
+        run: |
+          test -f fixtures/nextjs-greenfield/package.json
+          test -f fixtures/nextjs-greenfield/next.config.js
+          test -f fixtures/nextjs-greenfield/app/page.js
+          test -f fixtures/nextjs-greenfield/app/api/ping/route.js
+          # Greenfield: no OTel of any kind (the golden instrument snapshot adds @vercel/otel)
+          ! grep -qE "@opentelemetry|@vercel/otel|instrumentation" fixtures/nextjs-greenfield/package.json
+          ! test -f fixtures/nextjs-greenfield/instrumentation.js
+
       - name: Check nodejs-brownfield fixture has seeded violations
         run: |
           test -f fixtures/nodejs-brownfield/tracing.js
