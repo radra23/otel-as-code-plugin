@@ -171,6 +171,13 @@ found none.
    - Node.js: `@opentelemetry/` in any `package.json` dependencies
    - Python: `opentelemetry-` in any `pyproject.toml` or `requirements.txt`
    - Hand-rolled: look for `NodeTracerProvider`, `TracerProvider`, `trace.getTracer` in source files
+   - **OTel-based vendor SDKs** — a dependency that sets up its own global OTel `TracerProvider`
+     internally, even though `@opentelemetry/*` is not a direct dep. These COLLIDE with a
+     generated SDK (only one global TracerProvider per process). Record them in
+     `existingOtel.otelBasedSdks` (a list of the package names found). The clearest case is
+     Sentry: `@sentry/node` / `@sentry/nextjs` / other `@sentry/*` Node SDKs are OTel-based from
+     v8 onward. Other APM-vendor Node SDKs increasingly are too — if a dependency's own docs say
+     it uses OpenTelemetry, list it. Set `hasTraces` accordingly and note it in `derived.notes`.
    - `bootstrapFiles`: repo-relative paths of every file that configures OTel — the SDK
      bootstrap and any helper module beside it. Glob the **whole service subtree**, not just its
      root, for `tracing.*`, `telemetry.*`, `opentelemetry.*` (a TypeScript API commonly puts
@@ -254,6 +261,7 @@ Return ONLY the following JSON object. No explanation, no preamble, no markdown 
         "hasLogs": false,
         "sdkVersion": null,
         "sdkPackages": [],
+        "otelBasedSdks": [],
         "bootstrapFiles": [],
         "wiredInto": [],
         "source": "scanned",

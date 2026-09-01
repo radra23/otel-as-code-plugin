@@ -37,6 +37,36 @@ than no code.
 `host` decides whether an inbound HTTP server exists to instrument at all — see "Serverless
 hosts" below, and resolve it before you claim the service is instrumented.
 
+## Existing OTel-based SDKs (coexistence — check before generating)
+
+Some dependencies stand up their own global OpenTelemetry `TracerProvider` internally, even with
+no direct `@opentelemetry/*` dependency. The scanner records these in
+`service.existingOtel.otelBasedSdks` — the clearest case is Sentry (`@sentry/node` /
+`@sentry/nextjs` are OTel-based from v8 on); other APM SDKs increasingly are. **If that list is
+non-empty, a generated SDK that registers a global provider collides with it** — do not just
+emit a second auto-starting SDK.
+
+Describe the collision accurately (do NOT claim it "silently no-ops"): the OTel API permits
+exactly one global `TracerProvider`; the first to register wins and the second registration
+fails, logged by `@opentelemetry/api` through its diag logger as a real `Error` with a stack
+trace ("Attempted duplicate registration of API: trace"). It is **non-fatal** — the process does
+not crash — but it is logged, not silent, and the losing SDK's tracing is left inert.
+
+When `otelBasedSdks` is non-empty:
+1. **Surface it** in the summary — name the SDK and state that two global providers cannot coexist.
+2. **Offer the resolution rather than silently picking one:**
+   - let the existing SDK own OpenTelemetry and add this plugin's exporter/instrumentation
+     through it (many vendor SDKs accept extra span processors / exporters), or
+   - disable the vendor SDK's OTel setup so the generated SDK is the sole provider. For Sentry
+     that is `Sentry.init({ skipOpenTelemetrySetup: true })`, after which Sentry's own components
+     (SentrySpanProcessor, SentryPropagator, SentryContextManager, SentrySampler) must be wired
+     into the generated SDK to keep Sentry working — see Sentry's "Using Your Existing
+     OpenTelemetry Setup" guide. Verify the exact option and component names against the
+     installed SDK version rather than asserting them from here.
+3. If you do generate a bootstrap in this case, **gate it** (e.g. behind an env flag, default
+   off) and say plainly that enabling it without doing (2) will log the duplicate-registration
+   error and leave one SDK's tracing inert. Never present two co-registering SDKs as working.
+
 ## Preserving hand-written code (`preserve` / `fixList`)
 
 By the time a regeneration is worth running, the bootstrap has usually been edited by hand, and
