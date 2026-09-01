@@ -305,10 +305,14 @@ export function register() {
 ```
 
 Add `"@vercel/otel"` to `dependencies` (pin to the current release at generation time). It is
-exporter-agnostic, configured by `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_PROTOCOL`;
-verify the transports the installed `@vercel/otel` actually supports against the package (it is
-OTLP/HTTP-oriented) rather than assuming, and set the endpoint/protocol env to match — do not
-assert gRPC works here without checking.
+configured by `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_PROTOCOL`, but exports over
+**OTLP/HTTP only** — verified against `@vercel/otel` 2.1.3, whose exporters are HTTP/JSON and
+HTTP/protobuf. `OTEL_EXPORTER_OTLP_PROTOCOL=grpc` is not supported: it silently falls back to
+`http/protobuf`. So point `@vercel/otel` at the collector's **HTTP** endpoint (`:4318`,
+`http/protobuf`), NOT the gRPC `:4317` this plugin defaults to for the other bootstraps —
+pairing it with a `:4317` gRPC endpoint fails silently. If you need OTLP/gRPC, use the manual
+path below instead. Re-verify against the installed version, since `@vercel/otel` versions
+independently of the OTel SDK.
 
 **Manual alternative (no extra dependency), when you need full control of the SDK or a specific
 exporter:** gate on the runtime and load the Node SDK from a *separate* module so it is never
