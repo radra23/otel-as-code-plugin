@@ -40,6 +40,9 @@ jobs:
       - name: Run drift-check parser tests (offline)
         run: bash tests/drift-check.test.sh
 
+      - name: Run freshness-contract test (scanner identityInputs ↔ /otel-init regex)
+        run: bash tests/hooks/freshness-contract.test.sh
+
       - name: assert-traces unit test
         run: bash tests/e2e/assert-traces.test.sh
 

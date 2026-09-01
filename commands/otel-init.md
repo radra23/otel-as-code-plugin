@@ -32,7 +32,11 @@ costs minutes per command for nothing.
      | sort
    ```
    If this set differs from `freshness.identityInputs` in the cache, the cache is STALE
-   (a service was added or removed).
+   (a service was added or removed). This regex and the scanner's `identityInputs` (see
+   `agents/repo-context-scanner.md`) are ONE contract and must stay in lockstep: the scanner
+   must store exactly the paths this regex produces — no bare directories, no `.env`/CI files —
+   or the two sets differ on every run and the cache can never be judged current. Compare the
+   two as sorted sets, not by order.
 2. Otherwise recompute the fingerprint over that same list and compare to
    `freshness.identityFingerprint`:
    ```
