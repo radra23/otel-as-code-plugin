@@ -98,7 +98,12 @@ Two rules for judgements:
    - `name`: service name; priority order: Dockerfile LABEL > manifest `name` > directory name
    - `nameConfidence`: 0.97 for Dockerfile/manifest, 0.70 for directory
    - `language`: `nodejs`, `python`, `go`, `java`, `dotnet`, `ruby`, `php`, `rust`, `other`
-   - `framework`: `express`, `fastapi`, `django`, `flask`, `gin`, `spring`, `rails`, `other`, `unknown`
+   - `framework`: `express`, `fastapi`, `django`, `flask`, `gin`, `spring`, `rails`, `nextjs`,
+     `nuxt`, `other`, `unknown`. Detect the Node SSR meta-frameworks explicitly — `nextjs` from a
+     `next` dependency together with an `instrumentation.{ts,js}` hook and/or a `next.config.*`
+     file; `nuxt` from a `nuxt` dependency and/or `nuxt.config.*` — because they need a
+     framework-specific instrumentation path, not the generic top-of-entry bootstrap (see the
+     Next.js section in `agents/instrumentation-gen.md`). Do not collapse them to `other`.
    - `runnableEntry`: the main entry point file
    - `hasDockerfile`: boolean
 
@@ -123,7 +128,10 @@ Two rules for judgements:
    When both browser and server evidence are present in one package (a framework such as Next.js
    or Nuxt with server-side rendering), set `runtime: "node"`, drop `runtimeConfidence` to 0.6,
    and record the ambiguity in `derived.notes`. Record `runtimeSource` as the specific evidence
-   (e.g. `"dep:vite"`, `"dockerfile:FROM node:20"`), not just the category.
+   (e.g. `"dep:vite"`, `"dockerfile:FROM node:20"`), not just the category. Set `framework` to
+   `nextjs` / `nuxt` in this case (the meta-framework dependency + its config file is the signal)
+   rather than leaving it `other` — `instrumentation-gen` keys the framework-specific bootstrap
+   off that field.
 
    Then set `instrumentable`:
    - `true` for `node`, `python`, `jvm` — the runtimes `instrumentation-gen` can emit for today.
@@ -217,7 +225,7 @@ Return ONLY the following JSON object. No explanation, no preamble, no markdown 
       "instrumentableReason": null,
       "host": "<standalone|container|kubernetes|azure-functions|aws-lambda|gcp-cloud-functions|unknown>",
       "hostSource": "<the specific evidence, e.g. file:host.json>",
-      "framework": "<express|fastapi|django|flask|gin|spring|rails|other|unknown>",
+      "framework": "<express|fastapi|django|flask|gin|spring|rails|nextjs|nuxt|other|unknown>",
       "runnableEntry": "<main entry file>",
       "hasDockerfile": true,
       "deployment": {
