@@ -120,15 +120,67 @@ all, and reads as "instrumented" in every other dimension. Check reachability ex
 - Is the deployment configured with an OTLP endpoint (`service.deployment.endpointConfigured`)?
   An instrumented service exporting nowhere is a live gap, not a latent one.
 
+### 6. Telemetry configuration — is every value the instrumentation depends on provisioned?
+A class distinct from SDK construction (§4) and from wiring (§5, which asks only whether the
+bootstrap is *imported*): instrumentation that reads an env var / setting can break the app or
+report wrong data when that value is unset in a deployed environment. For each value the
+instrumentation depends on (`OTEL_EXPORTER_OTLP_ENDPOINT` and vendor equivalents, a
+`deployment.environment` source, any custom `*OTEL*` the code reads):
+- Is it provisioned in EACH environment that deploys the service — deploy workflow, `.env*`,
+  Terraform/Bicep/k8s, platform settings (`service.deployment.configFiles` / `endpointConfigured`)?
+- Does an unset value THROW (a config throw inside a module the bootstrap imports fires before the
+  entry point's try/catch — the app does not render) or silently DEFAULT to a wrong-but-truthy
+  value (e.g. `deployment.environment` = `"unknown"` in every environment)? The throw case is the
+  highest-severity thing an OTel audit can surface: instrumentation config breaking the app.
+
+### 7. PII in attribute values
+Distinct from cardinality (§3): an attribute whose VALUE is personal data — email, name, phone,
+IP, free-text user input, or a serialized domain object that may contain any of them — is a
+data-safety finding regardless of how many distinct values it has. An email is high-cardinality
+*and* a privacy problem; report the privacy problem in its own right (`PI`). The fix differs: drop
+or hash the value at the source — merely moving it to a log record (the cardinality fix) does not
+help if the objection is that it must not leave the process.
+
+### 8. Credentials in exporter config
+The exporter config is where the backend key lives (`OTEL_EXPORTER_OTLP_HEADERS`, a vendor
+licence/ingest key in a settings file). On a credential-shaped value, do NOT jump to "leaked key" —
+establish, in this order (each answer changes the remediation; only the last makes it an incident):
+1. Real credential shape, or a placeholder (`<your-key>`, `${NEW_RELIC_KEY}`)? A placeholder is nothing.
+2. Is the file git-tracked? `git ls-files --error-unmatch <file>`
+3. Is it gitignored? `git check-ignore <file>`
+4. Has the literal ever been committed? `git log --all -S'<literal>'`
+A real key that is gitignored and never committed → "rotate a local plaintext credential" (MEDIUM),
+NOT "you leaked a key". A real key in history → an incident (CRITICAL). Report which, with the
+evidence you ran — a false "you leaked a key" is itself a harm, and so is missing a real one.
+
 ## Output Format
 
 Return a plain-text report in this format:
 
-Every finding carries a **stable ID** — a two-letter section code plus a number:
-`SC-n` signal coverage, `CV-n` semconv violation, `CR-n` cardinality risk, `SH-n` SDK health,
-`WR-n` wiring (instrumentation present but never reached). `/otel-instrument --fix <ids>` takes
-these IDs to apply a subset of the report, so they must be present on every finding and stable
-within a report.
+Every finding carries a **severity**, a **status**, and a **stable ID**.
+
+**Severity** — pick by impact, not by how the finding reads, so a reader can sort:
+- **CRITICAL** 🔴 — the app does not boot / does not render, or a real credential is committed to
+  history (e.g. a config throw during bootstrap import; a leaked key).
+- **HIGH** 🟠 — telemetry is materially wrong or absent in production: exports nowhere, PII leaves
+  the process, an unbounded metric dimension, a wrong `service.name` so dashboards query nothing.
+- **MEDIUM** 🟡 — degrades data but does not break the app: a deprecated attribute, a rotate-me
+  *local (uncommitted)* credential, `SimpleSpanProcessor` on a network exporter.
+- **MINOR** ⚪ — style/convention: an unprefixed house attribute in an unreserved namespace.
+
+**Status** — one of `new` (found this run), `confirmed` (a cached judgement re-verified against
+source), `refuted` (a cached claim you DISPROVED — render these ONLY in the "Cached judgements
+re-checked" block, never as a live finding, or a non-incident gets re-raised), `corrected` (a
+cached claim whose detail you fixed).
+
+**Stable ID** — `<CAT>-<id>`, where CAT is the two-letter category and `<id>` is a short hash of
+the finding's identity (file + rule/attribute), NOT a sequence number — so inserting a finding
+does not renumber the rest, and an ID means the same thing across runs (what
+`/otel-instrument --fix` relies on). In a multi-service repo, qualify it with the service:
+`<serviceId>:<CAT>-<id>`. Categories: `SC` signal coverage, `CV` semconv violation, `CR`
+cardinality risk, `PI` PII in a value, `CD` credential exposure, `CF` telemetry configuration,
+`SH` SDK health, `WR` wiring. `/otel-instrument --fix <ids>` consumes these, so every finding
+carries one.
 
 ```
 ## OTel Coverage Audit — <service.name>
@@ -149,22 +201,44 @@ Semconv: <SEMCONV_VERSION from the semconv-discipline skill>
    → Rename to com.<your-org>.order.id (or your namespace)
 
 ### Cardinality Risks
-⚠  [CR-1] tracing.js:18 — Attribute 'orderId' appears to hold unbounded values
-   → Move to span events or structured logs; or scope to a category (e.g. order type)
+🟠 [CR-9f3a] status:new — DTLBot.cs:103 — 'user.id' as a METRIC dimension (unbounded series)
+   → error: remove the tag; the Collector span drop-list cannot clean a metric series.
+
+### PII
+🟠 [PI-4c1e] status:new — telemetry.ts:44 — 'user.email' set as a span-event attribute value
+   → Drop or hash at the source. (This is a privacy finding, not just cardinality — relocating
+     it to a log record does not stop the value leaving the process.)
+
+### Credential Exposure
+🟡 [CD-7b20] status:new — appsettings.Development.json:12 — New Relic ingest key in plaintext
+   → Real key, but git-tracked:no / gitignored:yes / in history:no (git log --all -S). So:
+     ROTATE this local key and move it to a secret store — NOT a leak (never committed).
 
 ### SDK Health
-⚠  [SH-1] SimpleSpanProcessor with an OTLP exporter — switch to BatchSpanProcessor
-⚠  [SH-2] Exporter endpoint is localhost — configure OTEL_EXPORTER_OTLP_ENDPOINT for production
+🟡 [SH-2a55] status:new — tracing.js — SimpleSpanProcessor with an OTLP exporter
+   → Switch to BatchSpanProcessor.
 
 ### Wiring
-❌ [WR-1] telemetry.js exports withServerSpan() but is imported by 0 files
+🔴 [WR-1d8c] status:new — telemetry.js exports withServerSpan() but is imported by 0 files
    → 0 of 22 handlers wrapped. The instrumentation is well-formed and entirely unreachable.
 
+### Telemetry Configuration
+🔴 [CF-3e07] status:new — config.ts:8 — reads REACT_APP_OTEL_OTLP_ENDPOINT, which throws when
+   unset; the variable is set in no environment (workflow / .env / Terraform), and the throw is in
+   a module the bootstrap imports → the app does not render in any deployed environment.
+🟠 [CF-a244] status:new — deployment.environment defaults to a truthy "unknown"; its env var is
+   set nowhere, so every environment reports "unknown".
+
 ### Cached judgements re-checked
-✓ Refuted: "exception.message set as a log-record attribute" — that is the prescribed
-  representation for the logs signal, not a violation. Cache entry should be removed.
-✓ Corrected: cached note implied 18 route registrations; discovery.ts registers 12, not 8,
-  so the real figure is 22.
+(status:refuted / status:corrected findings appear ONLY here — never as a live ❌ above, or a
+non-incident gets re-reported as one.)
+refuted — "a New Relic licence key is committed in appsettings.Development.json": the file is
+  gitignored and `git log --all -S'<key>'` finds the literal in no commit. Not an incident;
+  see CD-7b20 for the real (rotate-me) status.
+refuted — "exception.message set as a log-record attribute is a violation": it is the prescribed
+  representation for the logs signal. Cache entry should be removed.
+corrected — cached note implied 18 route registrations; discovery.ts registers 12, not 8, so the
+  real figure is 22.
 
 ### Recommended Additions (proposed, not applied)
 1. [SC-1] Add metrics instrumentation:
