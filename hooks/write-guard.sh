@@ -36,13 +36,30 @@ if [ "${OTEL_FORCE:-0}" = "1" ]; then
   exit 0
 fi
 
-# Resolve a JSON parser once. Parsing the payload needs python3 (jq is not assumed available).
-# If none is present we cannot tell whether this write hits a protected file, so we FAIL CLOSED
-# (block) rather than silently allowing the overwrite — loud-and-safe beats silent-and-unsafe.
-# OTEL_HOOK_PYTHON overrides the interpreter path (the tests set it empty to simulate absence).
-PY="${OTEL_HOOK_PYTHON-$(command -v python3 || command -v python || true)}"
+# Resolve a JSON parser that ACTUALLY RUNS. Parsing the payload needs python (jq is not assumed
+# available). `command -v` is NOT sufficient: on Windows `python3` is commonly an App Execution
+# Alias stub that is on PATH and resolves, but errors at run time ("Python was not found; run
+# without arguments to install from the Microsoft Store") — trusting PATH there left the parse
+# empty and the guard silently allowed every write (#33). So each candidate is verified by
+# actually executing it, and the first WORKING one wins (a real Python is frequently present as
+# `python` even when `python3` is the stub). If none run, FAIL CLOSED — a guard whose failure
+# mode is "allow everything, print nothing" cannot be relied on.
+# OTEL_HOOK_PYTHON overrides the probe (the tests set it — empty — to simulate no interpreter);
+# when set it is the ONLY candidate, and must itself run.
+py_runs() { printf '' | "$@" -c 'pass' >/dev/null 2>&1; }
+
+PY=""
+if [ "${OTEL_HOOK_PYTHON+set}" = "set" ]; then
+  if [ -n "$OTEL_HOOK_PYTHON" ] && py_runs "$OTEL_HOOK_PYTHON"; then PY="$OTEL_HOOK_PYTHON"; fi
+else
+  for cand in python3 python; do
+    if command -v "$cand" >/dev/null 2>&1 && py_runs "$cand"; then PY="$cand"; break; fi
+  done
+fi
 if [ -z "$PY" ]; then
-  echo "otel-as-code write-guard: no python3 on PATH — cannot verify this write; blocking (fail closed). Install python3." >&2
+  echo "otel-as-code write-guard: no WORKING python found — python3/python are absent or do not run" >&2
+  echo "(on Windows, \`python3\` may be a Microsoft Store alias stub that is on PATH but errors when run)." >&2
+  echo "Blocking this write (fail closed). Install a real Python 3, or set OTEL_HOOK_PYTHON to its path." >&2
   exit 2
 fi
 
