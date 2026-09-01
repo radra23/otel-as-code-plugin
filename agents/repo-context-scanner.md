@@ -33,7 +33,7 @@ the repo, and a fresh read is by definition more current:
 - `services[].existingOtel.*` — except when the prior entry is marked
   `"source": "recorded-by-command"` and you found no OTel on disk for that service; in that
   case keep the prior entry and note the disagreement in `derived.notes`
-- `conflicts[].attribute`, `conflicts[].sources`
+- `conflicts[].serviceId`, `conflicts[].attribute`, `conflicts[].sources`
 - `namespaceHint`, `namespaceSource`
 - `services[].derived.*` (see "Facts vs judgements")
 
@@ -53,6 +53,14 @@ These exist only because a human answered a question:
 Match services between the two objects by `id`; fall back to `rootDir`. A service present in
 `priorContext` but absent now is dropped from `services` and named in `derived.notes` — do not
 silently delete a service the user confirmed without saying so.
+
+Each `conflicts[]` entry carries a `serviceId` (matching `services[].id`; `null` only for a
+genuinely repo-wide conflict such as a namespace hint). It is REQUIRED because two services
+routinely conflict on the same `attribute` — `service.name` most of all — and without it the
+entries are indistinguishable: `/otel-business-attrs` can't tell the user which service it is
+asking about, and a resolved conflict can't be carried across a re-scan. Match conflicts between
+scans by `(serviceId, attribute)`, and carry the user-owned `resolvedValue`/`resolvedSource`/
+`resolvedAt`/`conflict_resolved` across on that key.
 
 If `priorContext` is absent, emit the scanner-owned fields and leave every user-owned field at
 its empty value (`[]` / `null`). That is the ONLY situation in which they may be empty.
@@ -104,8 +112,24 @@ found none.
    - `.env.example` / `.env.sample` (to detect env var patterns)
 
 2. For each detected service, determine:
-   - `name`: service name; priority order: Dockerfile LABEL > manifest `name` > directory name
-   - `nameConfidence`: 0.97 for Dockerfile/manifest, 0.70 for directory
+   - `name`: service name. Prefer the name the service is **observed to report** over any
+     manifest or label — for a brownfield repo (the audience for `/otel-evaluate`), matching the
+     identity already flowing to the backend is the whole job, and the generated
+     dashboards/alerts/Collector config all key off `service.name`. Priority:
+     1. `OTEL_SERVICE_NAME`, or `service.name` inside `OTEL_RESOURCE_ATTRIBUTES`, configured in
+        IaC (`*.tf`, `*.tfvars`, `*.bicep`, `k8s/*.yaml`, `Chart.yaml`), `.env*`,
+        `appsettings*.json`, `docker-compose.yml`, or a CI workflow → `nameSource:
+        "env:OTEL_SERVICE_NAME"`
+     2. a service name passed to the SDK in an existing bootstrap
+        (from `existingOtel.bootstrapFiles`) → `nameSource: "bootstrap-literal"`
+     3. Dockerfile LABEL → `"dockerfile-label"`
+     4. manifest `name` → `"package.json#name"` (or the language's manifest)
+     5. directory name → `"dir-name"`
+   - `nameConfidence`: 0.97 for an observed name (tiers 1–2) or a Dockerfile/manifest name; 0.70
+     for a directory name. When an observed name (tier 1–2) disagrees with a manifest/label, still
+     record a `conflicts[]` entry — but the resolved default is the OBSERVED name, not the
+     manifest one. (A manifest-vs-observed disagreement is the manifest being wrong about what the
+     service reports, not two peer sources disagreeing.)
    - `language`: `nodejs`, `python`, `go`, `java`, `dotnet`, `ruby`, `php`, `rust`, `other`
    - `framework`: `express`, `fastapi`, `django`, `flask`, `gin`, `spring`, `rails`, `nextjs`,
      `nuxt`, `other`, `unknown`. Detect the Node SSR meta-frameworks explicitly — `nextjs` from a
@@ -236,7 +260,7 @@ Return ONLY the following JSON object. No explanation, no preamble, no markdown 
     {
       "id": "<slugified name>",
       "name": "<service name>",
-      "nameSource": "<package.json#name | dockerfile-label | dir-name | user-added>",
+      "nameSource": "<env:OTEL_SERVICE_NAME | bootstrap-literal | dockerfile-label | package.json#name | dir-name | user-added>",
       "nameConfidence": 0.97,
       "rootDir": "<relative path from repo root, '.' for root>",
       "language": "<nodejs|python|go|java|dotnet|ruby|php|rust|other>",
@@ -291,6 +315,7 @@ Return ONLY the following JSON object. No explanation, no preamble, no markdown 
   ],
   "conflicts": [
     {
+      "serviceId": "checkout-api",
       "attribute": "service.name",
       "sources": [
         {"source": "package.json#name", "value": "checkout-api", "confidence": 0.97},
