@@ -54,8 +54,14 @@ machine-written:
 For `agent` mode:
 - Use the agent template from the `collector-topology` skill
 - Replace endpoint env var with `${env:OTEL_EXPORTER_OTLP_ENDPOINT}`
-- Include the `transform` processor for any high-cardinality attributes found in context
-  (`context.services[i].existingOtel.conformanceIssues` where severity = cardinality)
+- Include the `transform` processor. On top of the static `delete_key` statements in the
+  `collector-topology` template, add one `delete_key` for each attribute name in
+  `context.services[i].derived.highCardinalityAttributes`, unioned across all services in the
+  cache and de-duplicated. That field is a typed list of attribute keys the scanner/auditor found
+  to be high-cardinality — read it directly. Do NOT filter `conformanceIssues` on a
+  `severity: "cardinality"` value: no producer emits that severity (they emit info/warning/error),
+  and `conformanceIssues` lives under `derived`, not `existingOtel` — so the old filter matched
+  nothing and only the template's four generic identifiers were ever protected (#37).
 - Include `memory_limiter` and `batch` processors
 
 For `gateway` mode:

@@ -80,6 +80,15 @@ Two rules for judgements:
    violation; `recordException()` is the span-side API. If you are not certain a pattern is
    wrong, put it in `derived.notes` as an observation, not in `conformanceIssues` as a finding.
 
+`derived.highCardinalityAttributes` is a **typed list of attribute names** (keys), not a
+severity — the unbounded-identifier attributes you observed this service's existing telemetry
+set (e.g. `user.id`, `order.id`, `request.id`, a raw email or UUID used as an attribute),
+matched against the canonical high-cardinality identifier list in the `semconv-discipline`
+skill. `/otel-collector` reads exactly this list to emit `transform` `delete_key` statements, so
+it must be the attribute keys themselves — never a severity value like `"cardinality"` (no
+producer emits that, and a consumer filtering on it silently matches nothing). Empty list if you
+found none.
+
 ## Instructions
 
 1. Read the following files if they exist (use Read tool; skip if absent):
@@ -267,6 +276,7 @@ Return ONLY the following JSON object. No explanation, no preamble, no markdown 
             "severity": "error"
           }
         ],
+        "highCardinalityAttributes": ["user.id", "order.id"],
         "notes": []
       }
     }
