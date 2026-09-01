@@ -28,7 +28,7 @@ costs minutes per command for nothing.
 1. Rebuild the candidate identity-input list:
    ```
    { git ls-files; git ls-files --others --exclude-standard; } \
-     | grep -E '(^|/)(package\.json|pyproject\.toml|requirements\.txt|go\.mod|Cargo\.toml|pom\.xml|build\.gradle(\.kts)?|Dockerfile|host\.json|serverless\.yml|CODEOWNERS)$' \
+     | grep -E '(^|/)(package\.json|pyproject\.toml|requirements\.txt|go\.mod|Cargo\.toml|pom\.xml|build\.gradle(\.kts)?|global\.json|Directory\.Packages\.props|[^/]+\.(csproj|fsproj|sln)|Dockerfile|host\.json|serverless\.yml|CODEOWNERS)$' \
      | sort
    ```
    If this set differs from `freshness.identityInputs` in the cache, the cache is STALE

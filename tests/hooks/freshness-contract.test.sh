@@ -14,7 +14,7 @@ INIT="commands/otel-init.md"
 
 # The /otel-init Step 1 freshness regex, kept identical to commands/otel-init.md. If the doc's
 # regex legitimately changes, update this line too — that update IS the point of check 0.
-REGEX='(^|/)(package\.json|pyproject\.toml|requirements\.txt|go\.mod|Cargo\.toml|pom\.xml|build\.gradle(\.kts)?|Dockerfile|host\.json|serverless\.yml|CODEOWNERS)$'
+REGEX='(^|/)(package\.json|pyproject\.toml|requirements\.txt|go\.mod|Cargo\.toml|pom\.xml|build\.gradle(\.kts)?|global\.json|Directory\.Packages\.props|[^/]+\.(csproj|fsproj|sln)|Dockerfile|host\.json|serverless\.yml|CODEOWNERS)$'
 
 # check 0: otel-init.md still carries the regex this test mirrors (drift guard on the mirror).
 if grep -qF 'package\.json|pyproject\.toml|requirements\.txt|go\.mod|Cargo\.toml|pom\.xml|build\.gradle' "$INIT"; then

@@ -21,12 +21,19 @@ on disk before believing it.** These flags are only as fresh as the last scan, a
 predates `/otel-instrument` still says `false` — so the obvious sequence (instrument, then
 evaluate) otherwise exits claiming the repo has no instrumentation moments after generating it.
 
-Verification is cheap: check for an OTel dependency in each service's manifest and glob its
-subtree for `tracing.*` / `telemetry.*` / `opentelemetry.*`:
+Verification is cheap: check for an OTel dependency in each service's manifest (including
+`*.csproj`/`*.fsproj`/`Directory.Packages.props` for .NET) and glob its subtree for
+`tracing.*` / `telemetry.*` / `opentelemetry.*`:
 
 ```
-grep -l '@opentelemetry/\|opentelemetry-' <manifests>
+grep -il '@opentelemetry/\|opentelemetry-\|Include="OpenTelemetry' <manifests>
 ```
+
+The grep is **case-insensitive** (`-i`) and includes the .NET spelling on purpose: the .NET
+package id is `OpenTelemetry` (capitalised, no `/`, no trailing `-`), so the Node/Python
+alternatives alone silently miss a fully-instrumented .NET service and the command wrongly exits
+"no instrumentation". Also grep the `*.cs` sources for `AddOpenTelemetry(` / `ActivitySource` /
+`new Meter(` when the manifest matches, so a .NET service is audited from disk.
 
 - If that finds nothing either, print "No existing OTel instrumentation detected. Use
   /otel-instrument to get started." and exit.
