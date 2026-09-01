@@ -1,0 +1,15 @@
+{
+  "name": "web-frontend",
+  "version": "2.1.0",
+  "private": true,
+  "scripts": {
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "next": "15.1.12",
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
+    "@vercel/otel": "1.14.2"
+  }
+}

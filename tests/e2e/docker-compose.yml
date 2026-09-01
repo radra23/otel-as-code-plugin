@@ -84,3 +84,25 @@ services:
       - "-c"
       - "javac App.java && set -a && . ./otel-java.env && export OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4317 && set +a && java -javaagent:./opentelemetry-javaagent.jar -cp . App"
     depends_on: [collector]
+
+  nextjs-app:
+    image: node:20-bookworm-slim
+    working_dir: /app
+    environment:
+      OTEL_SERVICE_NAME: "web-frontend"
+      OTEL_RESOURCE_ATTRIBUTES: "service.version=2.1.0,service.namespace=storefront,deployment.environment.name=e2e"
+      # @vercel/otel exports over OTLP/HTTP only — use the collector's HTTP port (4318), NOT the
+      # gRPC 4317 the other services use. Pairing @vercel/otel with 4317 fails silently (#29).
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4318"
+      OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf"
+      NEXT_TELEMETRY_DISABLED: "1"
+      PORT: "3000"
+    ports:
+      - "3001:3000"   # load is driven from the host (see run.sh)
+    volumes:
+      - ./.work/nextjs:/app
+    # Greenfield App Router fixture + golden instrumentation.js (register hook) + @vercel/otel.
+    # Next.js 15 auto-detects instrumentation.js, so `register()` runs at server start with no
+    # extra wiring; its built-in tracing then emits server spans for the route handlers.
+    command: ["sh", "-c", "npm install --no-audit --no-fund --loglevel=error && npm run build && npm start"]
+    depends_on: [collector]

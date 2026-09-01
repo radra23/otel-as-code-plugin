@@ -16,7 +16,7 @@ cleanup() {
   # metrics/logs pipelines (Jaeger's OTLP receiver only accepts traces) — see the
   # "Expected collector errors" section in README.md before treating those as the failure.
   echo "--- collector + app logs (tail, timestamped) ---"
-  docker compose logs --timestamps --tail=60 jaeger collector node-app python-app java-app 2>/dev/null || true
+  docker compose logs --timestamps --tail=60 jaeger collector node-app python-app java-app nextjs-app 2>/dev/null || true
   echo "--- jaeger /api/services (what actually landed) ---"
   curl -fsS "http://localhost:16686/api/services" 2>/dev/null && echo || echo "(jaeger /api/services unreachable)"
   docker compose down -v --remove-orphans 2>/dev/null || true
@@ -28,7 +28,7 @@ cleanup() {
 trap cleanup EXIT
 
 # 1. seed throwaway app copies (fixtures stay pristine)
-rm -rf "$WORK"; mkdir -p "$WORK/nodejs" "$WORK/python" "$WORK/java"
+rm -rf "$WORK"; mkdir -p "$WORK/nodejs" "$WORK/python" "$WORK/java" "$WORK/nextjs"
 # The collector's file exporter (logs-overlay) writes logs.json here. World-writable so the
 # collector container's non-root user can write regardless of the host UID that created it.
 mkdir -p "$WORK/collector-out"; chmod 777 "$WORK/collector-out"
@@ -47,6 +47,13 @@ import tracing
 from app import app
 tracing.instrument_fastapi(app)
 PY
+
+# Next.js: pristine greenfield App Router fixture + the golden instrumentation.js register hook
+# and the @vercel/otel-augmented manifest (what /otel-instrument generates for a Next.js service).
+# Next.js 15 auto-detects instrumentation.js; the container runs npm install + next build + start.
+cp -R ../../fixtures/nextjs-greenfield/. "$WORK/nextjs/"
+cp ../snapshots/instrument/nextjs/instrumentation.js "$WORK/nextjs/instrumentation.js"
+cp ../snapshots/instrument/nextjs/package.json "$WORK/nextjs/package.json"   # instrumented manifest
 
 # Java: pristine fixture (App.java) + golden agent config (otel-java.env) + the pinned OTel Java
 # agent JAR (downloaded here over HTTPS, like the pinned otelcol binary in collector-validate.sh).
@@ -67,12 +74,13 @@ done
 
 # 3. drive load from the host against both apps (both ports are published — see
 #    docker-compose.yml). Each wait is bounded so CI can't hang.
-wait_ready() { # base_url
+wait_ready() { # base_url [timeout_s]
   local base="$1"
-  # 150s: the python-app runs `pip install` (grpcio + otlp proto exporter) inline
+  # Default 150s: the python-app runs `pip install` (grpcio + otlp proto exporter) inline
   # before serving, which on a cold CI runner can approach 90s alone — 90s was too
-  # tight and risked spurious red on the first live run.
-  local APP_READY_TIMEOUT_S=150
+  # tight and risked spurious red on the first live run. The Next.js app does npm install +
+  # next build inline, which is heavier, so it passes a larger timeout (2nd arg).
+  local APP_READY_TIMEOUT_S="${2:-150}"
   local deadline=$(( $(date +%s) + APP_READY_TIMEOUT_S ))
   until curl -fsS "$base/health" >/dev/null 2>&1; do
     [ "$(date +%s)" -lt "$deadline" ] || { echo "FAIL: $base did not become ready within timeout" >&2; exit 1; }
@@ -102,6 +110,15 @@ for i in 1 2 3 4 5; do
   curl -fsS "http://localhost:8080/pay" >/dev/null || true
 done
 
+# Next.js app (npm install + next build run inline in the container — allow more time). Hitting a
+# dynamic route handler makes Next.js's built-in tracing emit a server span, which @vercel/otel
+# exports to the collector over OTLP/HTTP (:4318).
+wait_ready "http://localhost:3001" 300
+for i in 1 2 3 4 5; do
+  curl -fsS "http://localhost:3001/health" >/dev/null || true
+  curl -fsS "http://localhost:3001/api/ping" >/dev/null || true
+done
+
 # 4. assert (Jaeger reachable on host 16686)
 JA="http://localhost:16686"
 # Check BOTH services in one run (don't fail-fast on the first) so a single CI run reports
@@ -113,6 +130,10 @@ POLL_TIMEOUT=40 bash assert-traces.sh --jaeger "$JA" --service inventory-api \
   --expect service.name=inventory-api,service.version=0.3.1,service.namespace=storefront,deployment.environment.name=e2e || rc=1
 POLL_TIMEOUT=40 bash assert-traces.sh --jaeger "$JA" --service payments-api \
   --expect service.name=payments-api,service.version=1.0.0,service.namespace=storefront,deployment.environment.name=e2e || rc=1
+# Next.js via the instrumentation.js register hook + @vercel/otel over OTLP/HTTP (#29). Resource
+# attrs come from OTEL_SERVICE_NAME + OTEL_RESOURCE_ATTRIBUTES (verified honored by @vercel/otel).
+POLL_TIMEOUT=60 bash assert-traces.sh --jaeger "$JA" --service web-frontend \
+  --expect service.name=web-frontend,service.version=2.1.0,service.namespace=storefront,deployment.environment.name=e2e || rc=1
 
 # Logs (#12, --experimental): the Python app logs `reserved sku=...` on /inventory/reserve, the
 # --experimental bootstrap bridges it to OTLP, and the collector's file exporter writes it to
