@@ -33,7 +33,7 @@ the repo, and a fresh read is by definition more current:
 
 - `scannedAt`, `pluginVersion`, `freshness.*`
 - `services[].name`, `nameSource`, `nameConfidence`, `rootDir`, `language`, `languageVersion`,
-  `runtime`, `runtimeSource`, `runtimeConfidence`, `instrumentable`, `instrumentableReason`,
+  `runtime`, `runtimeSource`, `runtimeConfidence`, `generatorSupported`, `inScope`, `instrumentableReason`,
   `host`, `hostSource`, `framework`, `runnableEntry`, `hasDockerfile`
 - `services[].deployment.*`
 - `services[].existingOtel.*` — except when the prior entry is marked
@@ -115,7 +115,11 @@ found none.
    - `Dockerfile` (and all `*/Dockerfile`)
    - `docker-compose.yml` / `docker-compose.yaml`
    - `CODEOWNERS` / `.github/CODEOWNERS`
-   - `.github/workflows/*.yml` (first 3 only, to detect CI config)
+   - `.github/workflows/*.yml` — read any whose name matches deploy/release/cd/publish FIRST
+     (that is where the OTLP endpoint / `endpointConfigured` is usually set), then up to ~5 more.
+     Do NOT just take the alphabetical first 3: the deploy workflow (e.g. `tabapp-deploy.yml`) is
+     often not in them, and it is the file that answers `endpointConfigured` for a
+     static-hosting / App Service target.
    - `.env.example` / `.env.sample` (to detect env var patterns)
 
 2. For each detected service, determine:
@@ -173,11 +177,19 @@ found none.
    rather than leaving it `other` — `instrumentation-gen` keys the framework-specific bootstrap
    off that field.
 
-   Then set `instrumentable`:
-   - `true` for `node`, `python`, `jvm` — the runtimes `instrumentation-gen` can emit for today.
-   - `false` otherwise, with `instrumentableReason` naming the reason in one line, e.g.
-     `"runtime is browser; browser/RUM instrumentation is out of scope for the MVP"` or
-     `"runtime go is not supported yet (v1)"`.
+   Then set two booleans — they answer DIFFERENT questions; one flag cannot carry both without
+   hiding an already-instrumented service as "nothing to do here":
+   - `generatorSupported` — can `instrumentation-gen` emit a bootstrap for this runtime today?
+     `true` for `node`, `python`, `jvm`; `false` otherwise. This drives `/otel-instrument`'s
+     candidate list.
+   - `inScope` — is this service a candidate for observability work at all? `false` ONLY for a
+     genuinely out-of-scope runtime (a `browser` bundle — per ROADMAP "Not planned"); `true`
+     otherwise, INCLUDING a runtime merely outside today's codegen (`dotnet`, `go` — first-class
+     OTel runtimes on the roadmap, and often already instrumented by hand). `/otel-evaluate` is
+     read-only and language-agnostic and must never be filtered out by a missing generator.
+   - `instrumentableReason` — one line, set when either flag is `false`, naming which and why:
+     `"generatorSupported:false — runtime dotnet not in instrumentation-gen's set (node/python/jvm); inScope:true (first-class OTel runtime, roadmap)"`
+     or `"generatorSupported:false, inScope:false — runtime browser; browser/RUM is out of scope (ROADMAP: Not planned)"`.
 
 4. Determine `host` — **how the process is started**, which decides whether an inbound HTTP
    server exists at all, and where deployment-side OTLP settings have to be written:
@@ -187,9 +199,11 @@ found none.
    | `azure-functions`    | `host.json`, `@azure/functions`, `func` in scripts                    |
    | `aws-lambda`         | `serverless.yml`, `template.yaml` (SAM), `aws-lambda` / `@types/aws-lambda` |
    | `gcp-cloud-functions`| `@google-cloud/functions-framework`, `functions-framework` in scripts |
+   | `azure-app-service`  | `azurerm_windows_web_app` / `azurerm_linux_web_app` / `azurerm_app_service` (Terraform), an App Service `sites` Bicep/ARM resource. A managed PaaS web app: it HAS an inbound HTTP server, and OTLP settings go in its `app_settings`, NOT where a `standalone` process looks. |
    | `kubernetes`         | `k8s/`, `*.k8s.yaml`, `Chart.yaml`, a `Deployment` manifest           |
    | `container`          | a Dockerfile with no orchestration manifests                          |
    | `standalone`         | a plain process entry point                                           |
+   | `static-hosting`     | Azure Static Web Apps (`azurerm_static_web_app`), Netlify/Vercel/S3+CloudFront/GitHub Pages, or a built SPA with NO server process. There is no runtime process, so no SERVER spans; its OTLP config is BUILD-TIME (e.g. `NEXT_PUBLIC_*` / `REACT_APP_*` baked in by CI), so look in the deploy workflow, not runtime app settings. |
    | `unknown`            | no evidence                                                           |
 
    Also populate `deployment`: the config files that would carry the OTLP endpoint
@@ -280,9 +294,10 @@ Return ONLY the following JSON object. No explanation, no preamble, no markdown 
       "runtime": "<node|browser|python|jvm|dotnet|go|ruby|php|rust|other>",
       "runtimeSource": "<the specific evidence, e.g. dep:vite | dockerfile:FROM node:20>",
       "runtimeConfidence": 0.9,
-      "instrumentable": true,
+      "generatorSupported": true,
+      "inScope": true,
       "instrumentableReason": null,
-      "host": "<standalone|container|kubernetes|azure-functions|aws-lambda|gcp-cloud-functions|unknown>",
+      "host": "<standalone|container|kubernetes|azure-functions|azure-app-service|aws-lambda|gcp-cloud-functions|static-hosting|unknown>",
       "hostSource": "<the specific evidence, e.g. file:host.json>",
       "framework": "<express|fastapi|django|flask|gin|spring|rails|nextjs|nuxt|other|unknown>",
       "runnableEntry": "<main entry file>",

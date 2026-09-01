@@ -90,8 +90,11 @@ Detected services:
   2  checkout-api       nodejs     node      express     api/        0.97 (package.json#name)
 ```
 
-For any service with `instrumentable: false`, print its `instrumentableReason` beneath the
-table so the exclusion is visible now rather than discovered later by /otel-instrument:
+For any service that is not `generatorSupported` (or is `inScope: false`), print its
+`instrumentableReason` beneath the table so the exclusion — and the difference between "out of
+scope" (`inScope: false`, e.g. a browser bundle) and "in scope but no generator yet"
+(`generatorSupported: false, inScope: true`, e.g. an already-instrumented .NET service you can
+still audit with `/otel-evaluate`) — is visible now rather than discovered later:
 
 ```
   ⓘ portal-web is not an instrumentation target: runtime is browser; browser/RUM
