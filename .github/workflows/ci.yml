@@ -58,6 +58,58 @@ jobs:
       - name: plan-local arg-handling test
         run: bash tests/e2e/plan-local.test.sh
 
+  # Windows regressions in the hooks used to ship silently: this whole class of bug
+  # (python3 resolving to a Microsoft Store alias stub; MSYS/Git-Bash path shapes in the
+  # --force match) exists precisely because nothing ran the hooks on Windows. This job runs the
+  # interpreter/path-sensitive suites under Git Bash on windows-latest so that class is caught.
+  lint-hooks-windows:
+    name: Hook lint tests (Windows)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # GitHub's Windows runners expose Python as `python` in Git Bash, not always as `python3`.
+      # The hooks now probe python3 -> python, and the test harness calls `python3` directly, so
+      # guarantee a working `python3` on PATH. (The suites still simulate the BROKEN Store stub via
+      # OTEL_HOOK_PYTHON, so the fail-closed / fall-through behaviour is exercised regardless.)
+      - name: Ensure python3 resolves in Git Bash
+        run: |
+          if ! command -v python3 >/dev/null 2>&1; then
+            mkdir -p "$HOME/bin"
+            printf '#!/usr/bin/env bash\nexec python "$@"\n' > "$HOME/bin/python3"
+            chmod +x "$HOME/bin/python3"
+            echo "$HOME/bin" >> "$GITHUB_PATH"
+          fi
+          python3 -c "import sys; print('python3 ->', sys.version.split()[0])"
+
+      - name: Syntax-check hook scripts and helpers
+        run: |
+          for f in hooks/*.sh; do bash -n "$f"; done
+          python3 -m py_compile hooks/otel-force-match.py hooks/codex/*.py
+
+      - name: Run write-guard tests
+        run: bash tests/hooks/write-guard.test.sh
+
+      - name: Run semconv-lint tests
+        run: bash tests/hooks/semconv-lint.test.sh
+
+      - name: Run session-summary tests
+        run: bash tests/hooks/session-summary.test.sh
+
+      # NOTE: the Codex hook-adapter suite runs on Linux only (see the lint-hooks job). Its cases
+      # drive apply_patch payloads at absolute mktemp temp paths, which — like the write-guard
+      # temp-path cases skipped above — do not round-trip through the native Windows python the
+      # adapters run under. The underlying guard logic those adapters call (write-guard.sh) IS
+      # exercised on Windows here; the Codex bridge is a separate integration and not the subject
+      # of #55 (the Claude Code hooks shipping Windows regressions).
+
   e2e:
     name: End-to-end trace flow (#1 + #3)
     runs-on: ubuntu-latest
