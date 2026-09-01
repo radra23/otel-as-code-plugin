@@ -45,7 +45,7 @@ detected service is frequently a browser SPA whose `language` is `nodejs` and wh
 is not Node at all.
 
 1. Build the candidate list: every service in `context.services` with
-   `instrumentable: true`. If `[language]` was given, keep only services with that `language`.
+   `generatorSupported: true`. If `[language]` was given, keep only services with that `language`.
    If `--service <id>` was given, use exactly that one (and validate it below).
 2. Then:
    - **Exactly one candidate** → use it. Print: "Target: <name> (<rootDir>, <language>/<runtime>)".
@@ -65,7 +65,7 @@ is not Node at all.
                             for the MVP. Use an OTel browser SDK / RUM product directly.
        cache (cache/)     — runtime go is not supported yet (v1).
      ```
-3. Validate the chosen service before generating. If it has `instrumentable: false`, refuse:
+3. Validate the chosen service before generating. If it has `generatorSupported: false`, refuse:
    ```
    ⚠ <name> cannot be instrumented by this command: <instrumentableReason>
      Generating a Node SDK bootstrap for a browser bundle produces code that cannot run and

@@ -35,7 +35,7 @@ You will receive:
 **Refuse a target you cannot generate correct code for.** `language` alone does not tell you
 where code runs: a Vite + React SPA has `language: nodejs` and `runtime: browser`, and emitting
 `@opentelemetry/sdk-node` + `auto-instrumentations-node` for it produces a bundle that cannot
-run and a build that breaks. If `service.instrumentable` is `false`, or `runtime` is anything
+run and a build that breaks. If `service.generatorSupported` is `false`, or `runtime` is anything
 other than `node` / `python` / `jvm`, write nothing and return the reason. Wrong code is worse
 than no code.
 
