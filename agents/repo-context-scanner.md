@@ -182,9 +182,16 @@ Two rules for judgements:
 
 8. Record working-tree state so commands can judge cache freshness later, under `freshness`:
    - `gitHash`: `git rev-parse HEAD` (or `"unknown"` if not a git repo).
-   - `identityInputs`: the repo-relative paths of every file you actually read in step 1 that
-     could change service identity — manifests, Dockerfiles, CODEOWNERS — plus the service root
-     directories themselves.
+   - `identityInputs`: the repo-relative paths that define service identity, and EXACTLY the set
+     the `/otel-init` Step 1 freshness check rediscovers — every tracked-or-untracked file whose
+     basename is one of `package.json`, `pyproject.toml`, `requirements.txt`, `go.mod`,
+     `Cargo.toml`, `pom.xml`, `build.gradle`/`build.gradle.kts`, `Dockerfile`, `host.json`,
+     `serverless.yml`, `CODEOWNERS`. Nothing else — **NOT** bare service root directories, and
+     **NOT** files like `.env.example` or CI workflows even if you read them during detection.
+     `/otel-init` Step 1 recomputes this set with a fixed filename regex and compares it to what
+     you stored; any entry that regex cannot produce (a directory, a `.env` file) guarantees the
+     two sets differ on every comparison, so the cache is judged stale forever and never hits.
+     Keep this list in lockstep with that regex. Sort it.
    - `identityFingerprint`: a hash over those files' contents. Compute it with
      `git hash-object` over the listed paths and hash the result list, e.g.
      `git hash-object <paths...> | sha256sum | cut -c1-16`; for a non-git repo, `sha256sum` the
