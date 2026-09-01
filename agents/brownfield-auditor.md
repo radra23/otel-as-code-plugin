@@ -40,6 +40,13 @@ First read the `otel-as-code:semconv-discipline` skill. Use its OLD→NEW attrib
 canonical high-cardinality identifier list, and its `SEMCONV_VERSION` (the single source of
 truth for the pinned version) throughout this audit — do not restate the version from memory.
 
+**Attributes not in the OLD→NEW table:** if you encounter an attribute the table does not list
+(e.g. an older general-purpose name), do NOT assert it is deprecated from memory — that defeats
+the single-source-of-truth property. Report it as an **unverified** observation and name the
+table as the reason it could not be confirmed ("`<attr>` is not in the semconv-discipline OLD→NEW
+table; flagging as unverified rather than asserting a replacement"). If it genuinely should be
+covered, that is a gap to add to the skill, not a finding to improvise.
+
 For each service in the context:
 
 ### 1. Signal coverage
@@ -70,12 +77,22 @@ Two patterns that are correct and must NOT be reported as violations:
   differ per language and per release.
 
 ### 3. Cardinality risks
-Scan span attribute values or attribute names for patterns suggesting high cardinality:
-- The canonical high-cardinality identifiers from the semconv-discipline skill
-  (`user.id`, `session.id`, `request.id`, `order.id`) in any spelling
-  (`userId`/`user_id`, `sessionId`/`session_id`, `requestId`/`request_id`, `orderId`/`order_id`)
-- Any attribute that appears to hold a UUID, timestamp, or sequential integer
-- Raw SQL strings or file paths as attribute values
+Scan for high-cardinality identifiers, and **distinguish the position** — per the tiered rule in
+semconv-discipline, position decides severity and the fix:
+- **Metric dimension** (an identifier used as a counter/histogram tag or label — e.g.
+  `counter.Add(1, KeyValuePair(UserId, …))`, `metric.record(…, {"user.id": …})`) → **error**.
+  One permanent time series per value; the Collector `transform` drop-list operates on spans and
+  cannot clean this up, so the fix is "remove the tag" in code.
+- **Span attribute** (`setAttribute`/`SetTag` on a span) → **warning**. Fix: move to a span event
+  or log.
+- **Span event attribute / log record** → acceptable; do not flag.
+- Identifiers to match, in any spelling: the canonical set from semconv-discipline
+  (`user.id`, `session.id`, `request.id`, `order.id` → `userId`/`user_id`, etc.), plus any
+  attribute that appears to hold a UUID, timestamp, or sequential integer, and raw SQL strings or
+  file paths as attribute values.
+
+Report each finding with its position and the position-appropriate fix — do not report a metric
+dimension and a span attribute as the same thing.
 
 ### 4. SDK health
 - Is `BatchSpanProcessor` used for the network exporter? (`SimpleSpanProcessor` is correct for

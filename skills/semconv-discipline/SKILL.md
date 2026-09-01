@@ -65,11 +65,22 @@ Use the NEW names (1.23+ stable):
 
 ## Database Conventions
 
-- `db.system` — REQUIRED (e.g. `postgresql`, `redis`, `mongodb`)
+Use the NEW names (the four below are stable root exports of `@opentelemetry/semantic-conventions`;
+the OLD names are incubating/deprecated):
+
+| OLD (deprecated)   | NEW (use this)        |
+|--------------------|-----------------------|
+| `db.system`        | `db.system.name`      |
+| `db.statement`     | `db.query.text`       |
+| `db.operation`     | `db.operation.name`   |
+| `db.name`          | `db.namespace`        |
+
+- `db.system.name` — REQUIRED (e.g. `postgresql`, `redis`, `mongodb`). NOT `db.system`, which is
+  deprecated (replaced by `db.system.name`) — this was the one entry the list had left on the old
+  name while the other three were already modernised.
 - `db.namespace` — database name
 - `db.operation.name` — e.g. `SELECT`, `INSERT`
 - `db.query.text` — sanitized query (no PII)
-- NOT `db.statement` (deprecated)
 
 ## Messaging Conventions
 
@@ -77,11 +88,41 @@ Use the NEW names (1.23+ stable):
 - `messaging.destination.name` — topic or queue name
 - `messaging.operation.type` — `publish`, `receive`, `process`
 
+⚠ **Every `messaging.*` attribute is incubating** — exported ONLY from the package's
+`./incubating` entry point, not the stable root. A TypeScript/CommonJS project on
+`moduleResolution: "node"` (the legacy default) cannot resolve that subpath at all, so generated
+code that imports these from the root fails to compile. See the "Incubating semconv attributes and
+the `/incubating` subpath" section in `agents/instrumentation-gen.md` for how to handle it (bump
+`moduleResolution`, or use the verified string literal). This is a stability property of the
+package, so verify against the installed version rather than asserting.
+
+## General / connection attributes (deprecations)
+
+| OLD (deprecated)  | NEW (use this)                                                        |
+|-------------------|-----------------------------------------------------------------------|
+| `peer.service`    | `server.address` (+ `server.port`) on the CLIENT span; identity comes from the callee's own `service.name` resource attribute |
+
 ## Custom / Business Attribute Namespace Rule
 
 Custom attributes MUST use a reverse-DNS namespace prefix:
 - CORRECT: `com.myorg.checkout.cart_id`
 - WRONG: `cartId`, `cart_id`, `checkout_cart_id`, `biz.checkout.cart_id`
+
+**Two distinct problems, two severities — do not collapse them into one "no prefix" finding:**
+
+1. **Reserved-namespace collision — ERROR, rename is not optional.** The attribute's first
+   segment is a namespace OpenTelemetry reserves, so a backend that knows the reserved meaning
+   can silently reinterpret it, and the collision worsens as the registry grows. Reserved root
+   namespaces (non-exhaustive, but check the name's first segment against it):
+   `service.`, `deployment.`, `telemetry.`, `otel.`, `host.`, `container.`, `k8s.`, `process.`,
+   `cloud.`, `faas.`, `http.`, `url.`, `server.`, `client.`, `network.`, `dns.`, `db.`, `rpc.`,
+   `messaging.`, `message.`, `user.`, `session.`, `error.`, `exception.`, `code.`, `gen_ai.`,
+   `feature_flag.`, `peer.`. Example collisions: `deployment.name` (inside `deployment.*`),
+   `message.notificationId` (inside the RPC `message.*` registry). Fix = rename out of the
+   reserved namespace.
+2. **Merely unprefixed — WARNING, fix at the team's convenience.** A single-segment or camelCase
+   house attribute in a namespace OTel does not claim (`app.name`, `vm.id`, `action.type`).
+   Nothing breaks; prefix it `com.<org>.*` when convenient.
 
 This applies to business attributes too. `biz.*` appears in `business-attr-ux` only as a
 pre-namespace **placeholder shape** for inferred candidates; it is never a name that gets
@@ -105,7 +146,23 @@ Infer the namespace from:
 
 ## Cardinality Warnings
 
-High-cardinality attributes MUST NOT be span attributes — use events or logs instead.
+A high-cardinality (unbounded) identifier's harm depends on WHERE it lands — and the worst
+position is the one the old one-line rule never mentioned. Tier findings by position:
+
+| Position | Severity | Why |
+|----------|----------|-----|
+| **Metric dimension** (a counter/histogram tag/label) | **error** | one permanently-retained time series per distinct value; sampling does not touch it; cost is unbounded and the series persist in the backend even after the code is fixed |
+| **Span attribute** | warning | ingest + index cost only; bounded by sampling; ages out with span retention |
+| **Span event attribute / log record** | acceptable | the prescribed home for a per-request identifier |
+
+So the fix differs by position: for a **metric dimension** it is "remove the tag" (irreversible
+damage otherwise); for a **span attribute** it is "consider moving to a span event or log". Note
+the Collector `transform` `delete_key` guardrail operates on **spans only** — it cannot clean up
+an identifier that already reached a metric dimension, so that case must be caught in code.
+
+The one-line form, kept because it is still true for the common case: high-cardinality
+identifiers do not belong as span attributes — use events or logs instead — but a metric
+dimension is worse, not exempt.
 
 **Canonical high-cardinality identifiers** — the same set is enforced by the `semconv-lint`
 hook (at the source level, matching `userId` / `user_id` spellings) and by the Collector
