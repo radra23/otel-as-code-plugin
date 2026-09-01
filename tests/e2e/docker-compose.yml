@@ -71,6 +71,10 @@ services:
     working_dir: /app
     environment:
       PORT: "8080"
+      # deployment.environment.name in the golden otel-java.env is `${DEPLOYMENT_ENV:-development}`
+      # (per-deployment, like node/python). Sourcing the file expands it against this — proving
+      # the confirmed value is not baked static and can differ per target (#32).
+      DEPLOYMENT_ENV: "e2e"
     ports:
       - "8080:8080"   # load is driven from the host (see run.sh)
     volumes:

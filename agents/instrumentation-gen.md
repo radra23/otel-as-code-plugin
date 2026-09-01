@@ -222,7 +222,7 @@ const resource = resourceFromAttributes({
   // Emit service.namespace only when the context JSON has a confirmed namespace.
   // Omit this line entirely if `service.namespace` is absent/unconfirmed.
   [ATTR_SERVICE_NAMESPACE]: process.env.OTEL_SERVICE_NAMESPACE || '<SERVICE_NAMESPACE>',
-  [ATTR_DEPLOYMENT_ENVIRONMENT_NAME]: process.env.DEPLOYMENT_ENV || 'development',
+  [ATTR_DEPLOYMENT_ENVIRONMENT_NAME]: process.env.DEPLOYMENT_ENV || '<DEPLOYMENT_ENV>',
 });
 
 const sdk = new NodeSDK({
@@ -251,6 +251,12 @@ Replace `<SERVICE_VERSION>` with the `version` from the service context JSON.
 Replace `<SERVICE_NAMESPACE>` with `service.namespace` from the context JSON. If the
 context has no confirmed namespace, delete the entire `service.namespace` line rather
 than emitting an empty or placeholder value.
+Replace `<DEPLOYMENT_ENV>` with the confirmed `deploymentEnvironment` from the context JSON
+(use `development` only if none was confirmed). This applies to the Python bootstrap too — both
+read `DEPLOYMENT_ENV` at runtime and use this as the *fallback default*, so the confirmed answer
+is the local/unset-case value while the environment can still differ per deployment target.
+Do NOT leave the literal `development` here when the context has a confirmed value — that was
+the bug (#32): the confirmed `deploymentEnvironment` was collected and then never read by codegen.
 Replace `<SEMCONV_VERSION>` with the `SEMCONV_VERSION` constant declared in
 `skills/semconv-discipline/SKILL.md` — that skill is the single source of truth for the pinned
 semconv version. Never hardcode the number here.
@@ -416,8 +422,10 @@ resource = Resource.create({
     ResourceAttributes.SERVICE_VERSION: os.getenv("OTEL_SERVICE_VERSION", "<SERVICE_VERSION>"),
     # Emit service.namespace only when the context JSON has a confirmed namespace; omit otherwise.
     ResourceAttributes.SERVICE_NAMESPACE: os.getenv("OTEL_SERVICE_NAMESPACE", "<SERVICE_NAMESPACE>"),
-    _DEPLOYMENT_ENVIRONMENT_NAME: os.getenv("DEPLOYMENT_ENV", "development"),
+    _DEPLOYMENT_ENVIRONMENT_NAME: os.getenv("DEPLOYMENT_ENV", "<DEPLOYMENT_ENV>"),
 })
+# Replace <DEPLOYMENT_ENV> with the confirmed deploymentEnvironment from context (default
+# `development`) — see the Node.js "Replace" notes; it is the fallback when DEPLOYMENT_ENV is unset.
 
 # Traces. On `none` no provider is registered at all, leaving the API's default no-op in
 # place: spans are then never built, rather than built and dropped at export. Application
@@ -602,7 +610,7 @@ return the pinned-agent download + run instructions.
 # Run:  java -javaagent:./opentelemetry-javaagent.jar -jar <app>.jar   (JDK 8+;
 #       -javaagent must appear BEFORE -jar / the main class)
 OTEL_SERVICE_NAME=<SERVICE_NAME>
-OTEL_RESOURCE_ATTRIBUTES=service.version=<SERVICE_VERSION>,service.namespace=<SERVICE_NAMESPACE>,deployment.environment.name=<DEPLOYMENT_ENV>
+OTEL_RESOURCE_ATTRIBUTES=service.version=<SERVICE_VERSION>,service.namespace=<SERVICE_NAMESPACE>,deployment.environment.name=${DEPLOYMENT_ENV:-<DEPLOYMENT_ENV>}
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
 OTEL_EXPORTER_OTLP_PROTOCOL=grpc
 ```
@@ -610,8 +618,15 @@ OTEL_EXPORTER_OTLP_PROTOCOL=grpc
 - Replace `<SERVICE_NAME>` / `<SERVICE_VERSION>` from the context JSON. ALWAYS emit
   `OTEL_SERVICE_NAME` — without it the agent falls back to `unknown_service:java`.
 - Emit `service.namespace` in `OTEL_RESOURCE_ATTRIBUTES` only when the context has a confirmed
-  namespace; otherwise drop that key entirely (no placeholder). Set `<DEPLOYMENT_ENV>` from
-  context (default `development`).
+  namespace; otherwise drop that key entirely (no placeholder).
+- `deployment.environment.name` uses the shell form `${DEPLOYMENT_ENV:-<DEPLOYMENT_ENV>}`, not a
+  static value — the same per-deployment mechanism as the Node.js/Python bootstraps. Replace
+  `<DEPLOYMENT_ENV>` (the fallback) with the confirmed `deploymentEnvironment` from context
+  (default `development`); the `DEPLOYMENT_ENV` env var overrides it per target. This expansion
+  only happens when the file is **sourced by a shell**, as the run command below does
+  (`set -a; . ./otel-java.env; set +a`). If you instead load it via `docker --env-file`, the
+  `${...}` is NOT expanded — set `deployment.environment.name` per environment another way (or
+  set the whole `OTEL_RESOURCE_ATTRIBUTES` per target), and say so in the summary.
 - `<SEMCONV_VERSION>` = the `SEMCONV_VERSION` constant in `skills/semconv-discipline/SKILL.md`
   (single source of truth — never hardcode the number).
 - **Keep `OTEL_EXPORTER_OTLP_PROTOCOL=grpc`.** The agent's own default is `http/protobuf` (port
@@ -657,6 +672,8 @@ Next steps:
   2. Apply the env and run (‑javaagent BEFORE ‑jar):
      set -a; . ./otel-java.env; set +a
      java -javaagent:./opentelemetry-javaagent.jar -jar <app>.jar
+     # deployment.environment.name defaults to <the confirmed deploymentEnvironment>; override
+     # per target by exporting DEPLOYMENT_ENV before sourcing, e.g. DEPLOYMENT_ENV=production.
   3. Verify traces at http://localhost:16686 (Jaeger), with a local Collector listening on :4317.
 ```
 
@@ -674,6 +691,11 @@ Still required:
   - Deployment: no OTLP endpoint is configured, so every exporter defaults to "none" and the
     deployed service emits nothing. Set OTEL_EXPORTER_OTLP_ENDPOINT (+ OTEL_*_EXPORTER=otlp)
     in <the deployment config files from service.deployment.configFiles>.
+  - Deployment environment: deployment.environment.name reads DEPLOYMENT_ENV, defaulting to
+    <the confirmed deploymentEnvironment, or "development">. Set DEPLOYMENT_ENV per target
+    (e.g. staging, production) in <the deployment config files>. If this repo deploys to more
+    than one environment (the scanner records this in service.deployment), one default cannot be
+    right for all of them — set it per target rather than relying on the fallback.
   - <serverless handler-wrapping count, when host is a FaaS runtime>
 
 Next steps:
