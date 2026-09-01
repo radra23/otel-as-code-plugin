@@ -95,10 +95,17 @@ Report each finding with its position and the position-appropriate fix — do no
 dimension and a span attribute as the same thing.
 
 ### 4. SDK health
-- Is `BatchSpanProcessor` used for the network exporter? (`SimpleSpanProcessor` is correct for
-  a console exporter — judge the pairing, not the class name.)
-- Is the exporter pointing to localhost (development) or a real endpoint (production)?
-- Is there a graceful shutdown handler (`SIGTERM` → `sdk.shutdown()`)?
+Check the concept, mapping the name to the service's runtime — do not report a correctly
+configured non-Node service as broken because it doesn't use the Node class names:
+
+| Check | Node.js / Python | .NET |
+|-------|------------------|------|
+| Batched (not per-span) export to a network exporter | `BatchSpanProcessor` (not `SimpleSpanProcessor`) | `AddOtlpExporter(o => o.ExportProcessorType = ExportProcessorType.Batch)` (Batch is the default) / `AddProcessor(new BatchActivityExportProcessor(...))` |
+| Exporter points at a real endpoint, not localhost | `OTEL_EXPORTER_OTLP_ENDPOINT` / exporter URL | same env var, or the `AddOtlpExporter` endpoint |
+| Graceful shutdown / flush on exit | `SIGTERM` → `sdk.shutdown()` | provider disposal via the host lifetime (`IHostedService` / `using` on the `TracerProvider`) — the ASP.NET Core host disposes it on shutdown, so absence of an explicit handler is not a finding when `AddOpenTelemetry()` is registered on the host |
+
+- Per-span (Simple) export to a **console** exporter is correct in every runtime — judge the
+  pairing, not the class name.
 
 ### 5. Wiring — is any of it actually reached?
 Well-written instrumentation that nothing imports emits exactly as much telemetry as none at

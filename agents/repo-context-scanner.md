@@ -105,6 +105,7 @@ found none.
    - `go.mod` (and nested variants in `cmd/*/`)
    - `Cargo.toml`
    - `pom.xml` / `build.gradle`
+   - `*.csproj` / `*.fsproj` / `*.sln` / `global.json` / `Directory.Packages.props` (.NET)
    - `Dockerfile` (and all `*/Dockerfile`)
    - `docker-compose.yml` / `docker-compose.yaml`
    - `CODEOWNERS` / `.github/CODEOWNERS`
@@ -194,6 +195,10 @@ found none.
 5. Check for existing OTel and record **which files hold it**:
    - Node.js: `@opentelemetry/` in any `package.json` dependencies
    - Python: `opentelemetry-` in any `pyproject.toml` or `requirements.txt`
+   - .NET: `<PackageReference Include="OpenTelemetry` in any `*.csproj`/`*.fsproj` or
+     `Directory.Packages.props` (the .NET package id is `OpenTelemetry` — capitalised, no `/` or
+     trailing `-`, so the Node/Python patterns miss it); plus `AddOpenTelemetry(`,
+     `WithTracing`/`WithMetrics`/`WithLogging`, `new ActivitySource(`, or `new Meter(` in `*.cs`
    - Hand-rolled: look for `NodeTracerProvider`, `TracerProvider`, `trace.getTracer` in source files
    - **OTel-based vendor SDKs** — a dependency that sets up its own global OTel `TracerProvider`
      internally, even though `@opentelemetry/*` is not a direct dep. These COLLIDE with a
@@ -225,7 +230,8 @@ found none.
    - `identityInputs`: the repo-relative paths that define service identity, and EXACTLY the set
      the `/otel-init` Step 1 freshness check rediscovers — every tracked-or-untracked file whose
      basename is one of `package.json`, `pyproject.toml`, `requirements.txt`, `go.mod`,
-     `Cargo.toml`, `pom.xml`, `build.gradle`/`build.gradle.kts`, `Dockerfile`, `host.json`,
+     `Cargo.toml`, `pom.xml`, `build.gradle`/`build.gradle.kts`, `global.json`,
+     `Directory.Packages.props`, any `*.csproj`/`*.fsproj`/`*.sln`, `Dockerfile`, `host.json`,
      `serverless.yml`, `CODEOWNERS`. Nothing else — **NOT** bare service root directories, and
      **NOT** files like `.env.example` or CI workflows even if you read them during detection.
      `/otel-init` Step 1 recomputes this set with a fixed filename regex and compares it to what
