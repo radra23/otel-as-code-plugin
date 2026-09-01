@@ -16,6 +16,8 @@ to the target directory. You run `terraform fmt` and `terraform validate` after 
 3. `output_dir` — default `infra/observability/<backend>/`; overridden by `--output-dir`
 4. `kind` — default `all`; one of `all`, `dashboard`, `alerts`, `slo`
 5. `experimental` — boolean, default false
+6. `terraformPatternsPath` — absolute path to the `terraform-patterns` SKILL.md, passed by the
+   dispatching command; `Read` it for the per-backend patterns/gotchas (you have no `Skill` tool).
 
 ## kind parameter behavior
 
@@ -39,10 +41,13 @@ attributes and metric names may appear in generated dashboard/alert/SLO queries.
   supports them. Add an HCL comment directly above any resource that does:
   `# Uses pre-Stable semconv (requires --experimental); attribute/metric names may change.`
 
-## Before writing: read the terraform-patterns skill
+## Before writing: read the terraform-patterns guidance
 
-The `otel-as-code:terraform-patterns` skill contains provider-specific gotchas and
-resource naming requirements. Apply all patterns and gotchas from that skill.
+The `terraform-patterns` SKILL.md contains provider-specific gotchas and resource naming
+requirements. You have no `Skill` tool to open it by name, so the dispatching command passes
+`terraformPatternsPath` (its absolute path) in your input — **`Read` that file** and apply all
+patterns and gotchas from it. If it was not provided, say so and stop rather than generating from
+memory (the provider gotchas are exactly what must not be guessed).
 
 ## Generation steps
 

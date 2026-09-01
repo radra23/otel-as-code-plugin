@@ -24,6 +24,11 @@ You will receive:
 6. `existingArtifacts` — paths already holding OTel config, when regenerating.
 7. `preserve` (optional) — the current content of files being overwritten under `--force`.
 8. `fixList` (optional) — specific `/otel-evaluate` findings to apply.
+9. `semconvVersion` — the pinned `SEMCONV_VERSION`, read from the `semconv-discipline` skill by
+   the dispatching command (you have no `Skill` tool). Stamp it into the `<SEMCONV_VERSION>`
+   header placeholder; never restate it from memory.
+10. `languageMaturityPath` — absolute path to the `language-maturity` SKILL.md; `Read` it for the
+    per-language signal-maturity matrix (you cannot invoke the skill by name).
 
 ## Runtime and host gating (apply before writing anything)
 
@@ -82,7 +87,9 @@ deliberately excluded liveness probe.
 
 ## Maturity gating & `--experimental` (apply before generating any signal)
 
-Consult the per-language maturity matrix in `skills/language-maturity/SKILL.md` for every signal
+Consult the per-language maturity matrix by `Read`ing the file at `languageMaturityPath` (the
+`language-maturity` SKILL.md, whose absolute path the dispatching command passes — you have no
+`Skill` tool to open it by name) for every signal
 you are about to emit (traces, metrics, logs). Then gate output by maturity level:
 
 - **Stable** → emit normally.
@@ -287,9 +294,10 @@ read `DEPLOYMENT_ENV` at runtime and use this as the *fallback default*, so the 
 is the local/unset-case value while the environment can still differ per deployment target.
 Do NOT leave the literal `development` here when the context has a confirmed value — that was
 the bug (#32): the confirmed `deploymentEnvironment` was collected and then never read by codegen.
-Replace `<SEMCONV_VERSION>` with the `SEMCONV_VERSION` constant declared in
-`skills/semconv-discipline/SKILL.md` — that skill is the single source of truth for the pinned
-semconv version. Never hardcode the number here.
+Replace `<SEMCONV_VERSION>` with the `semconvVersion` passed in your input (the pinned
+`SEMCONV_VERSION`, which the dispatching command read from the `semconv-discipline` skill — you
+have no `Skill` tool to read it yourself). Never hardcode the number or restate it from memory;
+if it was not provided, leave the placeholder and say so rather than guessing.
 
 Do NOT pass `traceExporter`, `metricReader`, or `metricReaders` to `NodeSDK`. Any of them
 overrides the env-var selection above and re-breaks the `console` and `none` paths.

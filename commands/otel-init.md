@@ -55,6 +55,13 @@ costs minutes per command for nothing.
 
 Dispatch the `otel-as-code:repo-context-scanner` subagent with the repo root as context.
 
+The subagent has **no `Skill` tool**, so it cannot read `semconv-discipline` itself — pass it the
+guidance explicitly, or it records `guidanceVersion: null` and guesses the high-cardinality list:
+- `semconvVersion`: the `SEMCONV_VERSION` value from the `semconv-discipline` skill (read it here
+  first — you, the command, can).
+- `semconvGuidancePath`: `${CLAUDE_PLUGIN_ROOT}/skills/semconv-discipline/SKILL.md` (an absolute
+  path the subagent can `Read` for the canonical high-cardinality list).
+
 **If a cache already existed, pass its full contents as `priorContext`.** The scanner merges it
 per the cache ownership contract in `agents/repo-context-scanner.md` — scanner-owned fields are
 refreshed from disk, user-owned fields (`businessAttrs`, `confirmedAt`, `namespace`,

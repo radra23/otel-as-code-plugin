@@ -13,6 +13,12 @@ frameworks, existing OTel coverage, and team ownership. You do NOT write any fil
 ## Input
 
 - The repo root (required).
+- `semconvVersion` — the pinned `SEMCONV_VERSION`, read from the `semconv-discipline` skill by the
+  dispatching command. Use it verbatim as `derived.guidanceVersion`; you have no `Skill` tool, so
+  never restate the version from memory. If it was not provided, set `guidanceVersion` to `null`
+  and note in `derived.notes` that no pinned version was supplied — do NOT invent one.
+- `semconvGuidancePath` — the absolute path to `semconv-discipline/SKILL.md`; `Read` it for the
+  canonical high-cardinality identifier list you populate `derived.highCardinalityAttributes` from.
 - `priorContext` (optional) — the existing `.claude/otel-context.json`, when one is on disk.
   You MUST merge it per the ownership contract below. **A re-scan that returns
   `businessAttrs: []` and `confirmedAt: null` over a cache that had them destroys work the
@@ -304,7 +310,7 @@ Return ONLY the following JSON object. No explanation, no preamble, no markdown 
       "teamSource": "CODEOWNERS",
       "teamConfidence": 0.85,
       "derived": {
-        "guidanceVersion": "<SEMCONV_VERSION from the semconv-discipline skill>",
+        "guidanceVersion": "<the semconvVersion passed in — never a remembered version; null if none supplied>",
         "derivedAt": "<ISO-8601>",
         "conformanceIssues": [
           {
