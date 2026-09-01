@@ -1,0 +1,37 @@
+# Sync repository labels from .github/labels.json (the single source of truth), so the labels
+# the issue templates request always exist. Before this, the templates referenced
+# needs-triage / coverage / incorrect-output / dependencies, none of which existed — every
+# filed issue landed mislabeled. Runs on a change to the label set and on demand.
+name: Sync labels
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/labels.json'
+      - '.github/workflows/sync-labels.yml'
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create/update labels from labels.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # `gh label create --force` creates a label or updates its color/description if it
+          # already exists — idempotent, and needs no third-party action. JSON (not YAML) so the
+          # parser is stdlib python3, matching the rest of this repo's tooling. The python is a
+          # single line on purpose: a multi-line -c would need every line indented into this
+          # block scalar or it breaks the workflow YAML.
+          python3 -c "import json; [print(chr(9).join((l['name'], l['color'], l['description']))) for l in json.load(open('.github/labels.json'))]" \
+            | while IFS=$'\t' read -r name color desc; do
+                echo "syncing label: $name"
+                gh label create "$name" --color "$color" --description "$desc" --force
+              done
