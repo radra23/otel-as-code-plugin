@@ -186,7 +186,46 @@ user-owned field, untouched.
 If a `.claude/.otel-force` sentinel was created in Step 4, remove it now so the write-guard
 is restored for subsequent writes: `rm -f .claude/.otel-force`.
 
-## Step 7: Deployment wiring — say what is still required
+## Step 7: Verify the bootstrap actually loads and identity is correct
+
+"Generated" is not "working". Before reporting success, prove the bootstrap imports, the SDK
+starts, and the resource carries the identity `/otel-business-attrs` confirmed — with a local
+**console** smoke that needs no collector and no network. This catches a bootstrap that throws
+on import, a wrong `service.name`, or a dropped `service.namespace` / `deployment.environment.name`
+immediately, instead of after the user wires up a backend and sees nothing.
+
+Applies to the Node.js and Python source bootstraps. (Java is the zero-code agent — there is no
+importable bootstrap to smoke here; its equivalent is running the app under the agent, which the
+e2e harness covers. Say that and skip.)
+
+Run the smoke only if the SDK dependencies are installed (`node_modules` / the venv present). If
+they are not, DO NOT fail — print the exact command for the user to run after `npm install` /
+`pip install`, and note verification was deferred.
+
+- **Node.js** (adjust the bootstrap path to what was generated):
+  ```
+  OTEL_TRACES_EXPORTER=console OTEL_METRICS_EXPORTER=none OTEL_LOGS_EXPORTER=none \
+    node -e "require('./tracing.js'); const {trace}=require('@opentelemetry/api'); \
+    trace.getTracer('otel-verify').startSpan('otel.smoke').end(); \
+    setTimeout(()=>process.exit(0), 1200)"
+  ```
+- **Python** (adjust module name):
+  ```
+  OTEL_TRACES_EXPORTER=console OTEL_METRICS_EXPORTER=none OTEL_LOGS_EXPORTER=none \
+    python -c "import tracing; from opentelemetry import trace; \
+    trace.get_tracer('otel-verify').start_span('otel.smoke').end(); tracing.shutdown()"
+  ```
+
+Both print the span as JSON on stdout, including its `resource` attributes. Assert on that output:
+- a span named `otel.smoke` was printed (the SDK started and the console exporter ran); and
+- its resource `service.name` equals the confirmed name, and — when the context has them —
+  `service.namespace` and `deployment.environment.name` match what was confirmed.
+
+Report the result plainly: `✓ Verified: bootstrap loads and emits service.name=<name> …`, or, on a
+mismatch or an import error, show the discrepancy and treat it as a failure to fix — do not paper
+over it. If verification was deferred (deps not installed), say so and give the command above.
+
+## Step 8: Deployment wiring — say what is still required
 
 Print the subagent's summary, then this block. **Do not omit it and do not soften it.** The
 generated bootstrap reads `OTEL_EXPORTER_OTLP_ENDPOINT` and hard-codes nothing, which is
