@@ -110,3 +110,30 @@ services:
     # extra wiring; its built-in tracing then emits server spans for the route handlers.
     command: ["sh", "-c", "npm install --no-audit --no-fund --loglevel=error && npm run build && npm start"]
     depends_on: [collector]
+
+  dotnet-app:
+    # SDK image (not runtime) because the container restores + builds the source inline, like the
+    # other apps. Tag matches the golden csproj's <TargetFramework>net8.0</TargetFramework>.
+    image: mcr.microsoft.com/dotnet/sdk:8.0
+    working_dir: /app
+    environment:
+      # The golden OpenTelemetry.cs reads service.name from OTEL_SERVICE_NAME (IConfiguration
+      # includes env vars by default). Use a name DISTINCT from node-app's checkout-api — a
+      # duplicate service.name would merge in Jaeger and muddy the per-service assertion.
+      OTEL_SERVICE_NAME: "checkout-dotnet"
+      # service.version (1.4.2) and service.namespace (checkout) are set in the golden
+      # OpenTelemetry.cs itself; deployment.environment.name reads DEPLOYMENT_ENV at runtime.
+      DEPLOYMENT_ENV: "e2e"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4317"
+      OTEL_EXPORTER_OTLP_PROTOCOL: "grpc"   # .NET OTLP exporter defaults to grpc:4317; be explicit
+      ASPNETCORE_URLS: "http://+:8080"      # where Kestrel listens inside the container
+    ports:
+      - "5001:8080"   # load is driven from the host (see run.sh)
+    volumes:
+      - ./.work/dotnet:/app
+    # Greenfield Program.cs (with the one documented AddOtelObservability line) + golden
+    # OpenTelemetry.cs + golden instrumented .csproj, seeded by run.sh. `dotnet run` restores,
+    # builds, and serves; the AddAspNetCore/HttpClient instrumentation emits server spans that the
+    # OTLP exporter ships to the in-network collector.
+    command: ["sh", "-c", "dotnet restore && dotnet run --no-launch-profile"]
+    depends_on: [collector]

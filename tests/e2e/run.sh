@@ -16,7 +16,7 @@ cleanup() {
   # metrics/logs pipelines (Jaeger's OTLP receiver only accepts traces) — see the
   # "Expected collector errors" section in README.md before treating those as the failure.
   echo "--- collector + app logs (tail, timestamped) ---"
-  docker compose logs --timestamps --tail=60 jaeger collector node-app python-app java-app nextjs-app 2>/dev/null || true
+  docker compose logs --timestamps --tail=60 jaeger collector node-app python-app java-app nextjs-app dotnet-app 2>/dev/null || true
   echo "--- jaeger /api/services (what actually landed) ---"
   curl -fsS "http://localhost:16686/api/services" 2>/dev/null && echo || echo "(jaeger /api/services unreachable)"
   docker compose down -v --remove-orphans 2>/dev/null || true
@@ -28,7 +28,7 @@ cleanup() {
 trap cleanup EXIT
 
 # 1. seed throwaway app copies (fixtures stay pristine)
-rm -rf "$WORK"; mkdir -p "$WORK/nodejs" "$WORK/python" "$WORK/java" "$WORK/nextjs"
+rm -rf "$WORK"; mkdir -p "$WORK/nodejs" "$WORK/python" "$WORK/java" "$WORK/nextjs" "$WORK/dotnet"
 # The collector's file exporter (logs-overlay) writes logs.json here. World-writable so the
 # collector container's non-root user can write regardless of the host UID that created it.
 mkdir -p "$WORK/collector-out"; chmod 777 "$WORK/collector-out"
@@ -62,6 +62,14 @@ cp ../snapshots/instrument/java/otel-java.env "$WORK/java/otel-java.env"
 OTEL_JAVA_AGENT_VERSION=2.31.1
 curl -fsSLo "$WORK/java/opentelemetry-javaagent.jar" \
   "https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v${OTEL_JAVA_AGENT_VERSION}/opentelemetry-javaagent.jar"
+
+# .NET: greenfield ASP.NET Core fixture (Program.cs carries the one documented AddOtelObservability
+# line — the plugin prints it rather than writing it) + the golden OpenTelemetry.cs (defines the
+# extension) + the golden INSTRUMENTED .csproj (adds the four pinned OTel packages, replacing the
+# greenfield one). Same assemble-from-golden shape as the Node block above.
+cp -R ../../fixtures/dotnet-greenfield/. "$WORK/dotnet/"
+cp ../snapshots/instrument/dotnet/OpenTelemetry.cs "$WORK/dotnet/OpenTelemetry.cs"
+cp ../snapshots/instrument/dotnet/checkout-api.csproj "$WORK/dotnet/checkout-api.csproj"   # instrumented manifest
 
 # 2. up + wait for jaeger health
 docker compose up -d
@@ -119,6 +127,15 @@ for i in 1 2 3 4 5; do
   curl -fsS "http://localhost:3001/api/ping" >/dev/null || true
 done
 
+# .NET app (dotnet restore + build run inline in the container — heavy, like next build; allow more
+# time). Hitting the routes makes the ASP.NET Core instrumentation emit server spans, exported over
+# OTLP/gRPC (:4317) to the collector.
+wait_ready "http://localhost:5001" 300
+for i in 1 2 3 4 5; do
+  curl -fsS "http://localhost:5001/health" >/dev/null || true
+  curl -fsS "http://localhost:5001/pay" >/dev/null || true
+done
+
 # 4. assert (Jaeger reachable on host 16686)
 JA="http://localhost:16686"
 # Check BOTH services in one run (don't fail-fast on the first) so a single CI run reports
@@ -134,6 +151,11 @@ POLL_TIMEOUT=40 bash assert-traces.sh --jaeger "$JA" --service payments-api \
 # attrs come from OTEL_SERVICE_NAME + OTEL_RESOURCE_ATTRIBUTES (verified honored by @vercel/otel).
 POLL_TIMEOUT=60 bash assert-traces.sh --jaeger "$JA" --service web-frontend \
   --expect service.name=web-frontend,service.version=2.1.0,service.namespace=storefront,deployment.environment.name=e2e || rc=1
+# .NET code-based SDK (golden OpenTelemetry.cs). service.version + service.namespace are set in the
+# extension itself; service.name comes from OTEL_SERVICE_NAME and deployment.environment.name from
+# DEPLOYMENT_ENV. namespace is `checkout` (the golden's value), not `storefront`.
+POLL_TIMEOUT=60 bash assert-traces.sh --jaeger "$JA" --service checkout-dotnet \
+  --expect service.name=checkout-dotnet,service.version=1.4.2,service.namespace=checkout,deployment.environment.name=e2e || rc=1
 
 # Logs (#12, --experimental): the Python app logs `reserved sku=...` on /inventory/reserve, the
 # --experimental bootstrap bridges it to OTLP, and the collector's file exporter writes it to
