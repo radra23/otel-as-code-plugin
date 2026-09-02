@@ -54,6 +54,14 @@ provider "dash0" {
   url        = var.dash0_url
 }
 
+locals {
+  # npm-scoped service names ("@myorg/web") carry '@' and '/' that are invalid in resource
+  # identifiers. service_slug sanitizes service.name to [a-z0-9_] for IDENTIFIER positions only
+  # (the alert names below). Every PromQL filter keeps the raw var.service_name so it still
+  # matches the emitted service.name value — sanitizing there would break the match.
+  service_slug = trim(replace(lower(var.service_name), "/[^a-z0-9]+/", "_"), "_")
+}
+
 resource "dash0_dashboard" "otel" {
   dataset = var.dash0_dataset
 
@@ -112,7 +120,7 @@ resource "dash0_check_rule" "error_rate" {
   dataset = var.dash0_dataset
 
   check_rule_yaml = <<-YAML
-    alert: HighErrorRate_${var.service_name}
+    alert: HighErrorRate_${local.service_slug}
     expr: |
       sum(rate(http_server_request_duration_seconds_count{service_name="${var.service_name}",http_response_status_code=~"5.."}[5m]))
       / sum(rate(http_server_request_duration_seconds_count{service_name="${var.service_name}"}[5m])) > 0.05
@@ -129,7 +137,7 @@ resource "dash0_check_rule" "latency" {
   dataset = var.dash0_dataset
 
   check_rule_yaml = <<-YAML
-    alert: HighP99Latency_${var.service_name}
+    alert: HighP99Latency_${local.service_slug}
     expr: |
       histogram_quantile(0.99, sum(rate(http_server_request_duration_seconds_bucket{service_name="${var.service_name}"}[5m])) by (le)) > 0.5
     for: 5m
