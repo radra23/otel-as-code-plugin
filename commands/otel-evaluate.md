@@ -69,6 +69,11 @@ Pass to `otel-as-code:brownfield-auditor`:
   read `1.27.0` while the pin was `1.44.0` is exactly the failure to prevent).
 - `semconvGuidancePath`: `${CLAUDE_PLUGIN_ROOT}/skills/semconv-discipline/SKILL.md` — the auditor
   `Read`s it for the OLD→NEW attribute table and the high-cardinality list.
+- `languageMaturityPath`: `${CLAUDE_PLUGIN_ROOT}/skills/language-maturity/SKILL.md` — the auditor
+  `Read`s it (no `Skill` tool of its own) to check each service's installed instrumentation
+  packages against the per-runtime maturity matrix and flag any that are below Stable while their
+  siblings are Stable (e.g. a Beta-pinned `OpenTelemetry.Instrumentation.EntityFrameworkCore`).
+  Mirrors what `/otel-instrument` already passes its generator subagent.
 - `cachedJudgements`: `services[i].derived` for each service — passed explicitly as **claims to
   re-verify, not findings to inherit**. Include each block's `guidanceVersion` so the auditor
   can see which predate the current `SEMCONV_VERSION`.

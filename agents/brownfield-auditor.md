@@ -21,6 +21,10 @@ You DO NOT write any files.
    the dispatching command (you cannot read a skill yourself — no `Skill` tool).
 5. `semconvGuidancePath` — the absolute path to `semconv-discipline/SKILL.md`, which you `Read`
    for its OLD→NEW attribute table and canonical high-cardinality identifier list.
+6. `languageMaturityPath` — the absolute path to `language-maturity/SKILL.md`, which you `Read`
+   for the per-runtime signal/package maturity matrix (Stable / Beta / Development). Used by the
+   package-maturity check (`MB` findings) below. If it was not provided, skip that check and say
+   so in `derived.notes` — do not guess a package's maturity from memory.
 
 ## Cached judgements are claims, not findings
 
@@ -161,6 +165,24 @@ A real key that is gitignored and never committed → "rotate a local plaintext 
 NOT "you leaked a key". A real key in history → an incident (CRITICAL). Report which, with the
 evidence you ran — a false "you leaked a key" is itself a harm, and so is missing a real one.
 
+### 9. Package maturity — instrumentation packages below Stable (`MB`)
+`Read` the file at `languageMaturityPath` (skip this dimension, noting so in `derived.notes`, if
+it was not provided). For each service, compare its **installed** OTel instrumentation packages
+(from `existingOtel.sdkPackages` — the npm/PyPI/NuGet specifiers — and their pinned versions) to
+that runtime's maturity matrix. Flag as an `MB` finding a package that is **below Stable while its
+siblings in the same manifest are Stable**, or one the matrix explicitly marks Beta/Development.
+This is the exact class the matrix exists to catch and must not depend on the auditor happening to
+grep a package's README:
+- The canonical .NET case: `OpenTelemetry.Instrumentation.EntityFrameworkCore` pinned to a
+  `-beta` while every sibling `OpenTelemetry.*` is on stable `1.x`. Report the version gap, and —
+  per the matrix note — that its `EmitOldAttributes`/`EmitNewAttributes` defaults govern whether
+  it emits OLD (`db.name`, `db.statement`) or NEW (`db.namespace`, `db.query.text`) attribute
+  names; recommend verifying the installed version's compiled default, not asserting it.
+- Severity is usually MEDIUM (works today, but a pre-Stable API/attribute set may change under
+  you), MINOR when the matrix says that signal is expected-Beta for the runtime. Do not flag a
+  package the matrix lists as Stable, and do not invent a maturity you cannot source from the
+  matrix or the installed package.
+
 ## Output Format
 
 Return a plain-text report in this format:
@@ -187,8 +209,8 @@ does not renumber the rest, and an ID means the same thing across runs (what
 `/otel-instrument --fix` relies on). In a multi-service repo, qualify it with the service:
 `<serviceId>:<CAT>-<id>`. Categories: `SC` signal coverage, `CV` semconv violation, `CR`
 cardinality risk, `PI` PII in a value, `CD` credential exposure, `CF` telemetry configuration,
-`SH` SDK health, `WR` wiring. `/otel-instrument --fix <ids>` consumes these, so every finding
-carries one.
+`SH` SDK health, `WR` wiring, `MB` maturity (an instrumentation package below Stable — see
+dimension 9). `/otel-instrument --fix <ids>` consumes these, so every finding carries one.
 
 ```
 ## OTel Coverage Audit — <service.name>
