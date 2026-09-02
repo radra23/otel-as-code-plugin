@@ -9,7 +9,7 @@
 
 A Claude Code plugin — and a set of Codex skills — for OpenTelemetry instrumentation and observability-as-code.
 
-Instrument any Node.js, Python, or Java service, infer service identity from your repo,
+Instrument any Node.js, Python, Java, or .NET service, infer service identity from your repo,
 generate Terraform for Grafana, Datadog, New Relic, or Dash0 — all from your editor.
 
 ```bash
@@ -23,15 +23,17 @@ Codex — under [Installation](#installation).
 
 ## Status
 
-**MVP / experimental.** Scope: Node.js + Python instrumentation, and Terraform for four
-backends (Grafana, Datadog, New Relic, Dash0).
+**MVP / experimental.** Scope: Node.js, Python, Java, and .NET instrumentation, and Terraform
+for four backends (Grafana, Datadog, New Relic, Dash0).
 
 Generated output is validated for **syntax and schema** — every backend module is
 `terraform validate`d in CI, and the OTel SDK/semconv pins are checked against current
 releases weekly (see the drift check). The Node.js, Python, and Java instrumentation is
 additionally **proven end-to-end in CI**: the generated SDK bootstrap (or, for Java, the
 OpenTelemetry Java agent) exports through the generated Collector config into a running trace
-store, asserted on every push (see [`tests/e2e/`](tests/e2e/)).
+store, asserted on every push (see [`tests/e2e/`](tests/e2e/)). **.NET** is generated and
+compile-checked (`dotnet build`) against a committed golden; its end-to-end run is the next
+addition to the harness.
 The **Terraform is not yet proven against live vendor backends** — before trusting it, run
 `terraform plan` / `apply` against your own account. Treat backend modules as a reviewed
 starting point, not turnkey infrastructure.
@@ -87,7 +89,7 @@ a command says "dispatch the `<x>` agent", read `agents/<x>.md` and do that work
 | Command | Purpose |
 |---|---|
 | `/otel-init` | First-run setup: detect services, prime context cache |
-| `/otel-instrument [lang]` | SDK bootstrap for Node.js / Python, or Java agent config |
+| `/otel-instrument [lang]` | SDK bootstrap for Node.js / Python, Java agent config, or .NET SDK wiring |
 | `/otel-evaluate` | Read-only brownfield gap audit |
 | `/otel-collector [mode]` | otelcol-contrib config (agent \| gateway) |
 | `/otel-business-attrs` | Infer + confirm service identity and business metrics |
@@ -153,9 +155,13 @@ Node.js (all signals: Stable) and Python (traces + metrics: Stable; logs: Develo
 `--experimental`) via a generated
 SDK bootstrap (`tracing.js` / `tracing.py`). **Java** (all signals: Stable) via the zero-code
 OpenTelemetry Java **agent** — the generator emits an `otel-java.env` + a pinned agent download and
-run command, no source file.
+run command, no source file. **.NET** (all signals: Stable) via a code-based SDK — the generator
+emits a marker-stamped `OpenTelemetry.cs` (an `AddOtelObservability()` DI extension) plus the one
+`Program.cs` line and the `dotnet add package` commands to wire it in; no edit to your existing
+`Program.cs` or `.csproj`. Requires a hosted app (ASP.NET Core or Generic Host); a plain console
+app is refused with that reason.
 
-v1 will add: Go, .NET, Ruby, PHP, Rust.
+v1 will add: Go, Ruby, PHP, Rust.
 
 **Browser / RUM is out of scope.** `/otel-instrument` targets server-side runtimes, and it
 selects a *service* (prompting when more than one qualifies) rather than assuming the first one

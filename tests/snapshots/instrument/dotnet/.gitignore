@@ -1,0 +1,4 @@
+# This directory holds a *golden reference* (.cs + .csproj) that CI reads but never builds.
+# Building it locally (or an IDE auto-restoring the .csproj) produces these artifacts — never commit them.
+obj/
+bin/
