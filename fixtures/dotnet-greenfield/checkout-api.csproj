@@ -1,0 +1,14 @@
+<!-- Greenfield (pristine / uninstrumented) project — NO OpenTelemetry packages.
+     run.sh overwrites this with the golden instrumented csproj (tests/snapshots/instrument/dotnet/
+     checkout-api.csproj, which adds the four pinned OTel packages) when seeding .work/dotnet, the
+     same way the Node fixture's package.json is replaced by the instrumented manifest. Same file
+     name so the copy cleanly replaces it (two .csproj in one dir would break the build). -->
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+</Project>
