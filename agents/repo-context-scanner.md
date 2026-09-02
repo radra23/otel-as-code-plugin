@@ -154,15 +154,19 @@ found none.
 3. Determine `runtime` — **where the code actually executes.** This is NOT the same question as
    `language`, and conflating the two is how a Vite + React browser bundle gets a
    `@opentelemetry/sdk-node` bootstrap that cannot run and breaks the build. A browser SPA's
-   toolchain is Node; its runtime is the browser.
+   toolchain is Node; its runtime is the browser. **.NET has the same split:** a Blazor
+   WebAssembly app is a browser runtime even though its `language` is `dotnet` and it builds with
+   the .NET SDK — classify it `browser`, not `dotnet`, exactly as a Vite/React SPA is `browser`
+   not `node`. The presence of a `.csproj` alone never settles `runtime`; look for the WASM signal
+   first.
 
    | `runtime`  | Evidence                                                                          |
    |------------|-----------------------------------------------------------------------------------|
-   | `browser`  | a bundler/SPA dep (`vite`, `webpack`, `parcel`, `react-scripts`, `@vitejs/*`), a UI framework dep (`react-dom`, `vue`, `svelte`, `@angular/core`), a `browser` field in `package.json`, or an `index.html` at the package root |
+   | `browser`  | a bundler/SPA dep (`vite`, `webpack`, `parcel`, `react-scripts`, `@vitejs/*`), a UI framework dep (`react-dom`, `vue`, `svelte`, `@angular/core`), a `browser` field in `package.json`, or an `index.html` at the package root; **or** a .NET Blazor WebAssembly project — a `Microsoft.NET.Sdk.BlazorWebAssembly` project SDK, or a `PackageReference` to `Microsoft.AspNetCore.Components.WebAssembly` (a WASM bundle shipped to the browser, the .NET equivalent of a JS SPA) |
    | `node`     | a server dep (`express`, `fastify`, `koa`, `hapi`, `@azure/functions`, `aws-lambda`), `engines.node`, a `FROM node` Dockerfile, or a `main`/`bin` entry with no browser evidence |
    | `python`   | `pyproject.toml` / `requirements.txt` / `setup.py`                                 |
    | `jvm`      | `pom.xml` / `build.gradle`                                                         |
-   | `dotnet`   | `*.csproj` / `*.fsproj`                                                            |
+   | `dotnet`   | `*.csproj` / `*.fsproj` — **except** a Blazor WebAssembly project, which is `browser` (see that row). A plain project file alone is server-side .NET |
    | `go`       | `go.mod`                                                                           |
    | `ruby`     | `Gemfile`                                                                          |
    | `php`      | `composer.json`                                                                    |
@@ -301,7 +305,7 @@ Return ONLY the following JSON object. No explanation, no preamble, no markdown 
       "instrumentableReason": null,
       "host": "<standalone|container|kubernetes|azure-functions|azure-app-service|aws-lambda|gcp-cloud-functions|static-hosting|unknown>",
       "hostSource": "<the specific evidence, e.g. file:host.json>",
-      "framework": "<express|fastapi|django|flask|gin|spring|rails|nextjs|nuxt|other|unknown>",
+      "framework": "<express|fastapi|django|flask|gin|spring|rails|nextjs|nuxt|aspnetcore|minimal-api|blazor|other|unknown>",
       "runnableEntry": "<main entry file>",
       "hasDockerfile": true,
       "deployment": {
