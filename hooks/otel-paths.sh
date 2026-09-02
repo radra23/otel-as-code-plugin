@@ -21,11 +21,20 @@ OTEL_STEMS=(tracing telemetry opentelemetry)
 # otel-java.env below — the generator never writes a tracing.java.
 OTEL_EXTS=(js mjs cjs ts mts cts py go cs rb php rs)
 
-# Fixed-name artifacts that carry no stem/extension pattern. OpenTelemetry.cs is the .NET SDK
-# wiring class: matching here is exact and case-sensitive, and .NET convention names the file
-# PascalCase, so the lowercase `opentelemetry.cs` produced by the stem×ext grid would NOT cover
-# it — this line is what actually guards the generated .NET file.
-OTEL_FIXED_NAMES=(otel-java.env otelcol-agent.yaml otelcol-gateway.yaml OpenTelemetry.cs)
+# Fixed-name artifacts that carry no stem/extension pattern, SPLIT by what generates them.
+# The split is load-bearing for destructive consumers: /otel-uninstrument deletes and must reach
+# bootstraps ONLY, never a Collector config — and the ownership marker cannot save the latter,
+# because /otel-collector stamps its output with the same marker. A bootstrap-scoped consumer
+# therefore has to be handed a name set that excludes the collector configs by construction, not
+# by prose. otel_is_generated_*() below matches the UNION (OTEL_FIXED_NAMES), because the
+# write-guard must protect and session-summary must report both kinds.
+#
+# OpenTelemetry.cs is the .NET SDK wiring class: matching is exact and case-sensitive, and .NET
+# convention names the file PascalCase, so the lowercase `opentelemetry.cs` produced by the
+# stem×ext grid would NOT cover it — this entry is what actually guards the generated .NET file.
+OTEL_BOOTSTRAP_FIXED_NAMES=(otel-java.env OpenTelemetry.cs)
+OTEL_COLLECTOR_FIXED_NAMES=(otelcol-agent.yaml otelcol-gateway.yaml)
+OTEL_FIXED_NAMES=("${OTEL_BOOTSTRAP_FIXED_NAMES[@]}" "${OTEL_COLLECTOR_FIXED_NAMES[@]}")
 
 # otel_is_generated_basename <basename> — true when the basename is one this plugin
 # generates. Matching is exact (not a suffix glob), so a user's `request-tracing.js` is
@@ -52,9 +61,11 @@ otel_is_generated_path() {
   otel_is_generated_basename "$(basename "$1")"
 }
 
-# otel_bootstrap_globs — the glob patterns a command should use to find an existing
-# bootstrap when the context cache does not name one. Printed one per line so callers
-# can feed them straight to `find`/`ls`.
+# otel_bootstrap_globs — the BOOTSTRAP names only (stems×exts + OTEL_BOOTSTRAP_FIXED_NAMES).
+# Printed one per line so callers can feed them straight to `find`/`ls`. Use this to find or act
+# on an SDK bootstrap: it deliberately EXCLUDES the Collector configs, so a destructive consumer
+# (/otel-uninstrument) cannot reach an otelcol-*.yaml through it, and /otel-instrument's
+# find-existing scan does not trip over a Collector config either.
 otel_bootstrap_globs() {
   local stem ext name
   for stem in "${OTEL_STEMS[@]}"; do
@@ -62,7 +73,18 @@ otel_bootstrap_globs() {
       printf '%s.%s\n' "$stem" "$ext"
     done
   done
-  for name in "${OTEL_FIXED_NAMES[@]}"; do
+  for name in "${OTEL_BOOTSTRAP_FIXED_NAMES[@]}"; do
+    printf '%s\n' "$name"
+  done
+}
+
+# otel_all_generated_globs — EVERY generated name (bootstrap + Collector fixed names). For
+# read-only reporting (session-summary) that should surface Collector configs too. Never hand
+# this to a destructive consumer.
+otel_all_generated_globs() {
+  local name
+  otel_bootstrap_globs
+  for name in "${OTEL_COLLECTOR_FIXED_NAMES[@]}"; do
     printf '%s\n' "$name"
   done
 }

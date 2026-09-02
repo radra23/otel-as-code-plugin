@@ -42,7 +42,7 @@ else
     for rel in "$name" "src/$name" "app/$name"; do
       [ -f "$rel" ] && CHANGED_OTEL+=("$rel")
     done
-  done < <(otel_bootstrap_globs)
+  done < <(otel_all_generated_globs)
   for f in .claude/otel-context.json .claude/otel-services.json; do
     [ -f "$f" ] && CHANGED_OTEL+=("$f")
   done
