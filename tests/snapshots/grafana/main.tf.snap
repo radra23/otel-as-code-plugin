@@ -53,6 +53,14 @@ provider "grafana" {
   auth = var.grafana_service_account_token
 }
 
+locals {
+  # npm-scoped service names ("@myorg/web") carry '@' and '/' that are invalid in a Grafana
+  # dashboard/rule-group identifier. service_slug sanitizes service.name to [a-z0-9_] for
+  # IDENTIFIER positions only (the dashboard uid + rule-group name). PromQL `job=` filters keep
+  # the raw var.service_name so they still match the emitted service.name→job value.
+  service_slug = trim(replace(lower(var.service_name), "/[^a-z0-9]+/", "_"), "_")
+}
+
 resource "grafana_folder" "otel" {
   title = "OTel — ${var.service_name}"
 }
@@ -61,7 +69,7 @@ resource "grafana_dashboard" "otel" {
   folder = grafana_folder.otel.uid
   config_json = jsonencode({
     title         = "${var.service_name} — OpenTelemetry"
-    uid           = "otel-${var.service_name}"
+    uid           = "otel-${local.service_slug}"
     schemaVersion = 39
     time          = { from = "now-6h", to = "now" }
     panels = [
@@ -97,7 +105,7 @@ resource "grafana_dashboard" "otel" {
 }
 
 resource "grafana_rule_group" "otel" {
-  name             = "otel-${var.service_name}"
+  name             = "otel-${local.service_slug}"
   folder_uid       = grafana_folder.otel.uid
   interval_seconds = 60
 

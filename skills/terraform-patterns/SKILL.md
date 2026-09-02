@@ -23,6 +23,32 @@ Header comment required in every `main.tf`:
 Run `terraform fmt` and `terraform validate` immediately after writing the files.
 Emit the exact commands the user should run next (init, plan, apply) as a post-generation note.
 
+### Service name → resource identifiers (sanitize, but ONLY in identifier positions)
+
+`service.name` is frequently an npm-scoped package name like `@myorg/web` (from `package.json#name`,
+confidence 0.97) — `@` and `/` are invalid in most resource identifiers. `terraform validate`
+does NOT catch this (the invalid string is inside an embedded YAML / a `uid` the provider accepts
+as an opaque string), so it only surfaces at `apply` against a live account. Derive a sanitized
+slug and use it in identifier positions:
+
+```hcl
+locals {
+  service_slug = trim(replace(lower(var.service_name), "/[^a-z0-9]+/", "_"), "_")
+}
+```
+
+- **Sanitize (use `local.service_slug`)** wherever the name becomes an *identifier*: a Grafana
+  dashboard `uid` / rule-group `name`, a Prometheus/Dash0 `alert:` name, a Kubernetes
+  `metadata.name`, any slug. Pick the separator the target format allows: `_` for Prometheus alert
+  names and Grafana uids (both permit `_`); `-` for a **DNS-1123** `metadata.name` (which forbids
+  `_`) — the two constraints have no common separator, so choose per field, don't assume one slug
+  fits all.
+- **Do NOT sanitize** the value used in a **query/filter** (`{service_name="..."}`,
+  `{job="..."}`, `WHERE service.name = '...'`) — it must equal the *emitted* `service.name`, so it
+  keeps the raw `var.service_name`; a slug there silently matches nothing.
+- **Do NOT sanitize** a **display title** (`name = "High error rate — ${var.service_name}"`) —
+  free text, the real name reads better.
+
 ---
 
 ## Grafana Cloud (`grafana/grafana ~> 4.0`)

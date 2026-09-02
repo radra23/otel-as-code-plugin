@@ -52,6 +52,13 @@ requirements. You have no `Skill` tool to open it by name, so the dispatching co
 patterns and gotchas from it. If it was not provided, say so and stop rather than generating from
 memory (the provider gotchas are exactly what must not be guessed).
 
+In particular apply its **"Service name → resource identifiers"** rule: `service.name` is often an
+npm-scoped name like `@myorg/web`, whose `@`/`/` are invalid in identifiers but pass
+`terraform validate` (they only fail at `apply`). Emit a `service_slug` local and use it in
+identifier positions (uids, `alert:` names, `metadata.name`), while keeping the raw
+`var.service_name` in query filters and display titles. See that section for the exact expression
+and the per-field separator choice.
+
 ## Generation steps
 
 1. Create `<output_dir>/` if it does not exist.
