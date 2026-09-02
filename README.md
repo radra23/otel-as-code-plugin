@@ -35,7 +35,10 @@ through the generated Collector config into a running trace store, asserted on e
 [`tests/e2e/`](tests/e2e/)).
 The **Terraform is not yet proven against live vendor backends** — before trusting it, run
 `terraform plan` / `apply` against your own account. Treat backend modules as a reviewed
-starting point, not turnkey infrastructure.
+starting point, not turnkey infrastructure. An opt-in CI job
+([`tf-live-validate`](.github/workflows/tf-live-validate.yml)) applies the golden modules against
+real New Relic / Dash0 accounts and tears them down — dormant until account secrets are configured
+(see [`tests/tf-live/`](tests/tf-live/)). This caveat comes off once it runs green.
 
 ## Installation
 

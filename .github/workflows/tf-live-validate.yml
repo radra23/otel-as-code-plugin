@@ -1,0 +1,51 @@
+# Live Terraform validation — OPT-IN, dormant until vendor accounts + secrets are configured.
+# Unlike the `validate-terraform` job (offline, schema-only), this APPLIES the golden module
+# against a real vendor account, confirms the provider created the resources, then destroys them.
+# It closes the "not yet proven against live vendor backends" gap in the README.
+#
+# Deliberately NOT on push/pull_request: it creates real resources (quota, rate limits) and needs
+# secrets, which are never exposed to fork PRs. Schedule + manual dispatch only, on the main repo.
+name: Terraform live validate (opt-in)
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "17 4 * * 1"   # weekly, Mon 04:17 UTC — offset from the drift-check job
+
+concurrency:
+  group: tf-live-validate   # one run at a time so two schedules can't race on the same account
+  cancel-in-progress: false
+
+jobs:
+  tf-live:
+    name: Live apply/readback/destroy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Never on forks — secrets are not available there, so it would only ever skip. Keeps the
+    # scheduled/dispatch run on the canonical repo.
+    if: github.repository == 'radra23/otel-as-code-plugin'
+    strategy:
+      fail-fast: false   # one vendor failing must not cancel the others
+      matrix:
+        vendor: [newrelic, dash0]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~1.7"
+
+      # The harness skips (exit 0) when this vendor's secrets are absent, so the matrix is safe to
+      # run with only some vendors configured. Each vendor's secrets are passed to every leg; the
+      # script reads only the ones it needs.
+      - name: Live validate — ${{ matrix.vendor }}
+        env:
+          NEW_RELIC_ACCOUNT_ID: ${{ secrets.NEW_RELIC_ACCOUNT_ID }}
+          NEW_RELIC_API_KEY: ${{ secrets.NEW_RELIC_API_KEY }}
+          NEW_RELIC_REGION: ${{ secrets.NEW_RELIC_REGION }}
+          NEW_RELIC_ENTITY_GUID: ${{ secrets.NEW_RELIC_ENTITY_GUID }}
+          DASH0_AUTH_TOKEN: ${{ secrets.DASH0_AUTH_TOKEN }}
+          DASH0_URL: ${{ secrets.DASH0_URL }}
+          DASH0_DATASET: ${{ secrets.DASH0_DATASET }}
+        run: bash tests/tf-live/validate-vendor.sh ${{ matrix.vendor }}
