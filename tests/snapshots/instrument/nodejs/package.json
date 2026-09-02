@@ -5,9 +5,9 @@
   "scripts": { "start": "node -r ./tracing.js index.js" },
   "dependencies": {
     "express": "^4.19.2",
-    "@opentelemetry/sdk-node": "^0.221.0",
-    "@opentelemetry/resources": "^2.10.0",
-    "@opentelemetry/auto-instrumentations-node": "^0.79.0",
+    "@opentelemetry/sdk-node": "^0.222.0",
+    "@opentelemetry/resources": "^2.11.0",
+    "@opentelemetry/auto-instrumentations-node": "^0.80.0",
     "@opentelemetry/semantic-conventions": "^1.43.0"
   }
 }

@@ -44,7 +44,7 @@ check "node pins match generator" 'pins_match tests/snapshots/instrument/nodejs/
 # a name-only check (the bug this fix addresses) would silently pass here too.
 check "pin guard catches version drift (teeth check)" '
   tmp=$(mktemp -d)
-  sed -E "s/(\"@opentelemetry\/sdk-node\": \")\^0\.221\.0\"/\1^9.999.0\"/" tests/snapshots/instrument/nodejs/package.json > "$tmp/package.json"
+  sed -E "s/(\"@opentelemetry\/sdk-node\": \")\^0\.222\.0\"/\1^9.999.0\"/" tests/snapshots/instrument/nodejs/package.json > "$tmp/package.json"
   drift_injected=0
   grep -qF "\"@opentelemetry/sdk-node\": \"^9.999.0\"" "$tmp/package.json" && drift_injected=1
   guard_caught_drift=0

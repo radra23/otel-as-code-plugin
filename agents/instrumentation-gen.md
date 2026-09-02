@@ -319,9 +319,9 @@ itself from the env vars, so they are not listed here. (These minimums track the
 JS release trains — the stable packages are on the 1.x/2.x line, the SDK on the 0.x line; bump
 to the latest at generation time rather than copying these verbatim if newer releases exist):
 ```json
-"@opentelemetry/sdk-node": "^0.221.0",
-"@opentelemetry/resources": "^2.10.0",
-"@opentelemetry/auto-instrumentations-node": "^0.79.0",
+"@opentelemetry/sdk-node": "^0.222.0",
+"@opentelemetry/resources": "^2.11.0",
+"@opentelemetry/auto-instrumentations-node": "^0.80.0",
 "@opentelemetry/semantic-conventions": "^1.43.0"
 ```
 
