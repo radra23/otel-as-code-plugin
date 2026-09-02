@@ -100,13 +100,24 @@ log-appender bridge (application logging frameworks → OTLP logs), not arbitrar
 | Traces  | Stable | `OpenTelemetry.Instrumentation.AspNetCore` / `.Http` + OTLP exporter |
 | Metrics | Stable | same instrumentation packages, `WithMetrics`                       |
 | Logs    | Stable | `builder.Logging.AddOpenTelemetry(...)` (ILogger → OTLP)           |
+| DB      | **Beta** | `OpenTelemetry.Instrumentation.EntityFrameworkCore` — see the note below |
 | Auto    | n/a    | code-based DI wiring, not a profiler (the zero-code agent is a v1 follow-up) |
 
 .NET uses a **code-based** SDK wired into the DI container — the generator emits a marker-stamped
 `OpenTelemetry.cs` (a `public static IServiceCollection AddOtelObservability(...)` extension) and
 prints the single `Program.cs` line + `dotnet add package` commands, rather than editing the
-user's files (see the .NET section in `instrumentation-gen`). All signals are Stable, so nothing
-is gated behind `--experimental`. Traces + metrics ship in the extension; logs wire on
+user's files (see the .NET section in `instrumentation-gen`). The three core signals (traces,
+metrics, logs) via `AspNetCore`/`Http` are Stable, so nothing is gated behind `--experimental`.
+
+**EF Core DB instrumentation is Beta — the one .NET package not on the stable line.**
+`OpenTelemetry.Instrumentation.EntityFrameworkCore` — the most common third package for any .NET
+service that touches a database — still ships as Beta (`1.17.0-beta.x`) while its
+`AspNetCore`/`Http`/core siblings are on stable `1.x`, because DB semantic conventions haven't
+fully stabilized upstream. Like Node's incubating `messaging.*` (above), don't wave it through as
+"all Stable": if you add it, prepend the Beta comment, and note that it ships
+`EmitOldAttributes`/`EmitNewAttributes` toggles for the OLD→NEW DB attribute transition
+(`db.name`→`db.namespace`, `db.statement`→`db.query.text`, `db.operation`→`db.operation.name`) —
+verify the compiled defaults of the installed version rather than asserting which it emits. Traces + metrics ship in the extension; logs wire on
 `builder.Logging` (a separate line) so they are offered as a printed optional add-on rather than
 folded into the one-liner. Requires a hosted app (ASP.NET Core / Generic Host); a plain console
 app has no `IServiceCollection` and is refused.
