@@ -63,9 +63,11 @@ Update `.claude/otel-context.json`:
 - Merge approved attributes into `services[i]`
 - Set `confirmedAt` to current ISO-8601 timestamp
 - Add a `businessAttrs` array containing ONLY approved business attributes. Each entry MUST
-  carry `"confirmed": true` (plus `name`, `source`, `confidence`, `confirmedAt`). Do NOT
-  include rejected or unreviewed candidates — the `write-guard` hook blocks the entire write
-  if any `businessAttrs` entry lacks `"confirmed": true`.
+  carry `"confirmed": true` and a confirmed `"kind"` (`"counter"`, `"gauge"`, or `"dimension"` —
+  see `business-attr-ux`; it decides how `/otel-backend` renders the attribute), plus `name`,
+  `source`, `confidence`, `confirmedAt`. Do NOT include rejected or unreviewed candidates — the
+  `write-guard` hook blocks the entire write if any `businessAttrs` entry lacks
+  `"confirmed": true`.
 
 Print:
 ```
