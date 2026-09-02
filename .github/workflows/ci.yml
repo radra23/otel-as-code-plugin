@@ -62,6 +62,9 @@ jobs:
       - name: plan-local arg-handling test
         run: bash tests/e2e/plan-local.test.sh
 
+      - name: tf-live gating test (offline — the harness's dormant-skip logic)
+        run: bash tests/tf-live/validate-vendor.test.sh
+
   # Windows regressions in the hooks used to ship silently: this whole class of bug
   # (python3 resolving to a Microsoft Store alias stub; MSYS/Git-Bash path shapes in the
   # --force match) exists precisely because nothing ran the hooks on Windows. This job runs the
