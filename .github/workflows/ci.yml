@@ -35,6 +35,9 @@ jobs:
       - name: Run session-summary tests
         run: bash tests/hooks/session-summary.test.sh
 
+      - name: Run otel-paths bootstrap/collector split tests
+        run: bash tests/hooks/otel-paths.test.sh
+
       - name: Run Codex hook-adapter tests
         run: bash tests/hooks/codex-adapters.test.sh
 
@@ -104,6 +107,9 @@ jobs:
 
       - name: Run session-summary tests
         run: bash tests/hooks/session-summary.test.sh
+
+      - name: Run otel-paths bootstrap/collector split tests
+        run: bash tests/hooks/otel-paths.test.sh
 
       # NOTE: the Codex hook-adapter suite runs on Linux only (see the lint-hooks job). Its cases
       # drive apply_patch payloads at absolute mktemp temp paths, which — like the write-guard

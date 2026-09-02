@@ -25,8 +25,8 @@ subdirectory of it, `git rev-parse --show-toplevel` resolves these paths. If ote
 instead checked out *inside* a different host repo, `show-toplevel` returns the host root (not
 here), so resolve these paths against otel-as-code's own checkout directory, not the git root.
 
-- Workflows: `$otel-init`, `$otel-instrument`, `$otel-evaluate`, `$otel-collector`,
-  `$otel-business-attrs`, `$otel-backend`.
+- Workflows: `$otel-init`, `$otel-instrument`, `$otel-uninstrument`, `$otel-evaluate`,
+  `$otel-collector`, `$otel-business-attrs`, `$otel-backend`.
 - `$semconv-discipline` — OTel semantic-convention rules (also invoked implicitly when editing
   OTel code).
 

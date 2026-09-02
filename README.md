@@ -90,6 +90,7 @@ a command says "dispatch the `<x>` agent", read `agents/<x>.md` and do that work
 |---|---|
 | `/otel-init` | First-run setup: detect services, prime context cache |
 | `/otel-instrument [lang]` | SDK bootstrap for Node.js / Python, Java agent config, or .NET SDK wiring |
+| `/otel-uninstrument` | Remove the generated SDK bootstrap for a service (marker-gated rollback) |
 | `/otel-evaluate` | Read-only brownfield gap audit |
 | `/otel-collector [mode]` | otelcol-contrib config (agent \| gateway) |
 | `/otel-business-attrs` | Infer + confirm service identity and business metrics |

@@ -20,7 +20,7 @@ Follow the canonical procedure in this repo — it is the single source of truth
 Two steps deserve care because getting them wrong writes code that cannot run:
 
 - **Step 2 selects a service, not just a language.** Filter to services with
-  `instrumentable: true` and prompt when more than one qualifies; never fall back to
+  `generatorSupported: true` and prompt when more than one qualifies; never fall back to
   `services[0]`. A browser SPA reports `language: nodejs` with `runtime: browser` — refuse it
   with its `instrumentableReason` rather than generating a Node bootstrap for a bundle.
 - **Step 4 finds the existing bootstrap via `existingOtel.bootstrapFiles`**, then by globbing the
