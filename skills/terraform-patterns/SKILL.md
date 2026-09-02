@@ -59,6 +59,23 @@ variable "grafana_service_account_token" {
 - Error rate: `rate(http_server_request_duration_seconds_count{job="...",http_response_status_code=~"5.."}[5m])`
 - P99 latency: `histogram_quantile(0.99, rate(http_server_request_duration_seconds_bucket{job="..."}[5m]))`
 
+### Business-attribute panels (from confirmed `businessAttrs`)
+Grafana panels query Prometheus, so a business attribute is only visible as a **metric** (or a
+metric **label**). Sanitize the attribute `name` to a Prometheus metric name (dots/dashes →
+underscores) as `<M>`, and scope every query to the service by `job` — exactly as the generic
+panels do (`service.name` → `job`; `<namespace>/<name>` when a namespace is set). Emit the caveat
+as the panel description so an empty panel is self-explanatory.
+- `kind: counter` → `sum(rate(<M>_total{job="<name>"}[5m]))` (OTLP→Prometheus appends `_total` to
+  counters). Caveat: requires the app to emit a counter named `<M>`.
+- `kind: gauge` → `avg(<M>{job="<name>"})` (or `avg_over_time(<M>{job="<name>"}[5m])`) — plot the
+  value directly. Do NOT wrap a gauge in `rate()`/`sum(rate())`: `rate()` is defined only for
+  counters, and summing a ratio like `conversion_rate` is meaningless.
+- `kind: dimension` → `sum by (<label>) (rate(http_server_request_duration_seconds_count{job="<name>"}[5m]))`.
+  Caveat: the breakdown needs `<label>` to be a metric label. If the attribute is recorded as a
+  per-request **metric data-point attribute**, it already is one; if it is only a **resource
+  attribute**, it is NOT a label on a default OTLP→Prometheus pipeline (see the `job`-label gotcha
+  above) unless the producer promotes it (`otlp.promote_resource_attributes`).
+
 ---
 
 ## Datadog (`DataDog/datadog ~> 4.0`)
@@ -109,6 +126,16 @@ Two gotchas baked into those queries:
 - **Percentiles need the bare distribution metric.** `trace.<op>.duration` is a COUNT (total time) and does NOT support `p50/p95/p99`. Query the suffix-less distribution metric `trace.http.server.request` for percentile aggregations.
 - **Durations are in nanoseconds.** `500000000` = 500 ms. Do not write `> 500` or `> 0.5`.
 - **The operation name is pipeline-dependent.** On pre-v2 collectors, or where a `transform` processor sets `operation.name` / legacy `span_name_as_resource_name` is configured, the stem differs. Emit a comment telling the user to confirm theirs in Datadog under APM > Metrics (Metrics Explorer, search `trace.`) before trusting the monitors — a monitor on a metric that never populates silently never fires.
+
+### Business-attribute panels (from confirmed `businessAttrs`)
+- `kind: counter` → `sum:<name>{service:<name>}.as_rate()`. Caveat: requires the counter reported
+  to Datadog; `.as_rate()` is documented for StatsD/DogStatsD rate/count metrics — for an
+  OTLP-ingested counter, have the user confirm it populates, or drop `.as_rate()` for a plain
+  `sum:<name>{service:<name>}`.
+- `kind: gauge` → `avg:<name>{service:<name>}` — the value as-is, no `.as_rate()`.
+- `kind: dimension` → group the request metric by the tag:
+  `sum:trace.http.server.request.hits{service:<name>} by {<tag>}.as_rate()`. Caveat: the tag must
+  be present on the spans/metrics (an OTel span attribute promoted to a Datadog tag).
 
 ---
 
@@ -161,6 +188,14 @@ Alert-condition NRQL (`newrelic_nrql_alert_condition.nrql.query` — NO `SINCE`/
 - Error rate: `SELECT filter(count(*), WHERE otel.status_code = 'ERROR') / count(*) FROM Span WHERE service.name = '<name>'`
 - P99 latency: `SELECT percentile(duration.ms, 99) FROM Span WHERE service.name = '<name>'`
 
+Business-attribute widgets (New Relic can query spans/metrics directly — the strongest of the four
+for this). Backtick-quote dotted attribute names:
+- `kind: counter` → ``SELECT sum(`<name>`) FROM Metric WHERE service.name = '<name>' TIMESERIES``
+  (a reported OTel counter; use ``rate(sum(`<name>`), 1 minute)`` for a per-minute rate).
+- `kind: gauge` → ``SELECT average(`<name>`) FROM Metric WHERE service.name = '<name>' TIMESERIES``
+  (`latest(...)` for a level) — never `sum()` a ratio/level.
+- `kind: dimension` → ``SELECT count(*) FROM Span WHERE service.name = '<name>' FACET `<name>` SINCE 5 MINUTES AGO`` — a native breakdown of traffic by the business dimension (no metric-label caveat: the attribute is on the span).
+
 ---
 
 ## Dash0 (`dash0hq/dash0`)
@@ -199,3 +234,15 @@ is unlike a vanilla OTLP→Prometheus pipeline, where `service.name` is only the
 `{service_name="..."}` returns no data (see the Grafana gotcha above). So the Dash0 golden keeps
 `{service_name="..."}` intentionally — verify against a live Dash0 instance, as the exact PromQL
 label spelling depends on the panel/query surface.
+
+### Business-attribute panels (from confirmed `businessAttrs`)
+Dash0 panels are PromQL, but its OTel-native pipeline makes business attributes far more likely to
+be queryable than a vanilla Prometheus setup (it filters by `service_name` directly). Sanitize the
+attribute `name` to a PromQL metric/label (dots→underscores) as `<M>`.
+- `kind: counter` → `sum(rate(<M>_total{service_name="<name>"}[5m]))`. Caveat: requires the counter
+  to be emitted.
+- `kind: gauge` → `avg(<M>{service_name="<name>"})` — the value as-is, not rated.
+- `kind: dimension` → `sum by (<M>) (rate(http_server_request_duration_seconds_count{service_name="<name>"}[5m]))`
+  — a breakdown by the business attribute, which Dash0's OTel-native ingestion keeps queryable as a
+  label where a vanilla Prometheus pipeline would not. Verify the label spelling against a live
+  instance.

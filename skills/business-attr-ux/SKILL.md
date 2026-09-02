@@ -91,20 +91,41 @@ Actions: [A]pprove all  [number] approve one  [E number] edit  [R number] remove
 →
 
 ● Business attributes (always confirm) — namespace com.myorg:
-  #  Attribute                              Candidate             Source
-  1  com.myorg.checkout.conversion_rate     route POST /checkout   AST inference
+  #  Attribute                              Kind?      Source
+  1  com.myorg.checkout.orders_placed       counter    route POST /checkout (AST inference)
+  2  com.myorg.checkout.conversion_rate     gauge      route POST /checkout (AST inference)
+  3  com.myorg.checkout.customer_tier       dimension  route POST /checkout (AST inference)
 
-Actions: [A]pprove  [R number] reject
+Actions: [A]pprove  [K number counter|gauge|dimension] set kind  [R number] reject
 →
 ```
 
+Each business attribute carries a **`kind`**, confirmed like everything else here — never guessed
+silently downstream. It decides how `/otel-backend` renders the attribute on a dashboard, and the
+counter/gauge split matters because the aggregation differs (a rate is only valid on a counter):
+
+- **`counter`** — a monotonically increasing total you view as a *rate*: `orders_placed`,
+  `checkouts_completed`, anything `_total`/`_count`. Rendered as `rate(...)` over time.
+- **`gauge`** — a level / ratio / value read *as-is*, NOT rated: `conversion_rate`, `cart_value`,
+  `queue_depth`, anything `_rate`/`_ratio`/`_value`. Rendered as the value directly (avg / latest).
+- **`dimension`** — a low-cardinality attribute you break traffic down BY: `customer_tier`,
+  `plan`, `region`. Rendered as a breakdown (facet / group-by) of request volume.
+
+Propose a `kind` from the candidate's shape (`_total`/`_count` → `counter`; `_rate`/`_ratio`/
+`_value` → `gauge`; a categorical noun → `dimension`), but it is a proposal the user can flip with
+`[K <n> counter|gauge|dimension]`. A high-cardinality identifier (an id, email, raw UUID) is none
+of these — it belongs in `derived.highCardinalityAttributes`, not here; do not accept it as a
+business dimension.
+
 After the user responds:
-- "a" or "A" → approve all items in that tier
+- "a" or "A" → approve all items in that tier (with their currently-shown `kind`)
 - A number (e.g. "1") → approve that specific item
-- "e 2" → edit item 2 (ask for new value inline)
+- "k 2 gauge" → set item 2's kind before approving
+- "e 2" → edit item 2's value (ask for new value inline)
 - "r 1" → remove item 1 from the proposal
 
-Do NOT proceed to write until all Tier 2 items have been explicitly acted on.
+Do NOT proceed to write until all Tier 2 items have been explicitly acted on, and every approved
+business attribute has a confirmed `kind`.
 
 ## Conflict Resolution Protocol
 
@@ -143,6 +164,7 @@ On approval, update `.claude/otel-context.json` in place, changing only:
     {
       "name": "com.myorg.checkout.conversion_rate",
       "candidateName": "biz.checkout.conversion_rate",
+      "kind": "gauge",
       "source": "route POST /checkout (AST inference)",
       "confidence": 0.42,
       "confirmed": true,

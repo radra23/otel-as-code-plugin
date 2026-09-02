@@ -135,26 +135,64 @@ Write backend-specific outputs referencing resources from main.tf:
 
 Always use `sensitive = false` on all outputs. If a backend does not have an SLO resource in this module, output an empty string for `slo_id`.
 
+## Business-attribute panels (from confirmed `businessAttrs`)
+
+The generic panels above (request rate, error rate, p99) are HTTP-level and identical for every
+service. `context.businessAttrs` is what makes the dashboard *this service's* — the metrics the
+user deliberately confirmed via `/otel-business-attrs`. Until now they were collected and never
+used; wire them into the dashboard.
+
+For **each** entry in `context.businessAttrs` (every entry is already `confirmed: true`), add
+**one panel** to the dashboard, chosen by the entry's `kind`:
+
+- `kind: "counter"` — a monotonic total, viewed as a **rate** (`rate(...)` / `.as_rate()`). Panel
+  title: the entry's `name`.
+- `kind: "gauge"` — a level/ratio/value, plotted **as-is** (avg / latest) — never wrapped in
+  `rate()`/`sum()`, which is meaningless for a ratio like `conversion_rate`. Panel title: `name`.
+- `kind: "dimension"` — a breakdown of request volume **by** that attribute (facet / group-by).
+  Panel title: `Requests by <name>`.
+
+The counter-vs-gauge split is load-bearing: applying a rate to a gauge (or summing a ratio)
+produces a wrong number, so use the `kind` the user confirmed — never infer the aggregation from
+the name at generation time.
+
+Use the backend's exact query syntax from the **"Business-attribute panels"** subsection of the
+`terraform-patterns` skill for the backend you are generating — including its caveat comment
+(metric-based backends can only show a business metric that is actually emitted, and a dimension
+only if it is a metric label; NRQL/Datadog can query the span/event directly). Emit that caveat as
+an HCL comment above each generated business panel so a user sees why a panel may be empty.
+
+Rules:
+- **Panels only — no business alerts.** An alert needs a threshold the user has not supplied;
+  inventing one violates "never assume business semantics". Note in the returned summary that
+  business-metric *alerts* are not generated (a future `/otel-backend` option).
+- If `businessAttrs` is empty or absent, generate exactly the generic dashboard as before (no
+  change) — this is the common case and must stay clean.
+- If an entry lacks `kind` (a cache written before this field existed), **skip it** and list it in
+  the summary as "skipped — re-run /otel-business-attrs to set its kind", rather than guessing.
+- Respect `kind` from `/otel-backend` (`dashboard` vs `alerts` vs `slo`): business panels belong
+  to the dashboard, so emit them only when the dashboard is being generated.
+
 ## Grafana main.tf
 
 Generate using patterns from the `terraform-patterns` skill (grafana section).
-Include: provider block, grafana_folder, grafana_dashboard (request rate + error rate + p99 latency panels), grafana_rule_group (error rate > 5% for 5m, p99 > 500ms for 5m), grafana_slo (availability SLO at 99.9% over 30d).
+Include: provider block, grafana_folder, grafana_dashboard (request rate + error rate + p99 latency panels **plus one panel per confirmed `businessAttrs` entry** — see "Business-attribute panels" above), grafana_rule_group (error rate > 5% for 5m, p99 > 500ms for 5m), grafana_slo (availability SLO at 99.9% over 30d).
 
 ## Datadog main.tf
 
 Generate using patterns from the `terraform-patterns` skill (datadog section).
-Include: provider block, datadog_dashboard, datadog_monitor (error rate + latency), datadog_service_level_objective (metric-based, 99.9% over 30d).
+Include: provider block, datadog_dashboard (generic panels **plus one widget per confirmed `businessAttrs` entry** — see "Business-attribute panels" above), datadog_monitor (error rate + latency), datadog_service_level_objective (metric-based, 99.9% over 30d).
 
 ## New Relic main.tf
 
 Generate using patterns from the `terraform-patterns` skill (newrelic section).
-Include: provider block, newrelic_alert_policy, newrelic_one_dashboard, newrelic_nrql_alert_condition (error rate + latency), newrelic_service_level.
+Include: provider block, newrelic_alert_policy, newrelic_one_dashboard (generic widgets **plus one widget per confirmed `businessAttrs` entry** — see "Business-attribute panels" above), newrelic_nrql_alert_condition (error rate + latency), newrelic_service_level.
 
 ## Dash0 main.tf
 
 Generate using patterns from the `terraform-patterns` skill (dash0 section).
 Verify current resource names from the Dash0 Terraform provider registry documentation
-before writing. Include: provider block, dashboard resource, alert/monitoring resource.
+before writing. Include: provider block, dashboard resource (generic panels **plus one panel per confirmed `businessAttrs` entry** — see "Business-attribute panels" above), alert/monitoring resource.
 
 ## After writing and validating
 

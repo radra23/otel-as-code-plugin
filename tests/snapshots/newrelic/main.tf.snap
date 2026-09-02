@@ -129,6 +129,38 @@ resource "newrelic_one_dashboard" "otel" {
       }
     }
   }
+
+  # Business-attribute panels — one per confirmed businessAttrs entry (example shown here).
+  # New Relic queries spans/metrics directly, so these need no metric-label promotion.
+  page {
+    name = "Business metrics"
+
+    # kind: gauge — a ratio/level read as-is (never sum()/rate() a ratio).
+    widget_line {
+      title  = "com.example.checkout.conversion_rate"
+      row    = 1
+      column = 1
+      width  = 4
+      height = 3
+      nrql_query {
+        account_id = var.newrelic_account_id
+        query      = "SELECT average(`com.example.checkout.conversion_rate`) FROM Metric WHERE service.name = '${var.service_name}' TIMESERIES"
+      }
+    }
+
+    # kind: dimension — a native breakdown of traffic by a business attribute on the span.
+    widget_bar {
+      title  = "Requests by com.example.checkout.customer_tier"
+      row    = 1
+      column = 5
+      width  = 4
+      height = 3
+      nrql_query {
+        account_id = var.newrelic_account_id
+        query      = "SELECT count(*) FROM Span WHERE service.name = '${var.service_name}' FACET `com.example.checkout.customer_tier`"
+      }
+    }
+  }
 }
 
 resource "newrelic_service_level" "availability" {
