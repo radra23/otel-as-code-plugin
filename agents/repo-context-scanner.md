@@ -184,17 +184,33 @@ found none.
    Then set two booleans — they answer DIFFERENT questions; one flag cannot carry both without
    hiding an already-instrumented service as "nothing to do here":
    - `generatorSupported` — can `instrumentation-gen` emit a bootstrap for this runtime today?
-     `true` for `node`, `python`, `jvm`, `dotnet`; `false` otherwise. This drives
-     `/otel-instrument`'s candidate list. (For `dotnet`, generation additionally requires a
-     hosted app — ASP.NET Core or Generic Host; a plain console app is refused downstream at
-     generation time, so `generatorSupported` stays `true` here.)
+     `true` for `node`, `python`, `jvm`. For `dotnet` it is `true` **only when the project has a
+     host builder to extend**: the .NET generator wires into an `IServiceCollection`, and a
+     project without one (a console app, a class library, a test project) has nothing to receive
+     it. This is a THIRD precondition the other three languages don't have — their bootstraps
+     import into whatever entry point exists; .NET's has no entry point to fall back on. Look for
+     host-builder evidence (ANY one suffices):
+       - `Microsoft.NET.Sdk.Web` in the project's `<Project Sdk="…">` attribute, or
+       - a `Microsoft.AspNetCore.App` `FrameworkReference`, or a `Microsoft.Extensions.Hosting`
+         `PackageReference`, or
+       - a `WebApplication.CreateBuilder` / `Host.CreateApplicationBuilder` /
+         `Host.CreateDefaultBuilder` / `IHostBuilder` call in the entry point (read `Program.cs`
+         or the resolved `runnableEntry`).
+     Absent all of these — or when the `.csproj` sets `IsTestProject` `true` — set
+     `generatorSupported: false` with the reason below. `false` for every other runtime too. This
+     flag drives `/otel-instrument`'s candidate list, and the host-builder fact is knowable from
+     the `.csproj`/entry point at scan time, so deciding it HERE (not at generation) is what lets
+     the No-candidates / multi-candidate UX distinguish a real target from an untargetable
+     console/test project up front. `instrumentation-gen` keeps the identical refusal as a
+     backstop for a stale cache or a forced `--service`.
    - `inScope` — is this service a candidate for observability work at all? `false` ONLY for a
      genuinely out-of-scope runtime (a `browser` bundle — per ROADMAP "Not planned"); `true`
      otherwise, INCLUDING a runtime merely outside today's codegen (`go` — a first-class
      OTel runtime on the roadmap, and often already instrumented by hand). `/otel-evaluate` is
      read-only and language-agnostic and must never be filtered out by a missing generator.
    - `instrumentableReason` — one line, set when either flag is `false`, naming which and why:
-     `"generatorSupported:false — runtime go not in instrumentation-gen's set (node/python/jvm/dotnet); inScope:true (first-class OTel runtime, roadmap)"`
+     `"generatorSupported:false — runtime go not in instrumentation-gen's set (node/python/jvm/dotnet); inScope:true (first-class OTel runtime, roadmap)"`,
+     or `"generatorSupported:false — no ASP.NET Core / Generic Host builder found; .NET instrumentation requires an IServiceCollection to extend; inScope:true"` (a console / library / test `dotnet` project),
      or `"generatorSupported:false, inScope:false — runtime browser; browser/RUM is out of scope (ROADMAP: Not planned)"`.
 
 4. Determine `host` — **how the process is started**, which decides whether an inbound HTTP
