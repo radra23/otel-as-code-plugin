@@ -98,6 +98,65 @@ service:
       exporters: [otlp]
 ```
 
+## Receiver auth (`--public` — internet-exposed collectors)
+
+The `receivers.otlp` block above binds `0.0.0.0` with **no auth** — fine when the collector is
+only reachable from localhost or a shared private network, a real gap when it isn't. That happens
+for a deployment shape neither mode's base template assumes: the app runs on a platform with no
+private-networking path to a collector it doesn't share a host with (e.g. a serverless-container
+platform that can't run a sidecar, so the collector runs on a separate, internet-reachable host).
+An unauthenticated receiver there lets anyone who finds the endpoint (trivial — DNS + a standard
+OTLP port) push arbitrary telemetry through it on the owner's ingest quota, or worse (#107,
+confirmed in a real deployment: Scaleway Serverless Containers with a collector on a separate
+Instance, no shared private network).
+
+This is opt-in via `--public`, never a default: most agent/gateway deployments genuinely are
+same-host or private-network, and forcing auth on every user would be disruptive for no benefit in
+the common case. `bearertokenauth` (`open-telemetry/opentelemetry-collector-contrib`) is currently
+**beta stability** — functionally solid and confirmed working server-side on a receiver (not just
+client-side on an exporter — verify this against the extension's own README/source if the pin
+moves, since summaries of it are inconsistent on this point), but note the beta status when
+recommending it, consistent with how `language-maturity` flags below-Stable components elsewhere
+in this plugin. When `--public` is set, add the extension and wire it into **both** receiver
+protocols:
+
+```yaml
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+        auth:
+          authenticator: bearertokenauth
+      http:
+        endpoint: 0.0.0.0:4318
+        auth:
+          authenticator: bearertokenauth
+
+extensions:
+  bearertokenauth:
+    token: "${env:COLLECTOR_AUTH_TOKEN}"   # NEVER a literal token in the file
+
+service:
+  extensions: [bearertokenauth]
+  pipelines: {}   # unchanged — pipelines don't reference extensions directly
+```
+
+A client must then send `Authorization: Bearer <token>` (the extension's default scheme/header) or
+the request is rejected before it reaches any pipeline. **TLS in front of the collector is a
+requirement here, not an optional extra** (a reverse proxy such as Caddy, or the OTLP receiver's
+own `tls:` block): this bearer token is a shared secret sent on every request, and without
+transport encryption it travels in cleartext across the public internet — anyone who can observe
+the network path recovers it and defeats the whole point of adding auth to an internet-exposed
+receiver. Neither `--public`'s generated config nor this skill sets TLS itself (deployment-specific
+— certs, a proxy, or the receiver's native `tls:` block are all valid, so the plugin does not pick
+one), so state this as a REQUIRED step in the next-steps output, not a passing mention. Print in
+the next-steps output that the user must (1) terminate TLS in front of this collector, (2) generate
+a random token and set it as `COLLECTOR_AUTH_TOKEN` on the collector's host, and (3) configure
+every sending app with `OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer <same token>`.
+
+`--public` applies identically to agent and gateway mode — both share this `receivers.otlp` block.
+
 ## Cardinality Guardrails (add to agent config)
 
 Always include a `transform` processor to drop high-cardinality span attributes

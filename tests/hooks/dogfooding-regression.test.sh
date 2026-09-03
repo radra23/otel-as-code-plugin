@@ -13,6 +13,8 @@
 #         management/write scope, not ingestion-only.
 #   #109 — dash0_check_rule's check_rule_yaml must be a full PrometheusRule document (one group,
 #         one rule), not a flat alert body — caught by the first live tf-live-validate run.
+#   #107 — /otel-collector --public wires bearertokenauth into the OTLP receiver (both grpc and
+#         http), token from an env var; the default (non-public) config stays auth-free.
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 pass=0; fail=0
@@ -109,6 +111,27 @@ check "#102 dash0 golden's dash0_auth_token description mentions management/writ
   'grep -q "management/write API access" "$DASH0_SNAP"'
 check "#102 terraform-patterns' dash0_auth_token description matches (golden not drifted)" \
   'grep -c "management/write API access" "$PATTERNS" | grep -qE "^[1-9]"'
+
+# --- #107: --public wires bearertokenauth into the OTLP receiver, never by default -------------
+COLLECTOR_SKILL="skills/collector-topology/SKILL.md"
+COLLECTOR_CMD="commands/otel-collector.md"
+PUBLIC_GOLDEN="tests/snapshots/collector/otelcol-agent-public.yaml.snap"
+BASE_GOLDEN="tests/snapshots/collector/otelcol-agent.yaml.snap"
+
+check "#107 --public flag is documented in /otel-collector" \
+  'grep -q -- "--public" "$COLLECTOR_CMD"'
+check "#107 collector-topology documents the bearertokenauth receiver-auth shape" \
+  'grep -q "bearertokenauth" "$COLLECTOR_SKILL"'
+check "#107 --public golden wires auth into BOTH grpc and http receiver protocols" \
+  '[ "$(grep -c "authenticator: bearertokenauth" "$PUBLIC_GOLDEN")" -eq 2 ]'
+check "#107 --public golden sources the token from an env var, never a literal" \
+  'grep -q "token: \"\${env:COLLECTOR_AUTH_TOKEN}\"" "$PUBLIC_GOLDEN"'
+check "#107 --public golden declares the extension in service.extensions" \
+  'grep -q "extensions: \[bearertokenauth\]" "$PUBLIC_GOLDEN"'
+# The DEFAULT (non---public) golden must stay auth-free — --public must never become the
+# default behavior by a later edit accidentally merging the two goldens.
+check "#107 the default (non-public) golden has NO auth block (opt-in stays opt-in)" \
+  '! grep -q "authenticator:" "$BASE_GOLDEN"'
 
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
