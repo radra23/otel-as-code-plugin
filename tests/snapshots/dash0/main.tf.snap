@@ -25,7 +25,7 @@ terraform {
 }
 
 variable "dash0_auth_token" {
-  description = "Dash0 API auth token"
+  description = "Dash0 API auth token (must start with \"auth_\" or \"dash0_at_\"). Requires management/write API access, NOT an ingestion-only scope (this module creates dashboards/check rules) — a 403 on every resource means check the token's permission scope. Create one under Organization Settings > Auth Tokens."
   type        = string
   sensitive   = true
   default     = ""
@@ -38,7 +38,7 @@ variable "dash0_url" {
 }
 
 variable "dash0_dataset" {
-  description = "Dash0 dataset to manage these resources in"
+  description = "Dash0 dataset identifier (not display name). A data-partitioning concept, UNRELATED to the shared `environment` variable — never default this to \"production\" (not a dataset Dash0 provisions; produces a 403 that reads like a permissions failure but isn't). A fresh org's actual default dataset is named \"default\"."
   type        = string
   default     = "default"
 }

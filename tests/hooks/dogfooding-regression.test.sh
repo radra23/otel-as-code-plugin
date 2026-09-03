@@ -8,6 +8,9 @@
 #   #94 — a .NET project with no host builder must be generatorSupported: false (inScope stays true).
 #   #99 — generated resource identifiers must sanitize npm-scoped service names (service_slug),
 #         while query filters keep the raw service.name.
+#   #102/#103/#104 — three live-apply-verified Dash0 bugs: dash0_dataset must never default to
+#         "production"; a folder-path annotation needs a leading '/'; the auth token needs
+#         management/write scope, not ingestion-only.
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 pass=0; fail=0
@@ -62,6 +65,33 @@ for g in dash0 grafana; do
   check "#99 $g golden still references the RAW var.service_name (queries/titles unslugged)" \
     'grep -q "var.service_name" "'"$SNAP"'"'
 done
+
+# --- #102/#103/#104: three live-apply-verified Dash0 bugs -----------------------------------------
+DASH0_SNAP="tests/snapshots/dash0/main.tf.snap"
+PATTERNS="skills/terraform-patterns/SKILL.md"
+
+# #103 — dataset default. The golden must default to "default", never "production" (the
+# shared `environment` variable's default — the confirmed root cause of the bug: pattern-matching
+# dataset onto environment). The authored guidance must say so explicitly, not just happen to
+# have the right value in the golden — that's what stops a future regeneration from drifting.
+check "#103 dash0 golden's dash0_dataset defaults to \"default\"" \
+  'grep -A3 "variable \"dash0_dataset\"" "$DASH0_SNAP" | grep -q '"'"'default     = "default"'"'"''
+check "#103 dash0 golden's dash0_dataset default is NOT \"production\"" \
+  '! grep -A3 "variable \"dash0_dataset\"" "$DASH0_SNAP" | grep -q '"'"'default     = "production"'"'"''
+check "#103 terraform-patterns explicitly warns against defaulting dataset to production" \
+  'grep -qi "never default this to \\\\\"production\\\\\"" "$PATTERNS"'
+
+# #104 — folder-path leading slash. Authored as a Key gotcha (the golden's own dashboard_yaml
+# does not use this annotation, so the guard lives in prose, not a golden-value check).
+check "#104 terraform-patterns documents the folder-path leading-slash requirement" \
+  'grep -qF "folder-path\` annotation, if you add one, MUST start with a leading \`/\`" "$PATTERNS"'
+
+# #102 — auth token scope. Golden and guidance must agree (word-for-word, since the golden's
+# description is meant to BE the authoritative text, copied verbatim per terraform-gen.md).
+check "#102 dash0 golden's dash0_auth_token description mentions management/write scope" \
+  'grep -q "management/write API access" "$DASH0_SNAP"'
+check "#102 terraform-patterns' dash0_auth_token description matches (golden not drifted)" \
+  'grep -c "management/write API access" "$PATTERNS" | grep -qE "^[1-9]"'
 
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
