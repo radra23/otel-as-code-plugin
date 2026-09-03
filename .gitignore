@@ -1,3 +1,8 @@
+# Local secrets — never commit (e.g. live vendor credentials for tests/tf-live/)
+.env
+.env.*
+!.env.example
+
 # Session & dev artifacts (not part of the plugin)
 .remember/
 .superpowers/
