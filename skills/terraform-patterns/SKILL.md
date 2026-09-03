@@ -250,6 +250,34 @@ variable "dash0_dataset" {
 Use the latest available version from the Terraform registry. Check https://registry.terraform.io/providers/dash0hq/dash0/latest for the current version and add a version constraint to `required_providers`. Do not omit the version constraint.
 
 ### Key gotchas
+- **`check_rule_yaml` must be a full `PrometheusRule` document — never a flat alert body.** It
+  needs `apiVersion: monitoring.coreos.com/v1`, `kind: PrometheusRule`, `metadata.name`, and
+  `spec.groups` wrapping the rule; Dash0 currently supports **exactly one group containing exactly
+  one rule** per `check_rule_yaml`. A flat `alert: / expr: / for: / ...` document with no `groups`
+  wrapper fails live apply with `error converting check rule YAML to Dash0 format: currently only
+  one group is supported` (confirmed via a live apply — the golden shipped with exactly this flat,
+  broken shape until this was caught). Shape (mirror this, one rule per resource):
+  ```yaml
+  apiVersion: monitoring.coreos.com/v1
+  kind: PrometheusRule
+  metadata:
+    name: <dns-1123-safe-slug>-<alert-purpose>
+  spec:
+    groups:
+      - name: Alerting
+        rules:
+          - alert: <AlertName>
+            expr: <promql>
+            for: 5m
+            labels: { severity: critical }
+            annotations: { summary: "..." }
+  ```
+  `metadata.name` follows **Kubernetes object-naming convention** (DNS-1123: lowercase
+  alphanumeric + `-`, no underscores) — a separate constraint from the `alert:` field (a free-text
+  Prometheus label value, where underscores are fine and were NOT the cause of the failure above).
+  Sanitize `service.name` into a hyphen-based slug for `metadata.name` specifically (the same
+  `@scope/pkg` problem as the "Service name → resource identifiers" rule above, but with `-` as
+  the separator here since DNS-1123 forbids `_`) — do not reuse an underscore-based slug for it.
 - **`dash0_dataset` must never default to `"production"`.** See the variable description above —
   confirmed live: a nonexistent dataset produces a 403 that is easily misdiagnosed as a
   token-permission problem (#102 → #103). Default it to `"default"` (a fresh org's actual

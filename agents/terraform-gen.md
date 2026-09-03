@@ -198,10 +198,14 @@ Include: provider block, newrelic_alert_policy, newrelic_one_dashboard (generic 
 ## Dash0 main.tf
 
 Generate using patterns from the `terraform-patterns` skill (dash0 section) — in particular its
-"Key gotchas": `dash0_dataset` must default to `"default"`, never `"production"`; a
-`dash0.com/folder-path` annotation, if used, needs a leading `/`; the auth token needs
-management/write scope. All three are confirmed against live `apply` failures (#102/#103/#104) —
-copy the variable descriptions from that section verbatim rather than reconstructing them.
+"Key gotchas": `check_rule_yaml` MUST be a full `PrometheusRule` document (`apiVersion`/`kind`/
+`metadata.name`/`spec.groups` — exactly one group, one rule), never a flat alert body — copy the
+shape from that section, and use a hyphen-based (DNS-1123-safe) slug for `metadata.name`
+specifically, not the same slug used elsewhere; `dash0_dataset` must default to `"default"`,
+never `"production"`; a `dash0.com/folder-path` annotation, if used, needs a leading `/`; the
+auth token needs management/write scope. All four are confirmed against live `apply` failures
+(#102/#103/#104, and the `check_rule_yaml` shape caught by the first opt-in live run) — copy the
+variable descriptions and YAML shape from that section verbatim rather than reconstructing them.
 Verify current resource names from the Dash0 Terraform provider registry documentation
 before writing. Include: provider block, dashboard resource (generic panels **plus one panel per confirmed `businessAttrs` entry** — see "Business-attribute panels" above), alert/monitoring resource.
 
