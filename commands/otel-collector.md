@@ -1,15 +1,25 @@
 ---
 description: Generate an otelcol-contrib config (agent or gateway mode)
-argument-hint: "[agent|gateway] [--experimental] [--force] [--dry-run]"
+argument-hint: "[agent|gateway] [--experimental] [--public] [--force] [--dry-run]"
 ---
 
-# /otel-collector [mode] [--experimental]
+# /otel-collector [mode] [--experimental] [--public]
 
 Generate an otelcol-contrib config for this service's Collector setup.
 
 ## Flags
 - `[mode]` — `agent` (default) or `gateway`
 - `--experimental` — include experimental processors/receivers
+- `--public` — the collector has NO private-network path to the app(s) sending to it (e.g. the app
+  runs on a serverless-container platform with no sidecar option, so the collector runs on a
+  separate, internet-reachable host). Without this flag the OTLP receiver is unauthenticated —
+  fine for same-host/private-network, a real gap otherwise (#107). Adds the `bearertokenauth`
+  extension (beta stability upstream — see the `collector-topology` skill) wired into both
+  receiver protocols; see that skill's "Receiver auth" section for the exact shape. **TLS in
+  front of the collector is a requirement for this to actually secure anything** — the bearer
+  token travels in cleartext without it; say so explicitly in Step 6. Never inferred
+  automatically — always explicit, since guessing a repo's network topology wrong in either
+  direction is worse than asking.
 - `--force` — overwrite an existing `otelcol-agent.yaml` / `otelcol-gateway.yaml`. Required if the
   write-guard hook blocks re-generation (it protects generated collector configs).
 - `--dry-run` — preview without writing. Generate the config as normal (Step 4) but, instead of
@@ -80,6 +90,14 @@ Apply `--experimental`:
   connector or profiling receivers) on top of the stable pipeline. Annotate each added
   component with a `# experimental — requires --experimental` comment so it is easy to find.
 
+Apply `--public` (both modes — they share the `receivers.otlp` block):
+- Add the `bearertokenauth` extension per the `collector-topology` skill's "Receiver auth"
+  section, wired into **both** `receivers.otlp.protocols.grpc.auth.authenticator` and
+  `.http.auth.authenticator`, with `extensions: bearertokenauth: token: "${env:COLLECTOR_AUTH_TOKEN}"`
+  — NEVER a literal token — and `service.extensions: [bearertokenauth]`.
+- If `--public` is NOT set, emit no `extensions:` block at all — do not add auth speculatively;
+  the flag is the only signal for this, never inferred from `host`/deployment fields.
+
 ## Step 5: Write the file and validate
 
 Write the YAML config file. If a `.claude/.otel-force` sentinel was created in Step 3, remove it
@@ -101,4 +119,19 @@ To run a local Collector:
     otel/opentelemetry-collector-contrib:latest
 
 Set in your app: OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+```
+
+If `--public` was set, append (this step is required — the collector will not start without
+`COLLECTOR_AUTH_TOKEN` set, by design):
+```
+This collector requires auth (--public). Before running it:
+  1. REQUIRED: terminate TLS in front of this collector (a reverse proxy such as Caddy, or the
+     receiver's own tls: block). The bearer token below is a shared secret sent on every
+     request — without TLS it travels in cleartext across the public internet and anyone
+     observing the network path recovers it, defeating the point of adding auth at all.
+  2. Generate a random token, e.g.: openssl rand -hex 32
+  3. Set it as COLLECTOR_AUTH_TOKEN on the collector's host/environment.
+  4. Configure every sending app with:
+       OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer <same token>
+Note: bearertokenauth is beta-stability upstream (opentelemetry-collector-contrib).
 ```

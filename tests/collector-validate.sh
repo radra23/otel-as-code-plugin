@@ -10,6 +10,10 @@ cd "$(dirname "$0")/.."
 OTELCOL_VERSION="${OTELCOL_VERSION:-0.128.0}"
 OTELCOL_BIN="${OTELCOL_BIN:-/tmp/otelcol-contrib}"
 CONFIG="tests/snapshots/collector/otelcol-agent.yaml.snap"
+# --public variant (#107): adds the bearertokenauth extension + receiver auth for an
+# internet-exposed collector. NOT used by the e2e harness (its apps send no auth header) — this
+# golden exists solely so the --public shape is proven against a real otelcol-contrib.
+PUBLIC_CONFIG="tests/snapshots/collector/otelcol-agent-public.yaml.snap"
 
 # ---------------------------------------------------------------------------
 # Ordering guard: `otelcol validate` builds the component graph and checks
@@ -145,3 +149,12 @@ actual_version="$("$OTELCOL_BIN" --version 2>&1 | awk '{print $NF}')"
 # Dummy endpoint just so ${env:...} resolves to a non-empty value during validate.
 OTEL_EXPORTER_OTLP_ENDPOINT="localhost:4317" "$OTELCOL_BIN" validate --config="$CONFIG"
 echo "OK: $CONFIG validates against otelcol-contrib ${actual_version}"
+
+echo "Checking memory_limiter-first ordering in $PUBLIC_CONFIG..."
+check_processor_ordering "$PUBLIC_CONFIG"
+echo "OK: memory_limiter is first processor in every pipeline (--public variant)"
+
+# Also dummy COLLECTOR_AUTH_TOKEN so the bearertokenauth extension's ${env:...} resolves.
+OTEL_EXPORTER_OTLP_ENDPOINT="localhost:4317" COLLECTOR_AUTH_TOKEN="dummy" \
+  "$OTELCOL_BIN" validate --config="$PUBLIC_CONFIG"
+echo "OK: $PUBLIC_CONFIG validates against otelcol-contrib ${actual_version}"

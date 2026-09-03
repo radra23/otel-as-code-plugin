@@ -1,0 +1,80 @@
+# Golden agent Collector config, --public variant — mirrors skills/collector-topology/SKILL.md's
+# "Receiver auth" section. Validated standalone by tests/collector-validate.sh (#107). NOT used by
+# the e2e harness (tests/e2e/docker-compose.yml) — the e2e apps don't send an auth header, so
+# wiring this in there would break every app's export; this golden exists solely to prove the
+# --public shape is schema-valid against a real otelcol-contrib.
+#
+# Use --public when the collector has NO private-network path to the app it receives from (e.g.
+# the app runs on a serverless-container platform with no sidecar/private-network option, so the
+# collector runs on a separate host reachable only over the public internet). Without --public,
+# the OTLP receiver is unauthenticated — fine for a same-host/private-network deployment, a
+# security gap for an internet-exposed one (#107).
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+        auth:
+          authenticator: bearertokenauth
+      http:
+        endpoint: 0.0.0.0:4318
+        auth:
+          authenticator: bearertokenauth
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 256
+  transform:
+    error_mode: ignore
+    trace_statements:
+      - context: span
+        statements:
+          - delete_key(attributes, "user.id")    where IsString(attributes["user.id"])
+          - delete_key(attributes, "session.id") where IsString(attributes["session.id"])
+          - delete_key(attributes, "request.id") where IsString(attributes["request.id"])
+          - delete_key(attributes, "order.id")   where IsString(attributes["order.id"])
+  batch:
+    timeout: 1s
+    send_batch_size: 1024
+
+exporters:
+  otlp:
+    endpoint: ${env:OTEL_EXPORTER_OTLP_ENDPOINT}
+    tls:
+      insecure: false   # --public implies a real network hop; never insecure:true here
+    timeout: 30s
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 300s
+    sending_queue:
+      enabled: true
+      num_consumers: 10
+      queue_size: 1000
+
+extensions:
+  # Server-side auth on the OTLP receiver: a client must send `Authorization: Bearer <token>` or
+  # the request is rejected before it reaches any pipeline. Token is env-sourced — NEVER a literal
+  # value baked into this file. Generate a random token and set it as COLLECTOR_AUTH_TOKEN on the
+  # collector's host; configure every sending app with
+  # OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer <same token>.
+  bearertokenauth:
+    token: "${env:COLLECTOR_AUTH_TOKEN}"
+
+service:
+  extensions: [bearertokenauth]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, transform, batch]
+      exporters: [otlp]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp]
