@@ -197,7 +197,11 @@ Include: provider block, newrelic_alert_policy, newrelic_one_dashboard (generic 
 
 ## Dash0 main.tf
 
-Generate using patterns from the `terraform-patterns` skill (dash0 section).
+Generate using patterns from the `terraform-patterns` skill (dash0 section) — in particular its
+"Key gotchas": `dash0_dataset` must default to `"default"`, never `"production"`; a
+`dash0.com/folder-path` annotation, if used, needs a leading `/`; the auth token needs
+management/write scope. All three are confirmed against live `apply` failures (#102/#103/#104) —
+copy the variable descriptions from that section verbatim rather than reconstructing them.
 Verify current resource names from the Dash0 Terraform provider registry documentation
 before writing. Include: provider block, dashboard resource (generic panels **plus one panel per confirmed `businessAttrs` entry** — see "Business-attribute panels" above), alert/monitoring resource.
 

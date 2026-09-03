@@ -228,19 +228,45 @@ for this). Backtick-quote dotted attribute names:
 
 ### Authentication variables
 ```hcl
-variable "dash0_api_token" {
-  description = "Dash0 API token"
+variable "dash0_auth_token" {
+  description = "Dash0 API auth token (must start with \"auth_\" or \"dash0_at_\"). Requires management/write API access, NOT an ingestion-only scope (this module creates dashboards/check rules) — a 403 on every resource means check the token's permission scope. Create one under Organization Settings > Auth Tokens."
   type        = string
   sensitive   = true
+  default     = ""
 }
-variable "dash0_organization_slug" {
-  description = "Dash0 organization slug"
+variable "dash0_url" {
+  description = "Dash0 API endpoint (region-specific)"
   type        = string
+  default     = "https://api.us-west-2.aws.dash0.com"
+}
+variable "dash0_dataset" {
+  description = "Dash0 dataset identifier (not display name). A data-partitioning concept, UNRELATED to the shared `environment` variable — never default this to \"production\" (not a dataset Dash0 provisions; produces a 403 that reads like a permissions failure but isn't). A fresh org's actual default dataset is named \"default\"."
+  type        = string
+  default     = "default"
 }
 ```
 
 ### Provider version
 Use the latest available version from the Terraform registry. Check https://registry.terraform.io/providers/dash0hq/dash0/latest for the current version and add a version constraint to `required_providers`. Do not omit the version constraint.
+
+### Key gotchas
+- **`dash0_dataset` must never default to `"production"`.** See the variable description above —
+  confirmed live: a nonexistent dataset produces a 403 that is easily misdiagnosed as a
+  token-permission problem (#102 → #103). Default it to `"default"` (a fresh org's actual
+  out-of-the-box dataset) and say so explicitly in the description, so a later regeneration does
+  not reintroduce the mistake by pattern-matching onto the shared `environment` variable's
+  `"production"` default — datasets and deployment environments are unrelated Dash0 concepts.
+- **A `dash0.com/folder-path` annotation, if you add one, MUST start with a leading `/`.** Dash0's
+  live API rejects an omitted leading slash with `dash0 api error: folder path must start with
+  '/' (status: 400)` (confirmed via a live apply, #104) — `"otel-as-code"` fails,
+  `"/otel-as-code"` succeeds. This is a fixed literal in the generated template, not
+  account-specific, so it reproduces identically for every user if it regresses.
+- **The auth token needs management/write scope, not ingestion-only.** See the `dash0_auth_token`
+  description above — confirmed live: an insufficiently-scoped token produces a 403 on every
+  resource (#102). Dash0's own docs distinguish ingestion-scoped tokens (send telemetry) from
+  management-scoped ones (manage dashboards/check rules via the API this module uses); verify the
+  exact current UI label for the broader scope against Dash0's own docs/account rather than
+  asserting one here, since it was not independently confirmed.
 
 ### Notes for implementors
 Dash0 is an OTel-native backend; their Terraform provider models resources around OTel data
