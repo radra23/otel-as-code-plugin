@@ -105,7 +105,8 @@ a command says "dispatch the `<x>` agent", read `agents/<x>.md` and do that work
 | `--experimental` | instrument, collector, backend | Unlock pre-Stable semconv conventions |
 | `--service <id>` | instrument | Pick the target service instead of being prompted |
 | `--fix <ids>` | instrument | Apply only these `/otel-evaluate` findings, in place |
-| `--force` | instrument, backend | **Full regeneration** — overwrites hand edits (see below) |
+| `--force` | instrument, backend, collector | **Full regeneration** — overwrites hand edits (see below) |
+| `--public` | collector | Collector has no private-network path to its sender(s) — adds receiver auth (`bearertokenauth`); default is unauthenticated |
 | `--kind` | backend | Emit one artifact: dashboard \| alerts \| slo |
 | `--output-dir` | backend | Override default `infra/observability/<vendor>/` |
 

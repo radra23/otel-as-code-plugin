@@ -17,6 +17,9 @@ docs/
 .claude/.otel-force
 .claude/otel-context.json
 
+# Local review/critique reports — kept locally, not shipped in the public repo
+.claude/reviews/
+
 # Personal Claude notes
 .claude.local.md
 
