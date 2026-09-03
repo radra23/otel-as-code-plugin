@@ -1,0 +1,19 @@
+<!-- portal-web — greenfield Blazor WebAssembly SPA. Runs in the BROWSER (WASM), not server-side.
+     Regression fixture for #91: the scanner must classify this runtime: browser (out of scope) —
+     a .csproj alone must NOT make it server-side dotnet. The Microsoft.NET.Sdk.BlazorWebAssembly
+     project SDK (and the Microsoft.AspNetCore.Components.WebAssembly reference) is the browser
+     signal. No OpenTelemetry — greenfield. -->
+<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="8.0.10" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="8.0.10" PrivateAssets="all" />
+  </ItemGroup>
+
+</Project>

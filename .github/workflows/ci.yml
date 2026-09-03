@@ -47,6 +47,9 @@ jobs:
       - name: Run freshness-contract test (scanner identityInputs ↔ /otel-init regex)
         run: bash tests/hooks/freshness-contract.test.sh
 
+      - name: Run dogfooding-regression contract (locks #91/#94/#99 prompt+golden fixes)
+        run: bash tests/hooks/dogfooding-regression.test.sh
+
       - name: Run collector-cardinality-contract test (scanner ↔ /otel-collector)
         run: bash tests/hooks/collector-cardinality-contract.test.sh
 
@@ -211,6 +214,26 @@ jobs:
           grep -q "service.name" fixtures/nodejs-brownfield/tracing.js
           grep -q "http.method" fixtures/nodejs-brownfield/tracing.js
           grep -q "orderId" fixtures/nodejs-brownfield/tracing.js
+
+      - name: Check dotnet-blazor-wasm fixture (#91 — browser, out of scope)
+        run: |
+          test -f fixtures/dotnet-blazor-wasm/portal-web.csproj
+          test -f fixtures/dotnet-blazor-wasm/wwwroot/index.html
+          # Defining signal: the Blazor WebAssembly project SDK (the browser tell).
+          grep -q 'Sdk="Microsoft.NET.Sdk.BlazorWebAssembly"' fixtures/dotnet-blazor-wasm/portal-web.csproj
+          grep -q "WebAssemblyHostBuilder" fixtures/dotnet-blazor-wasm/Program.cs
+          # Greenfield: no OTel package reference.
+          ! grep -qE 'Include="OpenTelemetry' fixtures/dotnet-blazor-wasm/portal-web.csproj
+
+      - name: Check dotnet-testproject fixture (#94 — no host builder, generatorSupported false)
+        run: |
+          test -f fixtures/dotnet-testproject/Fillr.WebTests.csproj
+          grep -q "<IsTestProject>true</IsTestProject>" fixtures/dotnet-testproject/Fillr.WebTests.csproj
+          grep -q "xunit" fixtures/dotnet-testproject/Fillr.WebTests.csproj
+          # The disqualifying fact: no host builder / entry point anywhere in the project.
+          ! test -f fixtures/dotnet-testproject/Program.cs
+          ! grep -rqE "WebApplication.CreateBuilder|Host.CreateApplicationBuilder|Host.CreateDefaultBuilder|IHostBuilder" fixtures/dotnet-testproject
+          ! grep -qE 'Include="OpenTelemetry' fixtures/dotnet-testproject/Fillr.WebTests.csproj
 
   validate-plugin-manifest:
     name: Validate plugin manifests
