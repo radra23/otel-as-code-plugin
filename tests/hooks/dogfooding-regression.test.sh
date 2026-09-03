@@ -11,6 +11,8 @@
 #   #102/#103/#104 — three live-apply-verified Dash0 bugs: dash0_dataset must never default to
 #         "production"; a folder-path annotation needs a leading '/'; the auth token needs
 #         management/write scope, not ingestion-only.
+#   #109 — dash0_check_rule's check_rule_yaml must be a full PrometheusRule document (one group,
+#         one rule), not a flat alert body — caught by the first live tf-live-validate run.
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 pass=0; fail=0
@@ -66,9 +68,24 @@ for g in dash0 grafana; do
     'grep -q "var.service_name" "'"$SNAP"'"'
 done
 
-# --- #102/#103/#104: three live-apply-verified Dash0 bugs -----------------------------------------
+# --- #109: check_rule_yaml must be a full PrometheusRule doc, not a flat alert body -------------
 DASH0_SNAP="tests/snapshots/dash0/main.tf.snap"
 PATTERNS="skills/terraform-patterns/SKILL.md"
+
+for rule in error_rate latency; do
+  check "#109 dash0 golden's $rule check_rule_yaml is a PrometheusRule doc" \
+    'awk "/resource \"dash0_check_rule\" \"'"$rule"'\"/,/^}/" "$DASH0_SNAP" | grep -q "kind: PrometheusRule"'
+  check "#109 dash0 golden's $rule check_rule_yaml has exactly one spec.groups entry" \
+    '[ "$(awk "/resource \"dash0_check_rule\" \"'"$rule"'\"/,/^}/" "$DASH0_SNAP" | grep -cE "^\s*- name: Alerting")" -eq 1 ]'
+  check "#109 dash0 golden's $rule check_rule_yaml has exactly one rule in that group" \
+    '[ "$(awk "/resource \"dash0_check_rule\" \"'"$rule"'\"/,/^}/" "$DASH0_SNAP" | grep -cE "^\s*- alert:")" -eq 1 ]'
+done
+check "#109 dash0 golden uses a hyphen-based slug for metadata.name (DNS-1123, not service_slug)" \
+  'grep -q "resource_name_slug" "$DASH0_SNAP"'
+check "#109 resource_name_slug is hyphen-separated, not underscore" \
+  'grep -A2 "resource_name_slug = " "$DASH0_SNAP" | grep -q '"'"'"-"'"'"''
+check "#109 terraform-patterns documents the PrometheusRule envelope requirement" \
+  'grep -qF "check_rule_yaml\` must be a full \`PrometheusRule\` document" "$PATTERNS"'
 
 # #103 — dataset default. The golden must default to "default", never "production" (the
 # shared `environment` variable's default — the confirmed root cause of the bug: pattern-matching
