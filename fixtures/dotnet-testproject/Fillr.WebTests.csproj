@@ -1,0 +1,21 @@
+<!-- Fillr.WebTests — greenfield xUnit test project. Microsoft.NET.Sdk (not .Web), IsTestProject,
+     NO Program.cs / Main / host builder / IServiceCollection anywhere — run only via `dotnet test`.
+     Regression fixture for #94: the scanner must set generatorSupported: false (nothing for the
+     .NET DI-extension generator to wire into) while keeping inScope: true (it is a dotnet project,
+     not out of scope), so /otel-instrument never offers it as a target. No OpenTelemetry. -->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <IsTestProject>true</IsTestProject>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" PrivateAssets="all" />
+  </ItemGroup>
+
+</Project>
