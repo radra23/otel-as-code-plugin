@@ -68,7 +68,7 @@ is not Node at all.
      ⚠ No service in this repo can be instrumented by /otel-instrument yet.
        portal-web (web/)  — runtime is browser; browser/RUM instrumentation is out of scope
                             for the MVP. Use an OTel browser SDK / RUM product directly.
-       cache (cache/)     — runtime go is not supported yet (v1).
+       cache (cache/)     — runtime ruby is not supported yet (v1).
      ```
 3. Validate the chosen service before generating. If it has `generatorSupported: false`, refuse:
    ```
