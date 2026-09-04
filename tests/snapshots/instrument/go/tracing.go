@@ -69,7 +69,7 @@ func InitOtel(ctx context.Context) (shutdown func(context.Context) error, err er
 	}
 
 	traceExporter, err := otlptracegrpc.New(ctx,
-		otlptracegrpc.WithEndpoint(endpoint),
+		otlptracegrpc.WithEndpointURL(endpoint),
 	)
 	if err != nil {
 		return shutdown, err
@@ -83,7 +83,7 @@ func InitOtel(ctx context.Context) (shutdown func(context.Context) error, err er
 	otel.SetTracerProvider(tracerProvider)
 
 	metricExporter, err := otlpmetricgrpc.New(ctx,
-		otlpmetricgrpc.WithEndpoint(endpoint),
+		otlpmetricgrpc.WithEndpointURL(endpoint),
 	)
 	if err != nil {
 		return shutdown, err
@@ -125,7 +125,7 @@ func InitOtelLogsBeta(ctx context.Context) (shutdown func(context.Context) error
 	}
 
 	logExporter, err := otlploggrpc.New(ctx,
-		otlploggrpc.WithEndpoint(endpoint),
+		otlploggrpc.WithEndpointURL(endpoint),
 	)
 	if err != nil {
 		return func(context.Context) error { return nil }, err
