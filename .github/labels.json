@@ -6,5 +6,17 @@
   { "name": "coverage",         "color": "0E8A16", "description": "Language or backend coverage request" },
   { "name": "incorrect-output", "color": "D93F0B", "description": "Generated output is wrong or invalid" },
   { "name": "drift",            "color": "FBCA04", "description": "Pinned versions behind upstream" },
-  { "name": "dependencies",     "color": "0366D6", "description": "Version pins / dependency updates" }
+  { "name": "dependencies",     "color": "0366D6", "description": "Version pins / dependency updates" },
+  { "name": "semconv",          "color": "5319e7", "description": "Semantic-convention correctness" },
+  { "name": "terraform",        "color": "623ce4", "description": "Backend module generation" },
+  { "name": "collector",        "color": "1d76db", "description": "OpenTelemetry Collector configuration" },
+  { "name": "hooks",            "color": "c2e0c6", "description": "Guardrails, write-guard, semconv-lint, force sentinel" },
+  { "name": "codex",            "color": "4b5563", "description": "Codex bridge, skills, and hook adapters" },
+  { "name": "docs",             "color": "006b75", "description": "Documentation and examples" },
+  { "name": "needs-repro",      "color": "fef2c0", "description": "Waiting on a reproduction or generated output" },
+  { "name": "roadmap",          "color": "d4c5f9", "description": "Tracked on the public roadmap" },
+  { "name": "priority: p0",     "color": "B60205", "description": "Critical — blocks correct/safe operation" },
+  { "name": "priority: p1",     "color": "E99695", "description": "High — should be next" },
+  { "name": "priority: p2",     "color": "F9D0C4", "description": "Medium — planned, not urgent" },
+  { "name": "priority: p3",     "color": "C5DEF5", "description": "Low — nice to have" }
 ]
