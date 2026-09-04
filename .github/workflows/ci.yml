@@ -53,6 +53,9 @@ jobs:
       - name: Run Go scanner-gate contract (net/http evidence, gin/echo/fiber refusal)
         run: bash tests/hooks/go-scanner-gate.test.sh
 
+      - name: Run Go instrument-wiring contract (command recognizes go, generator defines it)
+        run: bash tests/hooks/go-instrument-wiring.test.sh
+
       - name: Run collector-cardinality-contract test (scanner ↔ /otel-collector)
         run: bash tests/hooks/collector-cardinality-contract.test.sh
 
