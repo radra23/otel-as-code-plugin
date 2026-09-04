@@ -13,7 +13,10 @@ Follow the canonical procedure in this repo — it is the single source of truth
 2. Apply `skills/collector-topology/SKILL.md` for pipeline topology, tail-sampling, and the
    cardinality-guardrail patterns.
 
-Args: `$ARGUMENTS` (e.g. `gateway`, `--experimental`; default mode is `agent`).
+Args: `$ARGUMENTS` (e.g. `gateway`, `--experimental`, `--public`, `--force`,
+`--confirm-remove-auth`; default mode is `agent`).
 
 Codex note: `.codex/hooks.json` enforces write-guard here — a denied overwrite of an existing
-`otelcol-agent.yaml` / `otelcol-gateway.yaml` means regenerate deliberately.
+`otelcol-agent.yaml` / `otelcol-gateway.yaml` means regenerate deliberately. `--public` adds
+receiver auth (`bearertokenauth`); `--force` alone refuses to remove existing auth — pair it with
+`--confirm-remove-auth` to intentionally downgrade, or `--public` to keep it.

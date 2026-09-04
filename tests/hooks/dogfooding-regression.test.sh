@@ -118,10 +118,20 @@ COLLECTOR_CMD="commands/otel-collector.md"
 PUBLIC_GOLDEN="tests/snapshots/collector/otelcol-agent-public.yaml.snap"
 BASE_GOLDEN="tests/snapshots/collector/otelcol-agent.yaml.snap"
 
-check "#107 --public flag is documented in /otel-collector" \
-  'grep -q -- "--public" "$COLLECTOR_CMD"'
-check "#107 collector-topology documents the bearertokenauth receiver-auth shape" \
-  'grep -q "bearertokenauth" "$COLLECTOR_SKILL"'
+# These two replace bare keyword-presence greps (grep -q -- "--public" / grep -q "bearertokenauth")
+# that survive deletion of the actual behavioral instructions — caught by a 3-judge critique
+# (.claude/reviews/pr-111-critique.md) that mutation-tested the original checks and found all
+# three (grpc-only wiring, deleted --public apply block, deleted TLS-required text) still passed
+# 37/37. Assert the RULE, not that the topic was mentioned somewhere.
+check "#107 collector-topology's own Receiver-auth shape wires BOTH receiver protocols" \
+  '[ "$(grep -c "authenticator: bearertokenauth$" "$COLLECTOR_SKILL")" -eq 2 ]'
+check "#107 collector-topology sources the receiver token from an env var, never a literal" \
+  'grep -q "token: \"\${env:COLLECTOR_AUTH_TOKEN}\"" "$COLLECTOR_SKILL"'
+check "#107 /otel-collector Step 4 wires --public into BOTH protocols by name" \
+  'grep -q "grpc.auth.authenticator" "$COLLECTOR_CMD" && grep -q "http.auth.authenticator" "$COLLECTOR_CMD"'
+check "#107 TLS-in-front is stated as REQUIRED, not a passing mention" \
+  'grep -qF "REQUIRED: terminate TLS in front of this collector" "$COLLECTOR_CMD"'
+
 check "#107 --public golden wires auth into BOTH grpc and http receiver protocols" \
   '[ "$(grep -c "authenticator: bearertokenauth" "$PUBLIC_GOLDEN")" -eq 2 ]'
 check "#107 --public golden sources the token from an env var, never a literal" \
@@ -129,9 +139,40 @@ check "#107 --public golden sources the token from an env var, never a literal" 
 check "#107 --public golden declares the extension in service.extensions" \
   'grep -q "extensions: \[bearertokenauth\]" "$PUBLIC_GOLDEN"'
 # The DEFAULT (non---public) golden must stay auth-free — --public must never become the
-# default behavior by a later edit accidentally merging the two goldens.
+# default behavior by a later edit accidentally merging the two goldens. -f guards against the
+# check passing vacuously if the file is ever renamed away (grep exits 2 on a missing file, which
+# `!` would otherwise silently turn into a pass).
 check "#107 the default (non-public) golden has NO auth block (opt-in stays opt-in)" \
-  '! grep -q "authenticator:" "$BASE_GOLDEN"'
+  '[ -f "$BASE_GOLDEN" ] && ! grep -q "authenticator:" "$BASE_GOLDEN"'
+
+# --- #107 fast-follow: regen without --public must not silently strip existing auth -------------
+# All 3 judges in the critique independently flagged this as the single highest-priority gap:
+# `--force` alone (no --public) on a config that already has auth used to regenerate it away —
+# exactly the vulnerability #107 reported, reintroduced by a forgotten flag.
+check "#107 --force is gated when the existing config already has auth" \
+  'grep -qF "was NOT passed this run" "$COLLECTOR_CMD"'
+check "#107 --confirm-remove-auth is the only way to intentionally downgrade" \
+  'grep -q -- "--confirm-remove-auth" "$COLLECTOR_CMD"'
+
+# --- #107 fast-follow: discoverability — the default (non-public) run says auth exists ----------
+check "#107 default (non-public) output points at --public (discoverability)" \
+  'grep -qF "this receiver has no auth" "$COLLECTOR_CMD"'
+check "#107 --public documented in the README flag table" \
+  'grep -qF -- "--public" README.md'
+
+# --- #107 fast-follow: gateway senders are agent Collectors, not apps ---------------------------
+# OTEL_EXPORTER_OTLP_HEADERS is an SDK/app env var; an otelcol otlp exporter does not read it.
+# Gateway-mode --public output must NOT tell the user to set it there — it needs client-side
+# bearertokenauth on each agent's own exporter instead.
+check "#107 gateway --public output uses client-side bearertokenauth, not an app env var" \
+  'grep -qF "bearertokenauth/client" "$COLLECTOR_CMD"'
+check "#107 collector-topology explicitly says agent vs gateway senders differ" \
+  'grep -qF "sender-side" "$COLLECTOR_SKILL"'
+
+# --- #107 fast-follow: /otel-instrument knows to add the auth header when the collector needs it -
+check "#107 /otel-instrument checks for a --public collector and adds the auth header" \
+  'grep -qF "authenticator: bearertokenauth" commands/otel-instrument.md \
+     && grep -qF "OTEL_EXPORTER_OTLP_HEADERS" commands/otel-instrument.md'
 
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

@@ -1,6 +1,6 @@
 ---
 description: Generate an otelcol-contrib config (agent or gateway mode)
-argument-hint: "[agent|gateway] [--experimental] [--public] [--force] [--dry-run]"
+argument-hint: "[agent|gateway] [--experimental] [--public] [--force] [--confirm-remove-auth] [--dry-run]"
 ---
 
 # /otel-collector [mode] [--experimental] [--public]
@@ -21,7 +21,12 @@ Generate an otelcol-contrib config for this service's Collector setup.
   automatically — always explicit, since guessing a repo's network topology wrong in either
   direction is worse than asking.
 - `--force` — overwrite an existing `otelcol-agent.yaml` / `otelcol-gateway.yaml`. Required if the
-  write-guard hook blocks re-generation (it protects generated collector configs).
+  write-guard hook blocks re-generation (it protects generated collector configs). If the existing
+  file has receiver auth and `--public` is not also passed, `--force` alone is refused — see
+  `--confirm-remove-auth`.
+- `--confirm-remove-auth` — required alongside `--force` (and without `--public`) to regenerate an
+  auth-having config into an unauthenticated one. An explicit, typed opt-out for a downgrade that
+  must never happen from a forgotten flag alone.
 - `--dry-run` — preview without writing. Generate the config as normal (Step 4) but, instead of
   writing it in Step 5, print a unified diff of the would-be YAML against the on-disk file (or
   "would create `<filename>`" if absent), write nothing, do NOT create the `.otel-force` sentinel,
@@ -48,11 +53,23 @@ in the repo root (or service root for monorepos).
 If the file already exists:
 - **Without `--force`:** print "⚠ `<filename>` already exists. Re-run with `--force` to overwrite."
   and exit — the write-guard hook will block the overwrite anyway.
-- **With `--force`:** print "↻ Overwriting `<filename>` (--force)." and authorize the write-guard
-  by writing the absolute path of the file to the `.claude/.otel-force` sentinel. A slash-command
-  flag cannot set an env var for the hook process, so the sentinel is how `--force` reaches it.
-  **Truncate the sentinel as you write it** (`>`, not `>>`) so a leftover from an aborted earlier
-  run can never grant a standing overwrite authorization:
+- **With `--force`, existing file contains `authenticator:` (has receiver auth), and `--public`
+  was NOT passed this run:** STOP before overwriting — regenerating now would silently strip auth
+  from what may be an internet-exposed collector, the exact vulnerability `--public` exists to
+  close, reintroduced by a forgotten flag. Print:
+  ```
+  ⚠ <filename> currently has receiver auth (bearertokenauth) — this regeneration would REMOVE it
+    (--public was not passed). Re-run with --public to keep auth, or add --confirm-remove-auth
+    to intentionally downgrade to unauthenticated.
+  ```
+  and exit. Only proceed past this check if `--public` is set (auth stays) or the user passed
+  `--confirm-remove-auth` alongside `--force` (an explicit, typed opt-out — never inferred, never
+  silent).
+- **With `--force` otherwise:** print "↻ Overwriting `<filename>` (--force)." and authorize the
+  write-guard by writing the absolute path of the file to the `.claude/.otel-force` sentinel. A
+  slash-command flag cannot set an env var for the hook process, so the sentinel is how `--force`
+  reaches it. **Truncate the sentinel as you write it** (`>`, not `>>`) so a leftover from an
+  aborted earlier run can never grant a standing overwrite authorization:
   `mkdir -p .claude && printf '%s\n' "<abs path of the otelcol-*.yaml>" > .claude/.otel-force`
 
 ## Step 4: Generate the config
@@ -121,8 +138,19 @@ To run a local Collector:
 Set in your app: OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
 ```
 
-If `--public` was set, append (this step is required — the collector will not start without
-`COLLECTOR_AUTH_TOKEN` set, by design):
+If `--public` was **NOT** set, append one line — the flag exists precisely so this is a decision,
+not a silent default:
+```
+Note: this receiver has no auth. If it will be reachable from the public internet (no
+private-network path from the sender), re-run with --public.
+```
+
+If `--public` **was** set, append (this step is required — the collector will not start without
+`COLLECTOR_AUTH_TOKEN` set, by design). The sender-configuration step differs by mode — **agent**
+mode receives directly from the app (SDK); **gateway** mode receives from agent Collectors, which
+are a different kind of client and need a different config surface (`OTEL_EXPORTER_OTLP_HEADERS`
+is an SDK/app env var — an otelcol `otlp` exporter does not read it):
+
 ```
 This collector requires auth (--public). Before running it:
   1. REQUIRED: terminate TLS in front of this collector (a reverse proxy such as Caddy, or the
@@ -131,7 +159,31 @@ This collector requires auth (--public). Before running it:
      observing the network path recovers it, defeating the point of adding auth at all.
   2. Generate a random token, e.g.: openssl rand -hex 32
   3. Set it as COLLECTOR_AUTH_TOKEN on the collector's host/environment.
+```
+
+For **agent** mode, append:
+```
   4. Configure every sending app with:
        OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer <same token>
+```
+
+For **gateway** mode, append instead (the senders are agent Collectors, not apps — give them
+client-side auth on their own exporter, not an app env var):
+```
+  4. Each sending agent Collector needs client-side auth on ITS OWN otlp exporter (not an app env
+     var) — add to every agent's config:
+       extensions:
+         bearertokenauth/client:
+           token: "${env:COLLECTOR_AUTH_TOKEN}"   # same shared token as this gateway
+       exporters:
+         otlp:
+           auth:
+             authenticator: bearertokenauth/client
+       service:
+         extensions: [bearertokenauth/client]   # add alongside any extensions already listed
+```
+
+Both modes, append:
+```
 Note: bearertokenauth is beta-stability upstream (opentelemetry-collector-contrib).
 ```

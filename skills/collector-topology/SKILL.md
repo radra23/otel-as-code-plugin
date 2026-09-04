@@ -155,7 +155,13 @@ the next-steps output that the user must (1) terminate TLS in front of this coll
 a random token and set it as `COLLECTOR_AUTH_TOKEN` on the collector's host, and (3) configure
 every sending app with `OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer <same token>`.
 
-`--public` applies identically to agent and gateway mode — both share this `receivers.otlp` block.
+`--public`'s **receiver** wiring applies identically to agent and gateway mode — both share this
+`receivers.otlp` block. The **sender-side** instructions do NOT transfer, though: agent mode's
+senders are apps (SDKs), configured via the `OTEL_EXPORTER_OTLP_HEADERS` env var; gateway mode's
+senders are agent Collectors, which need **client-side** `bearertokenauth` wired into their own
+`exporters.otlp.auth.authenticator` instead — an otelcol exporter does not read
+`OTEL_EXPORTER_OTLP_HEADERS`. Printing the app-side instruction for a gateway-mode collector
+produces guidance the user cannot act on; see `/otel-collector`'s Step 6 for the per-mode text.
 
 ## Cardinality Guardrails (add to agent config)
 
