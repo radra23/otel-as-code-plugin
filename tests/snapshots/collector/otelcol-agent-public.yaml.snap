@@ -61,7 +61,8 @@ extensions:
   # the request is rejected before it reaches any pipeline. Token is env-sourced — NEVER a literal
   # value baked into this file. Generate a random token and set it as COLLECTOR_AUTH_TOKEN on the
   # collector's host; configure every sending app with
-  # OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer <same token>.
+  # OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer%20<same token>  (%20, not a literal space --
+  # the OTel Python SDK rejects an unencoded space here with UNAUTHENTICATED on every export).
   bearertokenauth:
     token: "${env:COLLECTOR_AUTH_TOKEN}"
 

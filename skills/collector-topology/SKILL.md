@@ -153,7 +153,10 @@ receiver. Neither `--public`'s generated config nor this skill sets TLS itself (
 one), so state this as a REQUIRED step in the next-steps output, not a passing mention. Print in
 the next-steps output that the user must (1) terminate TLS in front of this collector, (2) generate
 a random token and set it as `COLLECTOR_AUTH_TOKEN` on the collector's host, and (3) configure
-every sending app with `OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer <same token>`.
+every sending app with `OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer%20<same token>` — the
+`%20`, not a literal space, because this env var's values must be percent-encoded per the OTel
+spec (W3C Baggage format); a literal space works in some SDKs but the OTel Python SDK specifically
+rejects it, failing every export with `UNAUTHENTICATED`.
 
 `--public`'s **receiver** wiring applies identically to agent and gateway mode — both share this
 `receivers.otlp` block. The **sender-side** instructions do NOT transfer, though: agent mode's
