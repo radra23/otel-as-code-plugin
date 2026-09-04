@@ -42,7 +42,9 @@ exporters:
   otlp:
     endpoint: ${env:OTEL_EXPORTER_OTLP_ENDPOINT}
     tls:
-      insecure: false   # --public implies a real network hop; never insecure:true here
+      insecure: false   # --public means this collector isn't the base template's local-dev shape
+                         # ("local agent -> local sink"); its own outbound leg shouldn't assume a
+                         # local loopback either — separate from, and not caused by, receiver auth
     timeout: 30s
     retry_on_failure:
       enabled: true
