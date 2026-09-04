@@ -163,6 +163,17 @@ senders are agent Collectors, which need **client-side** `bearertokenauth` wired
 `OTEL_EXPORTER_OTLP_HEADERS`. Printing the app-side instruction for a gateway-mode collector
 produces guidance the user cannot act on; see `/otel-collector`'s Step 6 for the per-mode text.
 
+**Also set the exporter's `tls.insecure: false` when `--public` is set.** This is a separate leg
+from everything above — the receiver-auth work is entirely about the *inbound* hop (sender →
+this collector); this is about the collector's *own outbound* hop (this collector → its
+backend/gateway) — but the two correlate: the base agent template defaults `tls.insecure: true`
+on the exporter because it assumes a local-dev shape ("local agent → local sink"), and a
+`--public` collector is by definition not that shape — it exists because the deployment has a
+real network between hosts, so its outbound leg should not default to a local-loopback
+assumption either. This is a judgment call tied to the flag, not a hard technical requirement of
+`bearertokenauth` itself, so state it as generation guidance here (not folded into the receiver
+auth explanation above) rather than leaving it as an unexplained value only the golden shows.
+
 ## Cardinality Guardrails (add to agent config)
 
 Always include a `transform` processor to drop high-cardinality span attributes

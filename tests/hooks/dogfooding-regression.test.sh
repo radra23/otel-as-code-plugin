@@ -174,5 +174,19 @@ check "#107 /otel-instrument checks for a --public collector and adds the auth h
   'grep -qF "authenticator: bearertokenauth" commands/otel-instrument.md \
      && grep -qF "OTEL_EXPORTER_OTLP_HEADERS" commands/otel-instrument.md'
 
+# --- #107 Medium fast-follow: insecure:false is authored guidance, not a golden-only value ------
+check "#107 collector-topology authors the insecure:false-under-public rule" \
+  'grep -qF "Also set the exporter" "$COLLECTOR_SKILL"'
+check "#107 /otel-collector Step 4 applies the insecure:false rule" \
+  'grep -qF "exporters.otlp.tls.insecure: false" "$COLLECTOR_CMD"'
+check "#107 --public golden actually sets insecure: false (golden matches guidance)" \
+  'grep -qF "insecure: false" "$PUBLIC_GOLDEN"'
+
+# --- #107 Medium fast-follow: the auth-wiring guard (otelcol validate doesn't catch dangling
+# authenticator refs or an extension left out of service.extensions) still exists and is called --
+check "#107 collector-validate.sh still defines and calls check_auth_wiring" \
+  'grep -qF "check_auth_wiring() {" tests/collector-validate.sh \
+     && grep -qF "check_auth_wiring \"\$PUBLIC_CONFIG\"" tests/collector-validate.sh'
+
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

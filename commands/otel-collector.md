@@ -112,6 +112,8 @@ Apply `--public` (both modes — they share the `receivers.otlp` block):
   section, wired into **both** `receivers.otlp.protocols.grpc.auth.authenticator` and
   `.http.auth.authenticator`, with `extensions: bearertokenauth: token: "${env:COLLECTOR_AUTH_TOKEN}"`
   — NEVER a literal token — and `service.extensions: [bearertokenauth]`.
+- Also set `exporters.otlp.tls.insecure: false` — see the skill's note on why this is a separate
+  leg (the collector's own outbound hop) tied to the same flag, not caused by receiver auth.
 - If `--public` is NOT set, emit no `extensions:` block at all — do not add auth speculatively;
   the flag is the only signal for this, never inferred from `host`/deployment fields.
 

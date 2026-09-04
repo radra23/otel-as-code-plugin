@@ -53,6 +53,63 @@ sys.exit(0 if ok else 1)
 PY
 }
 
+# ---------------------------------------------------------------------------
+# Auth-wiring guard: `otelcol validate` checks each component's own config
+# (mutation-tested empirically against 0.128.0 — a dangling `authenticator:
+# nosuchauth` reference, or an extension declared but left out of
+# `service.extensions`, BOTH pass `validate` cleanly and only fail at real
+# startup with "authenticator not found"). See .claude/reviews/pr-111-critique.md
+# item 7. Close that gap the same way as the ordering guard above: every
+# `authenticator: <name>` reference under receivers/exporters must have a
+# matching `extensions.<name>:` block defined AND that name present in the
+# flow-list `service: extensions: [...]` (this repo's goldens always write
+# that list inline, never block-style, so a single-line match is reliable).
+# ---------------------------------------------------------------------------
+check_auth_wiring() {
+  python3 - "$1" <<'PY'
+import re
+import sys
+
+path = sys.argv[1]
+text = open(path, encoding="utf-8").read()
+
+referenced = set(re.findall(r'^\s*authenticator:\s*(\S+)\s*$', text, re.MULTILINE))
+defined = set(re.findall(r'^  ([A-Za-z0-9_./-]+):\s*$', text.split("\nextensions:\n", 1)[1].split("\nservice:\n", 1)[0], re.MULTILINE)) if "\nextensions:\n" in text else set()
+m = re.search(r'^\s*extensions:\s*\[(.*)\]\s*$', text, re.MULTILINE)
+activated = {x.strip() for x in m.group(1).split(',') if x.strip()} if m else set()
+
+ok = True
+for name in sorted(referenced):
+    if name not in defined:
+        print(f"ERROR: {path}: authenticator '{name}' is referenced but not defined under extensions:", file=sys.stderr)
+        ok = False
+    if name not in activated:
+        print(f"ERROR: {path}: authenticator '{name}' is defined but not in service.extensions (never started, auth resolution fails at startup)", file=sys.stderr)
+        ok = False
+sys.exit(0 if ok else 1)
+PY
+}
+
+# Self-check (mirrors the ordering guard's own teeth check): reproduce the two mutations that
+# passed `otelcol validate` silently — a dangling authenticator name, and one omitted from
+# service.extensions — and confirm this guard rejects both before trusting it on the real golden.
+echo "Self-check: confirming the auth-wiring guard rejects dangling/unactivated authenticators..."
+bad_tmp="$(mktemp)"
+sed 's/authenticator: bearertokenauth$/authenticator: nosuchauth/' "$PUBLIC_CONFIG" > "$bad_tmp"
+if check_auth_wiring "$bad_tmp" 2>/dev/null; then
+  echo "ERROR: auth-wiring self-check (dangling authenticator) did not fail — the guard has no teeth" >&2
+  rm -f "$bad_tmp"; exit 1
+fi
+rm -f "$bad_tmp"
+bad_tmp2="$(mktemp)"
+sed 's/extensions: \[bearertokenauth\]/extensions: []/' "$PUBLIC_CONFIG" > "$bad_tmp2"
+if check_auth_wiring "$bad_tmp2" 2>/dev/null; then
+  echo "ERROR: auth-wiring self-check (unactivated extension) did not fail — the guard has no teeth" >&2
+  rm -f "$bad_tmp2"; exit 1
+fi
+rm -f "$bad_tmp2"
+echo "OK: auth-wiring guard correctly rejects a dangling or unactivated authenticator"
+
 # Self-check (committed negative test — replaces the brief's broken Step 4, which
 # relied on `otelcol validate` rejecting reordered processors; it doesn't). Prove the
 # ordering guard itself has teeth before trusting it against the real golden config.
@@ -153,6 +210,10 @@ echo "OK: $CONFIG validates against otelcol-contrib ${actual_version}"
 echo "Checking memory_limiter-first ordering in $PUBLIC_CONFIG..."
 check_processor_ordering "$PUBLIC_CONFIG"
 echo "OK: memory_limiter is first processor in every pipeline (--public variant)"
+
+echo "Checking auth wiring (defined + activated, not just referenced) in $PUBLIC_CONFIG..."
+check_auth_wiring "$PUBLIC_CONFIG"
+echo "OK: every authenticator reference is defined under extensions: and listed in service.extensions"
 
 # Also dummy COLLECTOR_AUTH_TOKEN so the bearertokenauth extension's ${env:...} resolves.
 OTEL_EXPORTER_OTLP_ENDPOINT="localhost:4317" COLLECTOR_AUTH_TOKEN="dummy" \
