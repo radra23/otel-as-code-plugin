@@ -188,5 +188,20 @@ check "#107 collector-validate.sh still defines and calls check_auth_wiring" \
   'grep -qF "check_auth_wiring() {" tests/collector-validate.sh \
      && grep -qF "check_auth_wiring \"\$PUBLIC_CONFIG\"" tests/collector-validate.sh'
 
+# --- #107 Low fast-follow: OTEL_EXPORTER_OTLP_HEADERS must be percent-encoded (Bearer%20), not a
+# literal space -- the OTel Python SDK rejects an unencoded space with UNAUTHENTICATED on every
+# export (verified against the OTel spec + a documented real-world break, not asserted from memory).
+# Scoped to the ENV-VAR print form specifically (OTEL_EXPORTER_OTLP_HEADERS=...) -- a line
+# describing the resulting WIRE-level HTTP header ("Authorization: Bearer <token>", with a colon)
+# is a different, correctly-space-separated thing and must not be flagged.
+for f in "$COLLECTOR_CMD" commands/otel-instrument.md "$COLLECTOR_SKILL" "$PUBLIC_GOLDEN"; do
+  check "#107 $f's OTEL_EXPORTER_OTLP_HEADERS value is percent-encoded, not a literal space" \
+    '! grep -qE "OTEL_EXPORTER_OTLP_HEADERS ?= ?Authorization=Bearer[^%]" "'"$f"'"'
+done
+
+# --- #107 Low fast-follow: --dry-run + --public still prints the REQUIRED TLS advisory ----------
+check "#107 --dry-run flag description addresses the --public interaction" \
+  'grep -qF "Combined with \`--public\`, still" "$COLLECTOR_CMD"'
+
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

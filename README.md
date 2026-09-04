@@ -106,14 +106,18 @@ a command says "dispatch the `<x>` agent", read `agents/<x>.md` and do that work
 | `--service <id>` | instrument | Pick the target service instead of being prompted |
 | `--fix <ids>` | instrument | Apply only these `/otel-evaluate` findings, in place |
 | `--force` | instrument, backend, collector | **Full regeneration** — overwrites hand edits (see below) |
+| `--confirm-remove-auth` | collector | Required alongside `--force` (without `--public`) to intentionally strip existing receiver auth |
 | `--public` | collector | Collector has no private-network path to its sender(s) — adds receiver auth (`bearertokenauth`); default is unauthenticated |
+| `--dry-run` | instrument, backend, collector | Preview without writing; exits non-zero if the output would change (composes in CI) |
 | `--kind` | backend | Emit one artifact: dashboard \| alerts \| slo |
 | `--output-dir` | backend | Override default `infra/observability/<vendor>/` |
 
 `--force` regenerates a file from scratch; it is not a patch. By the time regeneration is worth
 running the bootstrap has usually been hand-refined, so `/otel-instrument` prints what it will
 overwrite and asks first. To apply an audit's findings without losing those edits, use
-`--fix <ids>` with the finding IDs from the `/otel-evaluate` report.
+`--fix <ids>` with the finding IDs from the `/otel-evaluate` report. For `/otel-collector`
+specifically, `--force` alone refuses to remove existing receiver auth — pair it with `--public`
+to keep the auth, or `--confirm-remove-auth` to intentionally downgrade.
 
 ## What gets generated
 

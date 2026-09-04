@@ -14,12 +14,10 @@ Generate an otelcol-contrib config for this service's Collector setup.
   runs on a serverless-container platform with no sidecar option, so the collector runs on a
   separate, internet-reachable host). Without this flag the OTLP receiver is unauthenticated —
   fine for same-host/private-network, a real gap otherwise (#107). Adds the `bearertokenauth`
-  extension (beta stability upstream — see the `collector-topology` skill) wired into both
-  receiver protocols; see that skill's "Receiver auth" section for the exact shape. **TLS in
-  front of the collector is a requirement for this to actually secure anything** — the bearer
-  token travels in cleartext without it; say so explicitly in Step 6. Never inferred
-  automatically — always explicit, since guessing a repo's network topology wrong in either
-  direction is worse than asking.
+  extension (beta stability upstream) wired into both receiver protocols. **TLS in front of the
+  collector is a requirement for this to actually secure anything** — say so explicitly in Step 6.
+  See the `collector-topology` skill's "Receiver auth" section for the exact shape and why this is
+  opt-in rather than inferred.
 - `--force` — overwrite an existing `otelcol-agent.yaml` / `otelcol-gateway.yaml`. Required if the
   write-guard hook blocks re-generation (it protects generated collector configs). If the existing
   file has receiver auth and `--public` is not also passed, `--force` alone is refused — see
@@ -30,7 +28,11 @@ Generate an otelcol-contrib config for this service's Collector setup.
 - `--dry-run` — preview without writing. Generate the config as normal (Step 4) but, instead of
   writing it in Step 5, print a unified diff of the would-be YAML against the on-disk file (or
   "would create `<filename>`" if absent), write nothing, do NOT create the `.otel-force` sentinel,
-  and exit non-zero if it would change — so it composes in CI.
+  and exit non-zero if it would change — so it composes in CI. **Combined with `--public`, still
+  print Step 6's REQUIRED-TLS advisory** even though nothing was written — skip only the
+  file-existence-dependent parts (the `docker run -v` mount, the "run it" framing). A `--dry-run`
+  invocation is exactly the CI path most likely to run unattended with no human present to notice
+  a missing security warning.
 
 ## Step 1: Load the collector-topology skill
 
@@ -114,8 +116,8 @@ Apply `--public` (both modes — they share the `receivers.otlp` block):
   — NEVER a literal token — and `service.extensions: [bearertokenauth]`.
 - Also set `exporters.otlp.tls.insecure: false` — see the skill's note on why this is a separate
   leg (the collector's own outbound hop) tied to the same flag, not caused by receiver auth.
-- If `--public` is NOT set, emit no `extensions:` block at all — do not add auth speculatively;
-  the flag is the only signal for this, never inferred from `host`/deployment fields.
+- If `--public` is NOT set, emit no `extensions:` block at all — the flag is the only signal for
+  this (see the skill for why it's never inferred from `host`/deployment fields instead).
 
 ## Step 5: Write the file and validate
 
@@ -166,7 +168,10 @@ This collector requires auth (--public). Before running it:
 For **agent** mode, append:
 ```
   4. Configure every sending app with:
-       OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer <same token>
+       OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer%20<same token>
+     (the %20 is required, not cosmetic — the spec requires this env var's values to be
+     percent-encoded per W3C Baggage; a literal space works in some SDKs but the OTel Python
+     SDK specifically rejects it, failing every export with UNAUTHENTICATED.)
 ```
 
 For **gateway** mode, append instead (the senders are agent Collectors, not apps — give them
