@@ -50,6 +50,9 @@ jobs:
       - name: Run dogfooding-regression contract (locks #91/#94/#99/#102/#103/#104/#107/#109 prompt+golden fixes)
         run: bash tests/hooks/dogfooding-regression.test.sh
 
+      - name: Run Go scanner-gate contract (net/http evidence, gin/echo/fiber refusal)
+        run: bash tests/hooks/go-scanner-gate.test.sh
+
       - name: Run collector-cardinality-contract test (scanner ↔ /otel-collector)
         run: bash tests/hooks/collector-cardinality-contract.test.sh
 
