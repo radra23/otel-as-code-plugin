@@ -78,6 +78,7 @@ cp ../snapshots/instrument/dotnet/checkout-api.csproj "$WORK/dotnet/checkout-api
 cp -R ../../fixtures/go-greenfield/. "$WORK/go/"
 cp ../snapshots/instrument/go/tracing.go "$WORK/go/tracing.go"
 cp ../snapshots/instrument/go/go.mod "$WORK/go/go.mod"   # instrumented manifest
+cp ../snapshots/instrument/go/go.sum "$WORK/go/go.sum"     # instrumented manifest
 
 # 2. up + wait for jaeger health
 docker compose up -d
