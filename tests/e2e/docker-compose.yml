@@ -137,3 +137,27 @@ services:
     # OTLP exporter ships to the in-network collector.
     command: ["sh", "-c", "dotnet restore && dotnet run --no-launch-profile"]
     depends_on: [collector]
+
+  go-app:
+    # SDK image (not a distroless runtime) because the container builds the source inline, like
+    # the other apps. golang:1.25 matches the golden go.mod's `go 1.25.0` directive.
+    image: golang:1.25-bookworm
+    working_dir: /app
+    environment:
+      # The golden tracing.go reads service.name from OTEL_SERVICE_NAME (envOrDefault). Use a
+      # name DISTINCT from every other service — a duplicate service.name would merge in Jaeger.
+      OTEL_SERVICE_NAME: "search-api"
+      DEPLOYMENT_ENV: "e2e"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4317"
+      PORT: "8080"
+    ports:
+      - "8082:8080"   # load is driven from the host (see run.sh)
+    volumes:
+      - ./.work/go:/app
+    # Greenfield main.go (net/http, health + search routes) + golden tracing.go (defines
+    # InitOtel) + golden go.mod (adds the pinned OTel packages, replacing the greenfield one),
+    # seeded by run.sh. `go mod download` then `go run .` builds and serves; otelhttp wraps the
+    # mux (the one documented paste-in line, baked into the fixture's main.go like .NET's
+    # Program.cs carries its one documented line) and ships spans over OTLP/gRPC to the collector.
+    command: ["sh", "-c", "go mod download && go run ."]
+    depends_on: [collector]

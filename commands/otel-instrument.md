@@ -8,7 +8,7 @@ argument-hint: "[language] [--service <id>] [--fix <ids>] [--experimental] [--fo
 Generate OTel SDK bootstrap and OTLP wiring for one service.
 
 ## Flags
-- `[language]` — optional; `nodejs`, `python`, `java`, or `dotnet`. If omitted, derived from the
+- `[language]` — optional; `nodejs`, `python`, `java`, `dotnet`, or `go`. If omitted, derived from the
   selected service (Step 2). It narrows the candidate services; it does not pick one.
 - `--service <id>` — the service to instrument, by `id` from the context JSON. Skips the
   Step 2 prompt.
@@ -68,7 +68,7 @@ is not Node at all.
      ⚠ No service in this repo can be instrumented by /otel-instrument yet.
        portal-web (web/)  — runtime is browser; browser/RUM instrumentation is out of scope
                             for the MVP. Use an OTel browser SDK / RUM product directly.
-       cache (cache/)     — runtime go is not supported yet (v1).
+       cache (cache/)     — runtime ruby is not supported yet (v1).
      ```
 3. Validate the chosen service before generating. If it has `generatorSupported: false`, refuse:
    ```
@@ -77,10 +77,10 @@ is not Node at all.
      that breaks the build. Nothing was written.
    ```
    Exit. Emitting wrong code is worse than emitting none — do not fall back to a near-match.
-4. Derive `language` from the selected service. If it is not `nodejs`, `python`, `java`, or
-   `dotnet`:
-   - Print: "⚠ <language> is not supported yet. Supported: nodejs, python, java, dotnet.
-     v1 will add: go, ruby, php, rust."
+4. Derive `language` from the selected service. If it is not `nodejs`, `python`, `java`,
+   `dotnet`, or `go`:
+   - Print: "⚠ <language> is not supported yet. Supported: nodejs, python, java, dotnet, go.
+     v1 will add: ruby, php, rust."
    - Exit.
 
 If `context.services` has no `runtime` field at all, the cache predates schema 2 — re-scan
@@ -232,6 +232,13 @@ present and packages restored; otherwise print the wiring commands from the suba
 build failure is a failure to fix, not to paper over. (Runtime span emission is the e2e
 follow-up, as with Java.)
 
+For **Go** the equivalent check is `go build ./...` — the generated `tracing.go` plus the edited
+`go.mod` must compile after `go mod tidy` resolves `go.sum`. Run it only if the Go toolchain is
+present; otherwise print the wiring commands from the subagent summary (`go.mod` already edited →
+`go mod tidy` → paste the two required wiring lines → `go build ./...`) and note verification was
+deferred. A build failure is a failure to fix, not to paper over. (Runtime span emission is the
+e2e follow-up, as with Java and .NET.)
+
 Run the smoke only if the SDK dependencies are installed (`node_modules` / the venv present). If
 they are not, DO NOT fail — print the exact command for the user to run after `npm install` /
 `pip install`, and note verification was deferred.
@@ -264,11 +271,12 @@ over it. If verification was deferred (deps not installed), say so and give the 
 Print the subagent's summary, then this block. **Do not omit it and do not soften it.** The
 generated bootstrap reads `OTEL_EXPORTER_OTLP_ENDPOINT` and hard-codes nothing, which is
 correct — and it means the service exports nowhere until the deployment sets it. The generated
-Node.js/Python code defaults every exporter to `none` when no endpoint is configured, so the
-failure mode is silence rather than a retry loop against `localhost:4317`; that is a safe
-default, not a working one. (The .NET OTLP exporter and the Java agent do the opposite — they
-default to `localhost:4317` and retry — so for those two, setting the endpoint below is not
-just recommended, it is what stops a reconnect loop in the deployed process.)
+Node.js/Python/Go code defaults every exporter to `none` (Go: no provider registered at all)
+when no endpoint is configured, so the failure mode is silence rather than a retry loop against
+`localhost:4317`; that is a safe default, not a working one. (The .NET OTLP exporter and the
+Java agent do the opposite — they default to `localhost:4317` and retry — so for those two,
+setting the endpoint below is not just recommended, it is what stops a reconnect loop in the
+deployed process.)
 
 Use `service.deployment.configFiles` and `service.deployment.endpointConfigured` from the
 context to make this concrete rather than generic:

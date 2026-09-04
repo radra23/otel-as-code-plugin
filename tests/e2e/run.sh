@@ -16,7 +16,7 @@ cleanup() {
   # metrics/logs pipelines (Jaeger's OTLP receiver only accepts traces) — see the
   # "Expected collector errors" section in README.md before treating those as the failure.
   echo "--- collector + app logs (tail, timestamped) ---"
-  docker compose logs --timestamps --tail=60 jaeger collector node-app python-app java-app nextjs-app dotnet-app 2>/dev/null || true
+  docker compose logs --timestamps --tail=60 jaeger collector node-app python-app java-app nextjs-app dotnet-app go-app 2>/dev/null || true
   echo "--- jaeger /api/services (what actually landed) ---"
   curl -fsS "http://localhost:16686/api/services" 2>/dev/null && echo || echo "(jaeger /api/services unreachable)"
   docker compose down -v --remove-orphans 2>/dev/null || true
@@ -28,7 +28,7 @@ cleanup() {
 trap cleanup EXIT
 
 # 1. seed throwaway app copies (fixtures stay pristine)
-rm -rf "$WORK"; mkdir -p "$WORK/nodejs" "$WORK/python" "$WORK/java" "$WORK/nextjs" "$WORK/dotnet"
+rm -rf "$WORK"; mkdir -p "$WORK/nodejs" "$WORK/python" "$WORK/java" "$WORK/nextjs" "$WORK/dotnet" "$WORK/go"
 # The collector's file exporter (logs-overlay) writes logs.json here. World-writable so the
 # collector container's non-root user can write regardless of the host UID that created it.
 mkdir -p "$WORK/collector-out"; chmod 777 "$WORK/collector-out"
@@ -70,6 +70,15 @@ curl -fsSLo "$WORK/java/opentelemetry-javaagent.jar" \
 cp -R ../../fixtures/dotnet-greenfield/. "$WORK/dotnet/"
 cp ../snapshots/instrument/dotnet/OpenTelemetry.cs "$WORK/dotnet/OpenTelemetry.cs"
 cp ../snapshots/instrument/dotnet/checkout-api.csproj "$WORK/dotnet/checkout-api.csproj"   # instrumented manifest
+
+# Go: pristine greenfield net/http fixture (main.go ALREADY carries the two documented wiring
+# lines — the plugin PRINTS them rather than writing them, the Go analog of .NET's Program.cs
+# carrying its one documented line) + the golden tracing.go (defines InitOtel/InitOtelLogsBeta) +
+# the golden INSTRUMENTED go.mod (adds the pinned OTel packages, replacing the greenfield one).
+cp -R ../../fixtures/go-greenfield/. "$WORK/go/"
+cp ../snapshots/instrument/go/tracing.go "$WORK/go/tracing.go"
+cp ../snapshots/instrument/go/go.mod "$WORK/go/go.mod"   # instrumented manifest
+cp ../snapshots/instrument/go/go.sum "$WORK/go/go.sum"     # instrumented manifest
 
 # 2. up + wait for jaeger health
 docker compose up -d
@@ -136,6 +145,15 @@ for i in 1 2 3 4 5; do
   curl -fsS "http://localhost:5001/pay" >/dev/null || true
 done
 
+# Go app (go mod download + go run run inline in the container — allow build time on cold CI).
+# Hitting /search makes otelhttp's handler wrapper emit a server span, exported over OTLP/gRPC
+# (:4317) to the collector.
+wait_ready "http://localhost:8082" 180
+for i in 1 2 3 4 5; do
+  curl -fsS "http://localhost:8082/health" >/dev/null || true
+  curl -fsS "http://localhost:8082/search?q=otel" >/dev/null || true
+done
+
 # 4. assert (Jaeger reachable on host 16686)
 JA="http://localhost:16686"
 # Check BOTH services in one run (don't fail-fast on the first) so a single CI run reports
@@ -156,6 +174,11 @@ POLL_TIMEOUT=60 bash assert-traces.sh --jaeger "$JA" --service web-frontend \
 # DEPLOYMENT_ENV. namespace is `checkout` (the golden's value), not `storefront`.
 POLL_TIMEOUT=60 bash assert-traces.sh --jaeger "$JA" --service checkout-dotnet \
   --expect service.name=checkout-dotnet,service.version=1.4.2,service.namespace=checkout,deployment.environment.name=e2e || rc=1
+# Go manual SDK wiring (golden tracing.go). service.version/namespace are set in the fixture's
+# main.go via InitOtel's resource; service.name from OTEL_SERVICE_NAME, deployment.environment.name
+# from DEPLOYMENT_ENV.
+POLL_TIMEOUT=60 bash assert-traces.sh --jaeger "$JA" --service search-api \
+  --expect service.name=search-api,service.version=2.0.0,service.namespace=storefront,deployment.environment.name=e2e || rc=1
 
 # Logs (#12, --experimental): the Python app logs `reserved sku=...` on /inventory/reserve, the
 # --experimental bootstrap bridges it to OTLP, and the collector's file exporter writes it to

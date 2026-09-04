@@ -203,15 +203,32 @@ found none.
      the No-candidates / multi-candidate UX distinguish a real target from an untargetable
      console/test project up front. `instrumentation-gen` keeps the identical refusal as a
      backstop for a stale cache or a forced `--service`.
+     For `go` it is `true` **only when a `net/http` server is present AND no incompatible web
+     framework is required** — the generator wraps `net/http`'s `Handler` interface directly
+     (`otelhttp.NewHandler`) and has no per-framework middleware path yet. `gin`, `echo`, and
+     `fiber` each have their own middleware shape (`fiber` isn't even `net/http`-compatible,
+     being built on `fasthttp`); `chi` and `gorilla/mux` ARE covered for free, since both wrap
+     `http.Handler`. Look for (ANY one suffices for the positive case) in the entry point
+     (`go.mod`'s module plus the resolved `runnableEntry` — for Go this commonly lives at
+     `cmd/<service>/main.go` in a multi-binary layout, so read `go.mod`'s `require` block too):
+       - an `http.ListenAndServe` / `http.ListenAndServeTLS` call, or
+       - an `http.Server{}` literal, or
+       - `http.Handle` / `http.HandleFunc` registration.
+     Absent all of these, OR a `require` entry for `github.com/gin-gonic/gin`,
+     `github.com/labstack/echo/*`, or `github.com/gofiber/fiber/*` present in `go.mod` → set
+     `generatorSupported: false` with the reason below. When `github.com/gin-gonic/gin` is the
+     reason, also set `framework: gin` (an existing enum value); `echo`/`fiber` have no dedicated
+     enum value yet, so leave `framework` as whatever the generic detection already assigns.
    - `inScope` — is this service a candidate for observability work at all? `false` ONLY for a
      genuinely out-of-scope runtime (a `browser` bundle — per ROADMAP "Not planned"); `true`
-     otherwise, INCLUDING a runtime merely outside today's codegen (`go` — a first-class
+     otherwise, INCLUDING a runtime merely outside today's codegen (`ruby` — a first-class
      OTel runtime on the roadmap, and often already instrumented by hand). `/otel-evaluate` is
      read-only and language-agnostic and must never be filtered out by a missing generator.
    - `instrumentableReason` — one line, set when either flag is `false`, naming which and why:
-     `"generatorSupported:false — runtime go not in instrumentation-gen's set (node/python/jvm/dotnet); inScope:true (first-class OTel runtime, roadmap)"`,
-     or `"generatorSupported:false — no ASP.NET Core / Generic Host builder found; .NET instrumentation requires an IServiceCollection to extend; inScope:true"` (a console / library / test `dotnet` project),
-     or `"generatorSupported:false, inScope:false — runtime browser; browser/RUM is out of scope (ROADMAP: Not planned)"`.
+     `"generatorSupported:false — no ASP.NET Core / Generic Host builder found; .NET instrumentation requires an IServiceCollection to extend; inScope:true"` (a console / library / test `dotnet` project),
+     or `"generatorSupported:false, inScope:false — runtime browser; browser/RUM is out of scope (ROADMAP: Not planned)"`,
+     or `"generatorSupported:false — no net/http server evidence found (http.ListenAndServe / http.Server{} / http.Handle); go instrumentation targets net/http-compatible servers only; inScope:true (first-class OTel runtime)"` (a Go CLI/worker/library with no HTTP server),
+     or `"generatorSupported:false — github.com/gin-gonic/gin required; go instrumentation only covers net/http-compatible frameworks today (chi, gorilla/mux); inScope:true"` (naming whichever of gin/echo/fiber was actually found).
 
 4. Determine `host` — **how the process is started**, which decides whether an inbound HTTP
    server exists at all, and where deployment-side OTLP settings have to be written:

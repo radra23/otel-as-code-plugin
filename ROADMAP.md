@@ -8,7 +8,7 @@
 > of the same shape, and every concrete line item that isn't done yet has a linked tracking issue —
 > comment there rather than only in this file if you want to weigh in.
 
-Current release: **0.2.0**. Node.js, Python, Java, and .NET instrumentation, Terraform for
+Current release: **0.2.0**. Node.js, Python, Java, .NET, and Go instrumentation, Terraform for
 Grafana, Datadog, New Relic, and Dash0, semconv pinned at 1.44.0. Everything shipped so far is
 tracked (closed) under the
 [`0.1.0 MVP — shipped`](https://github.com/radra23/otel-as-code-plugin/milestone/4) milestone.
@@ -39,11 +39,6 @@ just a larger surface to be wrong on. So the near-term work is depth.
 
 ## Next: the coverage people ask for most — [milestone](https://github.com/radra23/otel-as-code-plugin/milestone/2)
 
-- **Go instrumentation.** The remaining most-requested runtime — .NET, its former pairing in this
-  list, shipped in 0.2.0 (proven end-to-end in CI). Go has no equivalent to Node's `require -r`,
-  Python's import-time instrumentation, or .NET's DI-container extension method, so this needs its
-  own design pass (manual SDK wiring vs. the eBPF-based zero-code agent) before generation work
-  starts. Tracked: [#115](https://github.com/radra23/otel-as-code-plugin/issues/115).
 - **More backends.** Driven by requests rather than by a list I made up. Open a
   [coverage request](https://github.com/radra23/otel-as-code-plugin/issues/new?template=03-coverage-request.yml)
   and say what you run; that is how ordering gets decided.
