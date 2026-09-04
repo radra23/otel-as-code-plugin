@@ -221,7 +221,7 @@ found none.
      enum value yet, so leave `framework` as whatever the generic detection already assigns.
    - `inScope` — is this service a candidate for observability work at all? `false` ONLY for a
      genuinely out-of-scope runtime (a `browser` bundle — per ROADMAP "Not planned"); `true`
-     otherwise, INCLUDING a runtime merely outside today's codegen (`go` — a first-class
+     otherwise, INCLUDING a runtime merely outside today's codegen (`ruby` — a first-class
      OTel runtime on the roadmap, and often already instrumented by hand). `/otel-evaluate` is
      read-only and language-agnostic and must never be filtered out by a missing generator.
    - `instrumentableReason` — one line, set when either flag is `false`, naming which and why:
