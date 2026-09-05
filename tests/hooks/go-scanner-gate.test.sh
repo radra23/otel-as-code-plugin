@@ -14,6 +14,8 @@ SCANNER="agents/repo-context-scanner.md"
 NETHTTP="fixtures/go-greenfield"
 GIN="fixtures/go-gin-app"
 CLI="fixtures/go-cli"
+CHI="fixtures/go-chi-app"
+ECHO="fixtures/go-echo-app"
 
 # --- positive: net/http server evidence -> generatorSupported:true ---
 check "scanner names http.ListenAndServe as net/http evidence" \
@@ -30,6 +32,23 @@ check "go-gin-app fixture requires gin (repro intact)" \
   'grep -q "gin-gonic/gin" "$GIN/go.mod"'
 check "go-gin-app fixture has NO net/http server evidence (gin has its own)" \
   '! grep -qE "http.ListenAndServe|http.ListenAndServeTLS|http.Handle" "$GIN/main.go"'
+
+# --- positive: chi/gorilla-mux are net/http-compatible -> covered for free ---
+check "scanner names chi and gorilla/mux as covered for free" \
+  'grep -q "chi" "$SCANNER" && grep -q "gorilla/mux" "$SCANNER"'
+check "go-chi-app fixture requires chi (repro intact)" \
+  'grep -q "go-chi/chi" "$CHI/go.mod"'
+check "go-chi-app fixture has net/http server evidence despite using chi" \
+  'grep -q "http.ListenAndServe" "$CHI/main.go"'
+
+# --- negative: echo -> generatorSupported:false, reason names echo (proves the OR-clause
+#     generalizes past gin, not a gin-only special case) ---
+check "scanner names echo as an unsupported framework" \
+  'grep -q "labstack/echo" "$SCANNER"'
+check "go-echo-app fixture requires echo (repro intact)" \
+  'grep -q "labstack/echo" "$ECHO/go.mod"'
+check "go-echo-app fixture has NO net/http server evidence (echo has its own Start method)" \
+  '! grep -qE "http.ListenAndServe|http.ListenAndServeTLS|http.Handle" "$ECHO/main.go"'
 
 # --- negative: no HTTP server at all -> generatorSupported:false, inScope stays true ---
 check "scanner states go stays inScope:true regardless of generatorSupported" \
