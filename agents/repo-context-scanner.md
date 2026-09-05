@@ -147,7 +147,11 @@ found none.
      `next` dependency together with an `instrumentation.{ts,js}` hook and/or a `next.config.*`
      file; `nuxt` from a `nuxt` dependency and/or `nuxt.config.*` — because they need a
      framework-specific instrumentation path, not the generic top-of-entry bootstrap (see the
-     Next.js section in `agents/instrumentation-gen.md`). Do not collapse them to `other`.
+     Next.js section in `agents/instrumentation-gen.md`). Detect `rails` explicitly too — a
+     `Gemfile` requiring `rails` and/or a `config/application.rb` file present — because it needs
+     a framework-specific bootstrap PLACEMENT (an auto-loaded initializer), not the generic
+     top-of-entry-point pattern (see the Ruby section in `agents/instrumentation-gen.md`). Do not
+     collapse any of these three to `other`.
    - `runnableEntry`: the main entry point file
    - `hasDockerfile`: boolean
 

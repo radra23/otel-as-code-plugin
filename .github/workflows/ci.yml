@@ -56,6 +56,9 @@ jobs:
       - name: Run Go instrument-wiring contract (command recognizes go, generator defines it)
         run: bash tests/hooks/go-instrument-wiring.test.sh
 
+      - name: Run Ruby framework-detection contract (Rails vs non-Rails placement)
+        run: bash tests/hooks/ruby-framework-detection.test.sh
+
       - name: Run collector-cardinality-contract test (scanner ↔ /otel-collector)
         run: bash tests/hooks/collector-cardinality-contract.test.sh
 
