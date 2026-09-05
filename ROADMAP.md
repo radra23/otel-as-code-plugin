@@ -8,8 +8,8 @@
 > of the same shape, and every concrete line item that isn't done yet has a linked tracking issue —
 > comment there rather than only in this file if you want to weigh in.
 
-Current release: **0.2.0**. Node.js, Python, Java, .NET, and Go instrumentation, Terraform for
-Grafana, Datadog, New Relic, and Dash0, semconv pinned at 1.44.0. Everything shipped so far is
+Current release: **0.2.0**. Node.js, Python, Java, .NET, Go, and Ruby instrumentation, Terraform
+for Grafana, Datadog, New Relic, and Dash0, semconv pinned at 1.44.0. Everything shipped so far is
 tracked (closed) under the
 [`0.1.0 MVP — shipped`](https://github.com/radra23/otel-as-code-plugin/milestone/4) milestone.
 
@@ -50,8 +50,8 @@ just a larger surface to be wrong on. So the near-term work is depth.
 
 ## Later: toward v1 — [milestone](https://github.com/radra23/otel-as-code-plugin/milestone/3)
 
-- **Ruby, PHP, and Rust.** No design work started on any of the three yet.
-  [#116](https://github.com/radra23/otel-as-code-plugin/issues/116) (Ruby),
+- **PHP and Rust.** Ruby shipped in 0.2.0 (proven end-to-end in CI) — no design work started on
+  the remaining two yet.
   [#117](https://github.com/radra23/otel-as-code-plugin/issues/117) (PHP),
   [#118](https://github.com/radra23/otel-as-code-plugin/issues/118) (Rust).
 - **Cardinality and cost budgets as generated policy**, not just as guardrail comments — a
