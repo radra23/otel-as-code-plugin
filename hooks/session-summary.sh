@@ -74,6 +74,10 @@ for f in "${CHANGED_OTEL[@]}"; do
       echo "- Added Python OTel SDK bootstrap (\`$f\`)" ;;
     *tracing.go)
       echo "- Added Go OTel SDK bootstrap (\`$f\`)" ;;
+    *tracing.rb)
+      echo "- Added Ruby OTel SDK bootstrap (\`$f\`)" ;;
+    *opentelemetry.rb)
+      echo "- Added Ruby OTel SDK wiring (\`$f\`)" ;;
     *otel-java.env)
       echo "- Added OpenTelemetry Java agent config (\`$f\`)" ;;
     *OpenTelemetry.cs)

@@ -161,3 +161,35 @@ services:
     # Program.cs carries its one documented line) and ships spans over OTLP/gRPC to the collector.
     command: ["sh", "-c", "go mod download && go run ."]
     depends_on: [collector]
+
+  ruby-app:
+    # SDK image (not a distroless runtime) because the container installs gems and runs the
+    # source inline, like the other apps. ruby:3.3-bookworm matches the >= 3.3 floor
+    # opentelemetry-sdk/opentelemetry-exporter-otlp both require.
+    image: ruby:3.3-bookworm
+    working_dir: /app
+    environment:
+      # The golden tracing.rb reads service.name from OTEL_SERVICE_NAME (ENV.fetch). Use a name
+      # DISTINCT from every other service — a duplicate service.name would merge in Jaeger.
+      OTEL_SERVICE_NAME: "notifications-api"
+      DEPLOYMENT_ENV: "e2e"
+      # Ruby's main OTLP gem is HTTP/protobuf-only — point at the collector's HTTP port (4318),
+      # NOT the gRPC 4317 every other language leg uses (same exception Next.js's @vercel/otel
+      # already needs).
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4318"
+      PORT: "8080"
+    ports:
+      - "8083:8080"   # load is driven from the host (see run.sh)
+    volumes:
+      - ./.work/ruby:/app
+    # Greenfield app.rb (Sinatra, health + notify routes, ALREADY carries the one documented
+    # `require_relative 'tracing'` line placed after the sinatra/json requires — the plugin
+    # PRINTS it rather than writing it, the Ruby analog of Go's main.go carrying its wiring
+    # lines) + golden tracing.rb (defines the OTel bootstrap) + golden Gemfile (adds the three
+    # pinned OTel gems, replacing the greenfield one), seeded by run.sh. `bundle install` then
+    # `ruby app.rb` installs gems fresh (no committed Gemfile.lock — see Task 2 Step 5's note)
+    # and serves; opentelemetry-instrumentation-sinatra (pulled in by instrumentation-all's
+    # use_all) auto-detects and instruments Sinatra, shipping spans over OTLP/HTTP to the
+    # collector.
+    command: ["sh", "-c", "bundle install && ruby app.rb"]
+    depends_on: [collector]
