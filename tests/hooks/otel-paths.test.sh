@@ -23,6 +23,8 @@ check "bootstrap globs include OpenTelemetry.cs"     'has OpenTelemetry.cs'
 check "bootstrap globs include tracing.js"           'has tracing.js'
 check "bootstrap globs include tracing.py"           'has tracing.py'
 check "bootstrap globs include tracing.go"           'has tracing.go'
+check "bootstrap globs include tracing.rb"           'has tracing.rb'
+check "bootstrap globs include opentelemetry.rb"      'has opentelemetry.rb'
 
 # --- otel_all_generated_globs is the UNION (read-only reporting set) ---
 check "all-generated globs include otelcol-agent.yaml"   'has_all otelcol-agent.yaml'
