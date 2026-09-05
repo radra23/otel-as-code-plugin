@@ -174,9 +174,9 @@ POLL_TIMEOUT=60 bash assert-traces.sh --jaeger "$JA" --service web-frontend \
 # DEPLOYMENT_ENV. namespace is `checkout` (the golden's value), not `storefront`.
 POLL_TIMEOUT=60 bash assert-traces.sh --jaeger "$JA" --service checkout-dotnet \
   --expect service.name=checkout-dotnet,service.version=1.4.2,service.namespace=checkout,deployment.environment.name=e2e || rc=1
-# Go manual SDK wiring (golden tracing.go). service.version/namespace are set in the fixture's
-# main.go via InitOtel's resource; service.name from OTEL_SERVICE_NAME, deployment.environment.name
-# from DEPLOYMENT_ENV.
+# Go manual SDK wiring (golden tracing.go). service.version/namespace are set in tracing.go's
+# newResource; main.go only calls InitOtel. service.name from OTEL_SERVICE_NAME,
+# deployment.environment.name from DEPLOYMENT_ENV.
 POLL_TIMEOUT=60 bash assert-traces.sh --jaeger "$JA" --service search-api \
   --expect service.name=search-api,service.version=2.0.0,service.namespace=storefront,deployment.environment.name=e2e || rc=1
 

@@ -241,6 +241,30 @@ jobs:
           ! grep -rqE "WebApplication.CreateBuilder|Host.CreateApplicationBuilder|Host.CreateDefaultBuilder|IHostBuilder" fixtures/dotnet-testproject
           ! grep -qE 'Include="OpenTelemetry' fixtures/dotnet-testproject/Fillr.WebTests.csproj
 
+      - name: Check go-greenfield fixture (#115 — net/http, generatorSupported true)
+        run: |
+          test -f fixtures/go-greenfield/go.mod
+          test -f fixtures/go-greenfield/main.go
+          grep -q "http.ListenAndServe" fixtures/go-greenfield/main.go
+          ! grep -qE "gin-gonic/gin|labstack/echo|gofiber/fiber" fixtures/go-greenfield/go.mod
+          # Greenfield go.mod carries no OTel dependency — the golden tracing.go (which main.go
+          # already references, per the "extend from golden" e2e assembly pattern) is dropped in
+          # separately by the e2e harness, never present in this fixture directory's go.mod.
+          ! grep -q "go.opentelemetry.io" fixtures/go-greenfield/go.mod
+
+      - name: Check go-gin-app fixture (#115 — gin required, generatorSupported false)
+        run: |
+          test -f fixtures/go-gin-app/go.mod
+          test -f fixtures/go-gin-app/main.go
+          grep -q "gin-gonic/gin" fixtures/go-gin-app/go.mod
+          ! grep -q "http.ListenAndServe" fixtures/go-gin-app/main.go
+
+      - name: Check go-cli fixture (#115 — no HTTP server, generatorSupported false, inScope true)
+        run: |
+          test -f fixtures/go-cli/go.mod
+          test -f fixtures/go-cli/main.go
+          ! grep -qE "http.ListenAndServe|http.Handle" fixtures/go-cli/main.go
+
   validate-plugin-manifest:
     name: Validate plugin manifests
     runs-on: ubuntu-latest
