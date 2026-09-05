@@ -8,7 +8,7 @@ argument-hint: "[language] [--service <id>] [--fix <ids>] [--experimental] [--fo
 Generate OTel SDK bootstrap and OTLP wiring for one service.
 
 ## Flags
-- `[language]` — optional; `nodejs`, `python`, `java`, `dotnet`, or `go`. If omitted, derived from the
+- `[language]` — optional; `nodejs`, `python`, `java`, `dotnet`, `go`, or `ruby`. If omitted, derived from the
   selected service (Step 2). It narrows the candidate services; it does not pick one.
 - `--service <id>` — the service to instrument, by `id` from the context JSON. Skips the
   Step 2 prompt.
@@ -78,9 +78,9 @@ is not Node at all.
    ```
    Exit. Emitting wrong code is worse than emitting none — do not fall back to a near-match.
 4. Derive `language` from the selected service. If it is not `nodejs`, `python`, `java`,
-   `dotnet`, or `go`:
-   - Print: "⚠ <language> is not supported yet. Supported: nodejs, python, java, dotnet, go.
-     v1 will add: ruby, php, rust."
+   `dotnet`, `go`, or `ruby`:
+   - Print: "⚠ <language> is not supported yet. Supported: nodejs, python, java, dotnet, go, ruby.
+     v1 will add: php, rust."
    - Exit.
 
 If `context.services` has no `runtime` field at all, the cache predates schema 2 — re-scan
@@ -239,6 +239,14 @@ present; otherwise print the wiring commands from the subagent summary (`go.mod`
 deferred. A build failure is a failure to fix, not to paper over. (Runtime span emission is the
 e2e follow-up, as with Java and .NET.)
 
+For **Ruby** the equivalent check is `bundle exec ruby -e "require_relative './tracing'"` (or the
+Rails initializer's path) — confirms the require chain resolves and `SDK.configure` doesn't raise.
+Run it only if `bundle install` has completed; otherwise print the wiring commands from the
+subagent summary (`bundle install` → paste the require line AFTER your framework requires →
+`bundle exec ruby -e "require_relative './tracing'"`) and note verification was deferred. A raised
+exception is a failure to fix, not to paper over. (Runtime span emission is the e2e follow-up, as
+with every other language.)
+
 Run the smoke only if the SDK dependencies are installed (`node_modules` / the venv present). If
 they are not, DO NOT fail — print the exact command for the user to run after `npm install` /
 `pip install`, and note verification was deferred.
@@ -273,7 +281,7 @@ generated bootstrap reads `OTEL_EXPORTER_OTLP_ENDPOINT` and hard-codes nothing, 
 correct — and it means the service exports nowhere until the deployment sets it. The generated
 Node.js/Python/Go code defaults every exporter to `none` (Go: no provider registered at all)
 when no endpoint is configured, so the failure mode is silence rather than a retry loop against
-`localhost:4317`; that is a safe default, not a working one. (The .NET OTLP exporter and the
+`localhost:4317`; that is a safe default, not a working one. Ruby needs its own sentence here since its DEFAULT behavior (with no endpoint configured) is actually to retry against `localhost:4318` like .NET/Java — the generated `tracing.rb` avoids this with an explicit `OTEL_TRACES_EXPORTER` guard, so from the deployment's perspective Ruby behaves like Node/Python/Go (safe silence, not a reconnect loop), but only because the generated code contains that guard, not because the underlying SDK defaults to it. Also note: Ruby exports over OTLP/**HTTP** on `:4318`, not this plugin's usual gRPC `:4317` — setting the endpoint below must point at the HTTP port for Ruby specifically. (The .NET OTLP exporter and the
 Java agent do the opposite — they default to `localhost:4317` and retry — so for those two,
 setting the endpoint below is not just recommended, it is what stops a reconnect loop in the
 deployed process.)
