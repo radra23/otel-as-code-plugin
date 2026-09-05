@@ -16,7 +16,7 @@ cleanup() {
   # metrics/logs pipelines (Jaeger's OTLP receiver only accepts traces) — see the
   # "Expected collector errors" section in README.md before treating those as the failure.
   echo "--- collector + app logs (tail, timestamped) ---"
-  docker compose logs --timestamps --tail=60 jaeger collector node-app python-app java-app nextjs-app dotnet-app go-app 2>/dev/null || true
+  docker compose logs --timestamps --tail=60 jaeger collector node-app python-app java-app nextjs-app dotnet-app go-app ruby-app 2>/dev/null || true
   echo "--- jaeger /api/services (what actually landed) ---"
   curl -fsS "http://localhost:16686/api/services" 2>/dev/null && echo || echo "(jaeger /api/services unreachable)"
   docker compose down -v --remove-orphans 2>/dev/null || true
@@ -28,7 +28,7 @@ cleanup() {
 trap cleanup EXIT
 
 # 1. seed throwaway app copies (fixtures stay pristine)
-rm -rf "$WORK"; mkdir -p "$WORK/nodejs" "$WORK/python" "$WORK/java" "$WORK/nextjs" "$WORK/dotnet" "$WORK/go"
+rm -rf "$WORK"; mkdir -p "$WORK/nodejs" "$WORK/python" "$WORK/java" "$WORK/nextjs" "$WORK/dotnet" "$WORK/go" "$WORK/ruby"
 # The collector's file exporter (logs-overlay) writes logs.json here. World-writable so the
 # collector container's non-root user can write regardless of the host UID that created it.
 mkdir -p "$WORK/collector-out"; chmod 777 "$WORK/collector-out"
@@ -79,6 +79,16 @@ cp -R ../../fixtures/go-greenfield/. "$WORK/go/"
 cp ../snapshots/instrument/go/tracing.go "$WORK/go/tracing.go"
 cp ../snapshots/instrument/go/go.mod "$WORK/go/go.mod"   # instrumented manifest
 cp ../snapshots/instrument/go/go.sum "$WORK/go/go.sum"     # instrumented manifest
+
+# Ruby: pristine greenfield Sinatra fixture (app.rb ALREADY carries the one documented wiring
+# line, placed after the sinatra/json requires — the plugin PRINTS it rather than writing it) +
+# the golden tracing.rb (defines the OTel bootstrap) + the golden INSTRUMENTED Gemfile (adds the
+# three pinned OTel gems, replacing the greenfield one). No Gemfile.lock is seeded — bundle
+# install resolves fresh in the container, same as node-app's npm install / python-app's pip
+# install legs (neither of which seed a lockfile either).
+cp -R ../../fixtures/ruby-greenfield/. "$WORK/ruby/"
+cp ../snapshots/instrument/ruby/tracing.rb "$WORK/ruby/tracing.rb"
+cp ../snapshots/instrument/ruby/Gemfile "$WORK/ruby/Gemfile"   # instrumented manifest
 
 # 2. up + wait for jaeger health
 docker compose up -d
@@ -154,6 +164,15 @@ for i in 1 2 3 4 5; do
   curl -fsS "http://localhost:8082/search?q=otel" >/dev/null || true
 done
 
+# Ruby app (bundle install + ruby app.rb run inline in the container — allow install time on cold
+# CI). Hitting /notify makes opentelemetry-instrumentation-sinatra emit a server span, exported
+# over OTLP/HTTP (:4318, not :4317) to the collector.
+wait_ready "http://localhost:8083" 180
+for i in 1 2 3 4 5; do
+  curl -fsS "http://localhost:8083/health" >/dev/null || true
+  curl -fsS "http://localhost:8083/notify" >/dev/null || true
+done
+
 # 4. assert (Jaeger reachable on host 16686)
 JA="http://localhost:16686"
 # Check BOTH services in one run (don't fail-fast on the first) so a single CI run reports
@@ -179,6 +198,11 @@ POLL_TIMEOUT=60 bash assert-traces.sh --jaeger "$JA" --service checkout-dotnet \
 # deployment.environment.name from DEPLOYMENT_ENV.
 POLL_TIMEOUT=60 bash assert-traces.sh --jaeger "$JA" --service search-api \
   --expect service.name=search-api,service.version=2.0.0,service.namespace=storefront,deployment.environment.name=e2e || rc=1
+# Ruby opentelemetry-instrumentation-all (golden tracing.rb). service.version/namespace/
+# deployment.environment.name are set via env vars read by tracing.rb's Resource.create;
+# service.name from OTEL_SERVICE_NAME.
+POLL_TIMEOUT=60 bash assert-traces.sh --jaeger "$JA" --service notifications-api \
+  --expect service.name=notifications-api,service.version=1.1.0,service.namespace=storefront,deployment.environment.name=e2e || rc=1
 
 # Logs (#12, --experimental): the Python app logs `reserved sku=...` on /inventory/reserve, the
 # --experimental bootstrap bridges it to OTLP, and the collector's file exporter writes it to
