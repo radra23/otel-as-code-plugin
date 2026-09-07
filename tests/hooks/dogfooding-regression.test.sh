@@ -355,5 +355,34 @@ check "#133 terraform-patterns' Grafana histogram query uses histogram_quantile,
 check "#133 terraform-patterns New Relic histogram query uses NRQL multi-value percentile() in one call" \
   'grep -qF "percentile(\`<name>\`, 50, 95, 99)" "$TFPATTERNS"'
 
+# --- #144: a remediation path for generatorSupported:false, inScope:true services ---------------
+DEPREM_SKILL="skills/deployment-remediation/SKILL.md"
+DEPREM_AGENT="agents/deployment-remediation-gen.md"
+DEPREM_CMD="commands/otel-remediate.md"
+KC_FIXTURE="fixtures/keycloak-deployment/deployment.yaml"
+
+check "#144 new skill defines the Keycloak detection signal" \
+  'grep -qF "quay.io/keycloak/keycloak" "$DEPREM_SKILL"'
+check "#144 fixture reproduces that exact image reference (repro intact)" \
+  'grep -qF "quay.io/keycloak/keycloak" "$KC_FIXTURE"'
+check "#144 fixture has metrics already enabled but tracing/logging still missing (the disqualifying gap)" \
+  'grep -q "KC_METRICS_ENABLED" "$KC_FIXTURE" \
+     && ! grep -qE "KC_TRACING_ENABLED|KC_LOG_CONSOLE_OUTPUT|KC_TELEMETRY_SERVICE_NAME" "$KC_FIXTURE"'
+check "#144 skill prefers KC_TELEMETRY_SERVICE_NAME over the deprecated KC_TRACING_SERVICE_NAME" \
+  'grep -qF "Use this, not \`KC_TRACING_SERVICE_NAME\`" "$DEPREM_SKILL" \
+     && grep -qF "deprecated in favor of" "$DEPREM_SKILL"'
+check "#144 skill explicitly refuses any target outside v1's Keycloak-only table" \
+  'grep -qF "Only Keycloak is supported in v1" "$DEPREM_SKILL"'
+check "#144 the agent is read-only (no write-capable tools) — v1 never auto-applies" \
+  'grep -qE "^tools: Read, Grep, Glob$" "$DEPREM_AGENT"'
+check "#144 the agent refuses to guess an unlisted target by analogy to Keycloak" \
+  'grep -qF "Do not guess at another binary" "$DEPREM_AGENT"'
+check "#144 the command's candidate set is the complement of /otel-instrument's (generatorSupported:false AND inScope:true)" \
+  'grep -qF "generatorSupported: false\`" "$DEPREM_CMD" && grep -qF "AND \`inScope: true\`" "$DEPREM_CMD"'
+check "#144 the command refuses a generatorSupported:true service (wrong tool for it)" \
+  'grep -qF "use /otel-instrument for it, not /otel-remediate" "$DEPREM_CMD"'
+check "#144 /otel-evaluate points generatorSupported:false findings at /otel-remediate, not --fix" \
+  'grep -qF "/otel-remediate --service" commands/otel-evaluate.md'
+
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

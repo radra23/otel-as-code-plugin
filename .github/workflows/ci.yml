@@ -280,6 +280,13 @@ jobs:
           test -f fixtures/go-cli/main.go
           ! grep -qE "http.ListenAndServe|http.Handle" fixtures/go-cli/main.go
 
+      - name: Check keycloak-deployment fixture (#144 — generatorSupported false, no app source, real native OTel config gap)
+        run: |
+          test -f fixtures/keycloak-deployment/deployment.yaml
+          grep -q "quay.io/keycloak/keycloak" fixtures/keycloak-deployment/deployment.yaml
+          grep -q "KC_METRICS_ENABLED" fixtures/keycloak-deployment/deployment.yaml
+          ! grep -qE "KC_TRACING_ENABLED|KC_LOG_CONSOLE_OUTPUT|KC_TELEMETRY_SERVICE_NAME" fixtures/keycloak-deployment/deployment.yaml
+
   validate-plugin-manifest:
     name: Validate plugin manifests
     runs-on: ubuntu-latest

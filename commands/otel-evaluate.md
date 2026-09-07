@@ -101,6 +101,23 @@ This report is read-only. To apply what it found:
                                        This overwrites them, discarding hand edits.
 ```
 
+**If the audited service has `generatorSupported: false`** (a third-party binary/image with no
+application source — see `deployment-remediation/SKILL.md`), `/otel-instrument` is not the next
+step at all; it explicitly refuses this service. Point at the deployment-config equivalent
+instead:
+
+```
+This report is read-only. <name> has no application source for /otel-instrument to bootstrap —
+to apply what it found:
+
+  /otel-remediate --service <id>       propose a deployment-config diff (env vars) for this
+                                       service's native OTel support (v1: Keycloak only)
+```
+
+If the target isn't one `/otel-remediate` v1 supports (anything other than Keycloak today), say
+so plainly rather than offering a command that will just refuse — name the findings as manual
+work: "no automated remediation path yet for this target; apply the findings above by hand."
+
 **Say the `--force` caveat plainly; do not offer it as the default route.** By the time an audit
 is worth running, the bootstrap has usually been hand-refined, and this report is often the
 evidence that those refinements are *correct* — a handler wrapper for a runtime with no inbound
