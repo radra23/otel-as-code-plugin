@@ -319,6 +319,38 @@ jobs:
           npm install -g @anthropic-ai/claude-code@2.1.251
           claude plugin validate . --strict
 
+  # #128: the plugin's install cache is keyed on .claude-plugin/plugin.json's version string,
+  # so a behavior change that lands without a version bump is invisible to already-installed
+  # users (their cache never refreshes). #52 fixed one instance by hand; this makes it structural.
+  version-bump-guard:
+    name: Guard against unbumped plugin version
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fail if commands/skills/agents/hooks changed without a version bump
+        run: |
+          BASE="${{ github.event.pull_request.base.sha }}"
+          HEAD="${{ github.event.pull_request.head.sha }}"
+          CHANGED=$(git diff --name-only "$BASE" "$HEAD" -- commands/ agents/ skills/ hooks/)
+          if [ -z "$CHANGED" ]; then
+            echo "No behavior-affecting paths changed; skipping version check."
+            exit 0
+          fi
+          BASE_VERSION=$(git show "$BASE:.claude-plugin/plugin.json" | python3 -c "import json,sys; print(json.load(sys.stdin)['version'])")
+          HEAD_VERSION=$(git show "$HEAD:.claude-plugin/plugin.json" | python3 -c "import json,sys; print(json.load(sys.stdin)['version'])")
+          if [ "$BASE_VERSION" = "$HEAD_VERSION" ]; then
+            echo "::error::commands/, agents/, skills/, or hooks/ changed but .claude-plugin/plugin.json 'version' ($BASE_VERSION) was not bumped. Installed users' cache is keyed on this string and will never see this change (#128)."
+            echo "Changed files:"
+            echo "$CHANGED"
+            exit 1
+          fi
+          echo "Version bumped $BASE_VERSION -> $HEAD_VERSION alongside behavior changes."
+
   validate-terraform:
     name: Terraform validate (snapshots)
     runs-on: ubuntu-latest
