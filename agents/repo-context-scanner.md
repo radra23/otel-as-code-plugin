@@ -162,6 +162,15 @@ found none.
      Next.js section.
    - `runnableEntry`: the main entry point file
    - `hasDockerfile`: boolean
+   - `cliEntryPoints`: for `python` services, the script names declared in `pyproject.toml`'s
+     `[project.scripts]` table (e.g. `["pii-scanner", "other-tool"]`) — `[]` when the table is
+     absent or empty. This is a STRUCTURAL fact (what's declared), not a judgment about each
+     entry's shape; whether a given entry is a Click `Group` (needing per-subcommand wrapping) or
+     a plain command is decided by `instrumentation-gen` itself when it reads the target module —
+     see its "Standalone multi-entry-point CLI" section. A non-empty list on a `standalone` host
+     is the signal that this is a CLI-tool service, not a single long-running process, and needs
+     that section's per-invocation flush + per-handler wrapping instead of the generic top-of-
+     entry-point bootstrap. Not yet populated for other languages — record `[]`, not a guess.
 
 3. Determine `runtime` — **where the code actually executes.** This is NOT the same question as
    `language`, and conflating the two is how a Vite + React browser bundle gets a
@@ -362,6 +371,7 @@ Return ONLY the following JSON object. No explanation, no preamble, no markdown 
       "frameworkVersion": null,
       "runnableEntry": "<main entry file>",
       "hasDockerfile": true,
+      "cliEntryPoints": [],
       "deployment": {
         "configFiles": ["infra/main.tf"],
         "endpointConfigured": false,

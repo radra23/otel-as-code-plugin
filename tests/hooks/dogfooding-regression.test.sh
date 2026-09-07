@@ -30,6 +30,11 @@
 #   #132 — /otel-business-attrs Step 3 must not re-derive service.name from the manifest; the
 #         scanner already resolved it under its ladder (#57) and Step 3 re-deriving it at
 #         auto-write confidence silently overwrote the correct observed name.
+#   #134/#135 — a Python CLI's instrumentation-gen contract must (a) know a standalone service can
+#         be a multi-entry-point CLI tool (cliEntryPoints), not just a single process, and (b)
+#         never decorate a Click Group's own callback — Click invokes the group callback and
+#         returns from it BEFORE separately invoking the chosen subcommand, so a decorator there
+#         produces a zero-duration span and tears down telemetry before the subcommand runs.
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 pass=0; fail=0
@@ -302,6 +307,23 @@ check "#132 business-attr-ux skill matches the command (no longer offers service
   'grep -qF "is NOT derived here at all" "$BIZATTRS_SKILL"'
 check "#132 skill's confirmation-table example shows service.name as scanner-carried, not a fresh derivation" \
   'grep -qF "already resolved by the scanner" "$BIZATTRS_SKILL"'
+
+# --- #134/#135: standalone multi-entry-point Python CLI, and Click Group vs plain command --------
+check "#134/#135 scanner defines cliEntryPoints as the standalone-CLI signal" \
+  'grep -qF "cliEntryPoints" "$SCANNER"'
+check "#134/#135 instrumentation-gen has a dedicated CLI section keyed on cliEntryPoints" \
+  'grep -qF "Standalone multi-entry-point CLI" "$GEN" && grep -qF "service.cliEntryPoints\` (from the context JSON) is non-empty" "$GEN"'
+check "#134/#135 the contract explicitly forbids decorating a Click Group's own callback" \
+  'grep -qF "do **not** wrap the group'"'"'s own callback function" "$GEN"'
+check "#134/#135 the reason given is Click's invoke() sequencing (zero-duration span), not just an assertion" \
+  'grep -qF "MultiCommand.invoke()" "$GEN" && grep -qF "start_time == end_time" "$GEN"'
+check "#134/#135 subcommands are wrapped individually with a <entry> <subcommand> span name" \
+  'grep -qF "wrap **each subcommand" "$GEN" && grep -qF "pii-scanner scan" "$GEN"'
+check "#134/#135 flush is per-invocation (finally), not only atexit/SIGTERM" \
+  'grep -qF "Flush before exit, every invocation" "$GEN" && grep -qF "not only on \`SIGTERM\`" "$GEN"'
+check "#134/#135 worked example decorates the subcommand, NOT the group callback (structural check)" \
+  '! grep -B1 "^def cli():" "$GEN" | grep -q "@traced_command" \
+     && grep -B1 "^def scan():" "$GEN" | grep -q "@traced_command"'
 
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

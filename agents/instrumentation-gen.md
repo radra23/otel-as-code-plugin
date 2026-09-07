@@ -654,6 +654,10 @@ And wrap the app creation:
 app = instrument_fastapi(app)
 ```
 
+**Unless `service.cliEntryPoints` is non-empty** — a multi-entry-point CLI tool has no single app
+object to wrap and no one framework instrumentor to call. Skip straight to "Standalone
+multi-entry-point CLI" below instead of applying this subsection.
+
 ## Serverless hosts — instrumentation that is present but unreachable
 
 When `host` is `azure-functions`, `aws-lambda`, or `gcp-cloud-functions`, check how invocations
@@ -686,6 +690,107 @@ For any such host:
    ```
    If the count is `0/N`, say so as the headline of the summary, not a footnote: the
    instrumentation is well-formed and entirely unreachable.
+
+## Standalone multi-entry-point CLI (Python)
+
+When `service.cliEntryPoints` (from the context JSON) is non-empty, this is a suite of
+short-lived CLI processes — `pyproject.toml`'s `[project.scripts]` — not a single long-running
+process. `host: standalone` alone does not distinguish the two; a non-empty `cliEntryPoints` is
+the signal. Scoped to Python for now: this section documents the one concrete shape reported
+against the plugin (`click`-based CLIs); a Go Cobra, .NET `System.CommandLine`, or Ruby Thor
+suite would need its own pass rather than assuming this section's specifics transfer.
+
+There is no inbound server here for `opentelemetry-instrumentation-*` auto-instrumentation to
+hook — same root problem as the Serverless hosts above, different shape. Three things follow:
+
+1. **Wrap every entry point — this is the CLI's "every route."** For each name in
+   `cliEntryPoints`, resolve its target (`pyproject.toml`'s `<name> = "<module>:<function>"`) and
+   read that function.
+   - **If it is a plain function** (a bare function, or one decorated with `@click.command()`
+     directly — not `@click.group()`): wrap it. Span name is the entry-point name itself (e.g.
+     `"pii-scanner"`).
+   - **If it is a Click `Group`** (decorated `@click.group()`, or an instance of `click.Group` /
+     `click.MultiCommand`): do **not** wrap the group's own callback function. Click's
+     `MultiCommand.invoke()` runs the group callback and returns from it — closing any span opened
+     there, with `start_time == end_time` — *before* separately resolving and invoking the chosen
+     subcommand; they are sequential steps in one `invoke()` call, not nested calls. A decorator on
+     the group produces a zero-duration span that never covers the subcommand's actual work, and
+     (per the flush rule below) tears down telemetry in its `finally` before the subcommand has
+     even started. Instead, find every `@<group_var>.command()`-decorated function reachable from
+     that group (same module, or wherever they're defined) and wrap **each subcommand
+     individually**. Span name is `"<entry-point-name> <subcommand-name>"`, using Click's derived
+     hyphenated name (or the explicit `name=` kwarg on `@command()`, if given) for the subcommand
+     part — e.g. `"pii-scanner scan"`, `"pii-scanner validate"`.
+   - Report a wrapped-over-total count in the summary, the same discipline as the Serverless
+     hosts count above — derived by reading the registrations, never estimated.
+
+2. **Span kind and attributes — one convention, not one improvised per run.** OTel has no
+   spec-defined span kind for "CLI invocation," so pin it here rather than leaving each generation
+   to invent its own: `SpanKind.INTERNAL`, plus `cli.command` (the resolved command string used as
+   the span name above) and `cli.exit_code` (set once the wrapped function returns, before the
+   process exits — `0` on a normal return, or the code from `SystemExit` if the function raises
+   one; verify Click's own exception hierarchy against the installed version before asserting
+   anything more specific than that — Click's exit-related exceptions have changed shape across
+   versions). Do NOT call `span.record_exception()` / `span.set_status()` yourself for this:
+   `start_as_current_span` already does both, by default, when an exception propagates out of its
+   `with` block — calling them again duplicates the exception event on the span.
+
+3. **Flush before exit, every invocation — not only on `SIGTERM`.** The Node.js pattern documented
+   above (a `process.on('SIGTERM', ...)` handler calling `shutdown()` once) assumes a long-running
+   process that receives a termination signal. A CLI invocation is the opposite shape: each run is
+   its own short-lived process that exits as soon as the command returns, often well inside a
+   `BatchSpanProcessor` / `PeriodicExportingMetricReader`'s export interval — nothing forces a
+   flush before exit, so telemetry is silently dropped. Call `shutdown()` (from `tracing.py`,
+   flushing every registered provider) inside the wrapping decorator's `finally` block, once per
+   invocation, in addition to (not instead of) the module-level `atexit.register(shutdown)` already
+   documented above — the `finally` covers the common exit path, `atexit` covers an exit the
+   `finally` didn't (e.g. `os._exit`).
+
+```python
+# telemetry.py (beside tracing.py) — decorator applied per subcommand, never per group
+import functools
+import click
+from opentelemetry import trace
+from tracing import shutdown
+
+_tracer = trace.get_tracer("pii-scanner")
+
+def traced_command(name):
+    def decorator(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            # start_as_current_span already records the exception and sets ERROR status by
+            # default when one propagates out of the `with` block — do not also call
+            # span.record_exception()/set_status() here, verified against the installed SDK to
+            # produce a DUPLICATE "exception" event otherwise.
+            with _tracer.start_as_current_span(name, kind=trace.SpanKind.INTERNAL) as span:
+                span.set_attribute("cli.command", name)
+                exit_code = 0
+                try:
+                    return fn(*args, **kwargs)
+                except SystemExit as e:
+                    exit_code = e.code if isinstance(e.code, int) else 1
+                    raise
+                except Exception:
+                    exit_code = 1
+                    raise
+                finally:
+                    span.set_attribute("cli.exit_code", exit_code)
+                    shutdown()
+        return wrapper
+    return decorator
+
+
+@click.group()
+def cli():
+    """Entry point — NOT decorated with @traced_command."""
+
+
+@cli.command()
+@traced_command("pii-scanner scan")
+def scan():
+    ...
+```
 
 ## Java (OpenTelemetry Java agent)
 
