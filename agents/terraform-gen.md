@@ -158,10 +158,18 @@ For **each** entry in `context.businessAttrs` (every entry is already `confirmed
   `rate()`/`sum()`, which is meaningless for a ratio like `conversion_rate`. Panel title: `name`.
 - `kind: "dimension"` — a breakdown of request volume **by** that attribute (facet / group-by).
   Panel title: `Requests by <name>`.
+- `kind: "histogram"` — a duration/size **distribution**, plotted as **quantiles** (p50/p95/p99 —
+  three query targets in one panel, each labeled by its percentile), never as an average. An
+  average is the one view that hides what a histogram exists to show: a p99 that doubles while the
+  mean holds flat is invisible on an average panel, which is the ordinary shape of a latency
+  regression. Panel title: `name`; label the axis with the entry's `unit` when present (`ms`, `s`,
+  bytes — the panel cannot label it correctly otherwise, since the query alone doesn't carry unit
+  information).
 
 The counter-vs-gauge split is load-bearing: applying a rate to a gauge (or summing a ratio)
 produces a wrong number, so use the `kind` the user confirmed — never infer the aggregation from
-the name at generation time.
+the name at generation time. The same principle extends to histogram: plotting it as an average
+(the `gauge` treatment) throws away the one thing a distribution was captured to show.
 
 Use the backend's exact query syntax from the **"Business-attribute panels"** subsection of the
 `terraform-patterns` skill for the backend you are generating — including its caveat comment
@@ -175,8 +183,11 @@ Rules:
   business-metric *alerts* are not generated (a future `/otel-backend` option).
 - If `businessAttrs` is empty or absent, generate exactly the generic dashboard as before (no
   change) — this is the common case and must stay clean.
-- If an entry lacks `kind` (a cache written before this field existed), **skip it** and list it in
-  the summary as "skipped — re-run /otel-business-attrs to set its kind", rather than guessing.
+- If an entry lacks `kind`, or its `kind` is not one of the four values above (a cache written
+  before this field existed, or before a later kind was added), **skip it** and list it in the
+  summary as "skipped — re-run /otel-business-attrs to set its kind", rather than guessing. This
+  rule is deliberately kind-agnostic so a future fifth kind never needs a matching change here to
+  stay safe — an unrecognized value always skips, it never falls through to a default rendering.
 - Respect `kind` from `/otel-backend` (`dashboard` vs `alerts` vs `slo`): business panels belong
   to the dashboard, so emit them only when the dashboard is being generated.
 
