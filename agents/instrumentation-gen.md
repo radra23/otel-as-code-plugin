@@ -769,7 +769,11 @@ def traced_command(name):
                 try:
                     return fn(*args, **kwargs)
                 except SystemExit as e:
-                    exit_code = e.code if isinstance(e.code, int) else 1
+                    # A bare `sys.exit()` raises SystemExit(None), and the real process exit
+                    # code for that is 0 (a clean exit), not a truthy/default value — verified
+                    # empirically, do not reintroduce `e.code if isinstance(...) else 1` here,
+                    # which reports 1 for this common case.
+                    exit_code = 0 if e.code is None else (e.code if isinstance(e.code, int) else 1)
                     raise
                 except Exception:
                     exit_code = 1

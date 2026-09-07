@@ -87,9 +87,12 @@ WARNINGS=0
 SEVERE=0
 SEVERE_MSGS=""
 
-# severe: an unambiguous, deterministic violation with a known fix (Rules 1-4, 8). Shown on
+# severe: an unambiguous, deterministic violation with a known fix (Rules 1-4). Shown on
 # stdout like any warning; additionally captured so strict mode can hard-block on it (exit 2,
-# details on stderr). warn-only rules (5-7) keep using plain echo + WARNINGS++.
+# details on stderr). warn-only rules (5-8) keep using plain echo + WARNINGS++ — Rule 8 included
+# despite being conceptually the worst-severity finding this hook can make, because its detection
+# mechanism (a same-file window heuristic) isn't precise enough to earn a strict-mode block; see
+# Rule 8's own comment below for the confirmed false-positive that keeps it here.
 severe() {  # $1 = full message (may be multiline)
   printf '%s\n' "$1"
   SEVERE_MSGS="${SEVERE_MSGS}${1}
@@ -200,10 +203,19 @@ for attr in "${HIGH_CARD_PATTERNS[@]}"; do
   fi
 done
 
-# --- Rule 8 (severe, #138 gate 3): high-cardinality identifier as a METRIC dimension -------------
-# One permanently-retained time series per distinct value; sampling never touches it, and the
-# series persists in the backend even after the code is fixed — semconv-discipline ranks this
-# `error`, not `warning`, and the remediation differs (remove the tag, not "move it").
+# --- Rule 8 (warning, #138 gate 3): high-cardinality identifier as a METRIC dimension ------------
+# semconv-discipline ranks a metric-dimension high-cardinality identifier CONCEPTUALLY worse than
+# the same identifier on a span attribute (`error` vs `warning` in its severity table — one
+# permanently-retained time series per distinct value, unaffected by sampling, persisting even
+# after the code is fixed). This rule stays WARN-ONLY here regardless, not because the harm is
+# smaller, but because this hook's mechanism for finding it is a same-file window heuristic, not
+# real call-graph analysis — it cannot bind a `.Add()`/`.Record()` call to the SPECIFIC instrument
+# variable a constructor created, only to "some constructor exists somewhere in this file." A
+# confirmed false positive: a file with an unrelated counter AND an unrelated `cart.add({id: 1,
+# note: 'user.id'})` a few lines apart fires this rule on the cart call. Rules 1-4 are exact,
+# deterministic literal matches with no such gap, which is what earns them the strict-mode block;
+# this one doesn't clear that bar yet. Escalate to a human via /otel-evaluate's brownfield-auditor
+# for real call-graph judgment, same as the scope note below already directs for symbolic constants.
 #
 # Scope, stated plainly: this catches the LITERAL-attribute-name case only — a quoted
 # high-cardinality key passed near an instrument's Add/Record call. It cannot resolve a symbolic
@@ -218,8 +230,9 @@ if echo "$CONTENT" | grep -qE "$INSTRUMENT_CTOR_PATTERN"; then
   for attr in "${HIGH_CARD_PATTERNS[@]}"; do
     escaped_attr=$(printf '%s' "$attr" | sed 's/\./\\./g')
     if echo "$MUTATE_WINDOW" | grep -qE "['\"]${escaped_attr}['\"]"; then
-      severe "⚠ otel-lint [$FILE_PATH]: high-cardinality attribute '$attr' used as a METRIC dimension (counter/histogram tag).
-  → Remove the tag entirely. Unlike a span attribute, a metric dimension cannot be cleaned up after the fact: it is one permanently-retained time series per distinct value, unaffected by sampling."
+      echo "⚠ otel-lint [$FILE_PATH]: high-cardinality attribute '$attr' used as a METRIC dimension (counter/histogram tag)."
+      echo "  → Remove the tag entirely. Unlike a span attribute, a metric dimension cannot be cleaned up after the fact: it is one permanently-retained time series per distinct value, unaffected by sampling."
+      WARNINGS=$((WARNINGS+1))
     fi
   done
 fi
