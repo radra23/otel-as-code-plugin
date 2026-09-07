@@ -17,7 +17,12 @@ Generate OTel SDK bootstrap and OTLP wiring for one service.
   `--fix CV-a1b2,SH-2a55`), and in a multi-service repo they are service-qualified
   (`--fix bot:CV-a1b2`) — see the finding-ID scheme in `agents/brownfield-auditor.md`. Scopes
   regeneration to those findings
-  instead of rewriting whole files. See Step 5.
+  instead of rewriting whole files. See Step 5. A `CV` (semconv violation) finding is only
+  actually rewritten when the auditor tagged it `mechanical` (a straight OLD→NEW key rename, per
+  the `semconv-discipline` skill's `Fix` column) — a `manual` one (the value itself has to change
+  shape, e.g. `http.target` splitting into `url.path` + `url.query`) is reported back as skipped,
+  naming why, rather than guessed at. Pair with `--dry-run` to review exactly what a `--fix` would
+  change before it's written.
 - `--experimental` — unlock pre-Stable signals (e.g. logs for Python). Passed to
   both `language-maturity` and `semconv-discipline` skills.
 - `--force` — overwrite existing generated artifacts. Required if the write-guard hook blocks
@@ -26,7 +31,9 @@ Generate OTel SDK bootstrap and OTLP wiring for one service.
 - `--dry-run` — preview without writing. Generate exactly as normal, then print a unified diff of
   each would-be file against what is on disk (or "would create" for a new file) and exit WITHOUT
   writing — non-zero if anything would change, so it composes in CI. Pairs with `--force`: it is
-  the only way to see what a destructive regeneration would do before it discards your edits. See
+  the only way to see what a destructive regeneration would do before it discards your edits. Also
+  pairs with `--fix`, for the same reason at a narrower scope: preview which findings would
+  actually change a file (and which `manual` ones would be skipped) before committing to it. See
   the Dry run section.
 
 ## Step 1: Load context
@@ -170,7 +177,9 @@ Pass to `otel-as-code:instrumentation-gen`:
 - `existingArtifacts`: the paths resolved in Step 4
 - `preserve`: the current content of each file being overwritten, when `--force` was used
 - `fixList`: when `--fix <ids>` was given, the findings with those IDs from the most recent
-  `/otel-evaluate` report — each with its `file`, `line`, and required change. With a
+  `/otel-evaluate` report — each with its `file`, `line`, and required change (a `CV` finding also
+  carries its `Fix` classification, `mechanical` or `manual` — see `agents/instrumentation-gen.md`'s
+  `fixList` handling for what the subagent does with each). With a
   `fixList`, the subagent edits only those sites and leaves the rest of each file alone;
   it does not regenerate the file.
 

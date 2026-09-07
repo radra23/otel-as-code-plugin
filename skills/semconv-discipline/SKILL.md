@@ -53,27 +53,31 @@ Span attributes describe a **single operation**.
 
 ## HTTP Conventions (semconv 1.23+)
 
-Use the NEW names (1.23+ stable):
-| OLD (deprecated)    | NEW (use this)            |
-|---------------------|---------------------------|
-| `http.method`       | `http.request.method`     |
-| `http.url`          | `url.full`                |
-| `http.status_code`  | `http.response.status_code` |
-| `http.host`         | `server.address`          |
-| `http.scheme`       | `url.scheme`              |
-| `http.target`       | `url.path` + `url.query`  |
+Use the NEW names (1.23+ stable). **Fix** classifies whether `/otel-instrument --fix <CV-id>` may
+apply this rename mechanically (a straight key substitution, same value) or must leave it for a
+human (the value itself has to change shape — see `agents/instrumentation-gen.md`'s `fixList`
+handling):
+| OLD (deprecated)    | NEW (use this)            | Fix |
+|---------------------|---------------------------|-----|
+| `http.method`       | `http.request.method`     | mechanical |
+| `http.url`          | `url.full`                | mechanical |
+| `http.status_code`  | `http.response.status_code` | mechanical |
+| `http.host`         | `server.address`          | manual — `http.host` commonly carries `host:port`; `server.address` is host only, with port in a separate `server.port` attribute. A blind key rename ships a wrong value. |
+| `http.scheme`       | `url.scheme`              | mechanical |
+| `http.target`       | `url.path` + `url.query`  | manual — one OLD attribute splits into two NEW ones; requires parsing the path apart from the query string, not a rename. |
 
 ## Database Conventions
 
 Use the NEW names (the four below are stable root exports of `@opentelemetry/semantic-conventions`;
-the OLD names are incubating/deprecated):
+the OLD names are incubating/deprecated). All four are mechanical (straight key rename, same
+value) — see the HTTP table above for what a non-mechanical entry looks like:
 
-| OLD (deprecated)   | NEW (use this)        |
-|--------------------|-----------------------|
-| `db.system`        | `db.system.name`      |
-| `db.statement`     | `db.query.text`       |
-| `db.operation`     | `db.operation.name`   |
-| `db.name`          | `db.namespace`        |
+| OLD (deprecated)   | NEW (use this)        | Fix |
+|--------------------|-----------------------|-----|
+| `db.system`        | `db.system.name`      | mechanical |
+| `db.statement`     | `db.query.text`       | mechanical |
+| `db.operation`     | `db.operation.name`   | mechanical |
+| `db.name`          | `db.namespace`        | mechanical |
 
 - `db.system.name` — REQUIRED (e.g. `postgresql`, `redis`, `mongodb`). NOT `db.system`, which is
   deprecated (replaced by `db.system.name`) — this was the one entry the list had left on the old
@@ -98,9 +102,9 @@ package, so verify against the installed version rather than asserting.
 
 ## General / connection attributes (deprecations)
 
-| OLD (deprecated)  | NEW (use this)                                                        |
-|-------------------|-----------------------------------------------------------------------|
-| `peer.service`    | `server.address` (+ `server.port`) on the CLIENT span; identity comes from the callee's own `service.name` resource attribute |
+| OLD (deprecated)  | NEW (use this)                                                        | Fix |
+|-------------------|-----------------------------------------------------------------------|-----|
+| `peer.service`    | `server.address` (+ `server.port`) on the CLIENT span; identity comes from the callee's own `service.name` resource attribute | manual — not a rename: `peer.service` was a caller-assigned label, `server.address`/`server.port` describe the connection, and the callee's own identity now comes from ITS `service.name` resource attribute, not a value set here. |
 
 ## Custom / Business Attribute Namespace Rule
 
