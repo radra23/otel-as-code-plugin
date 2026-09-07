@@ -24,6 +24,12 @@
 #         table says it's a safe key rename; a value-shape change (http.target splitting into
 #         url.path + url.query; peer.service not being a rename at all) must be refused and
 #         reported, never guessed.
+#   #136 — the reserved-namespace collision rule must be a two-part test (reserved first segment
+#         AND not itself a registered attribute), not a first-segment-only match — otherwise it
+#         flags OTel's own registered attributes (user.id, session.id, error.type) as errors.
+#   #132 — /otel-business-attrs Step 3 must not re-derive service.name from the manifest; the
+#         scanner already resolved it under its ladder (#57) and Step 3 re-deriving it at
+#         auto-write confidence silently overwrote the correct observed name.
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 pass=0; fail=0
@@ -263,6 +269,39 @@ check "#120 /otel-instrument --fix flag docs state the mechanical/manual distinc
   'grep -qF "reported back as skipped" "$INSTRUMENT_CMD"'
 check "#120 /otel-instrument documents --fix + --dry-run as the review-before-apply UX" \
   'grep -qF "Also" "$INSTRUMENT_CMD" && grep -qF "pairs with \`--fix\`" "$INSTRUMENT_CMD"'
+
+# --- #136: reserved-namespace collision is a two-part test, not first-segment-only -------------
+check "#136 rule is stated as a two-part test (reserved segment AND not registered)" \
+  'grep -qF "This is a two-part test" "$SEMCONV"'
+check "#136 registered examples are named CORRECT despite a reserved first segment" \
+  'grep -qF "using them for their" "$SEMCONV" && grep -qF "registered meaning is CORRECT, not a collision" "$SEMCONV"'
+check "#136 user.id, session.id (from the cardinality canonical set) are named registered" \
+  'grep -qF "\`user.id\`, \`user.name\`, \`user.email\`," "$SEMCONV" && grep -qF "\`session.id\`, \`error.type\`" "$SEMCONV"'
+check "#136 error.type is named registered (a plugin-generated attribute, not just a doc example)" \
+  'grep -qF "\`session.id\`, \`error.type\`, \`code.function.name\` are registered" "$SEMCONV"'
+check "#136 renaming a registered attribute out of its namespace is stated as wrong, not just unneeded" \
+  'grep -qF "required, not merely permitted" "$SEMCONV"'
+check "#136 the collision examples (deployment.name, message.notificationId) still verify BOTH conditions" \
+  'grep -qF "deployment.name\` — \`deployment.\` is reserved and" "$SEMCONV" \
+     && grep -qF "message.notificationId\` — \`message.\` is the RPC registry" "$SEMCONV"'
+
+# --- #132: /otel-business-attrs must not re-derive service.name from the manifest ---------------
+BIZATTRS_CMD="commands/otel-business-attrs.md"
+BIZATTRS_SKILL="skills/business-attr-ux/SKILL.md"
+
+check "#132 Step 3 explicitly says service.name is not re-derived here" \
+  'grep -qF "is already resolved — do not re-derive it here" "$BIZATTRS_CMD"'
+check "#132 Step 3 points at the scanner's ladder, not a manifest, for service.name" \
+  'grep -qF "The scanner resolved it under" "$BIZATTRS_CMD"'
+check "#132 Step 3's Tier 1 no longer lists service.name as a package.json/pyproject candidate" \
+  '! grep -qE "\`service\.name\`.*from.*(package\.json|pyproject\.toml)" "$BIZATTRS_CMD"'
+check "#132 Step 3's service.version manifest list covers all six languages, including a stated go gap" \
+  'grep -q "dotnet.*csproj" "$BIZATTRS_CMD" && grep -q "ruby.*gemspec" "$BIZATTRS_CMD" \
+     && grep -q "java.*pom.xml" "$BIZATTRS_CMD" && grep -qF "no manifest source" "$BIZATTRS_CMD"'
+check "#132 business-attr-ux skill matches the command (no longer offers service.name examples)" \
+  'grep -qF "is NOT derived here at all" "$BIZATTRS_SKILL"'
+check "#132 skill's confirmation-table example shows service.name as scanner-carried, not a fresh derivation" \
+  'grep -qF "already resolved by the scanner" "$BIZATTRS_SKILL"'
 
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

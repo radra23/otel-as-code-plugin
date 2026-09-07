@@ -114,16 +114,29 @@ Custom attributes MUST use a reverse-DNS namespace prefix:
 
 **Two distinct problems, two severities — do not collapse them into one "no prefix" finding:**
 
-1. **Reserved-namespace collision — ERROR, rename is not optional.** The attribute's first
-   segment is a namespace OpenTelemetry reserves, so a backend that knows the reserved meaning
-   can silently reinterpret it, and the collision worsens as the registry grows. Reserved root
-   namespaces (non-exhaustive, but check the name's first segment against it):
-   `service.`, `deployment.`, `telemetry.`, `otel.`, `host.`, `container.`, `k8s.`, `process.`,
-   `cloud.`, `faas.`, `http.`, `url.`, `server.`, `client.`, `network.`, `dns.`, `db.`, `rpc.`,
-   `messaging.`, `message.`, `user.`, `session.`, `error.`, `exception.`, `code.`, `gen_ai.`,
-   `feature_flag.`, `peer.`. Example collisions: `deployment.name` (inside `deployment.*`),
-   `message.notificationId` (inside the RPC `message.*` registry). Fix = rename out of the
-   reserved namespace.
+1. **Reserved-namespace collision — ERROR, rename is not optional.** This is a two-part test —
+   check BOTH, on the full attribute name, never just the first segment:
+   1. The attribute's first segment is a namespace OpenTelemetry reserves (non-exhaustive, but
+      check the name's first segment against it): `service.`, `deployment.`, `telemetry.`,
+      `otel.`, `host.`, `container.`, `k8s.`, `process.`, `cloud.`, `faas.`, `http.`, `url.`,
+      `server.`, `client.`, `network.`, `dns.`, `db.`, `rpc.`, `messaging.`, `message.`, `user.`,
+      `session.`, `error.`, `exception.`, `code.`, `gen_ai.`, `feature_flag.`, `peer.`.
+   2. **AND the full attribute name is NOT itself a registered attribute in that namespace.**
+      Verify against the registry (https://opentelemetry.io/docs/specs/semconv/registry/), the
+      same "check, don't assert from memory" rule this file already applies to installed-package
+      claims — a hardcoded exhaustive list here would rot exactly like the reserved-namespace list
+      above is already flagged as "non-exhaustive." `user.id`, `user.name`, `user.email`,
+      `session.id`, `error.type`, `code.function.name` are registered — using them for their
+      registered meaning is CORRECT, not a collision, even though their first segment is reserved.
+
+   Only when BOTH hold is it a collision: `deployment.name` — `deployment.` is reserved and
+   `deployment.name` is not registered (`deployment.environment.name` and `deployment.id` are) —
+   and `message.notificationId` — `message.` is the RPC registry and this name is not in it. Fix
+   = rename out of the reserved namespace. **The inverse mistake is worse than the finding this
+   rule prevents:** renaming a REGISTERED attribute (e.g. `user.id` → `com.myorg.user.id`)
+   breaks every backend that special-cases the standard name — using a registered attribute for
+   its registered meaning is required, not merely permitted, so never "fix" one into a house
+   namespace.
 2. **Merely unprefixed — WARNING, fix at the team's convenience.** A single-segment or camelCase
    house attribute in a namespace OTel does not claim (`app.name`, `vm.id`, `action.type`).
    Nothing breaks; prefix it `com.<org>.*` when convenient.

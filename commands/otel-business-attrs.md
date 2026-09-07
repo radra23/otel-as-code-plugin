@@ -23,9 +23,27 @@ what it returns — a refresh is a merge, never a replace (see the cache ownersh
 
 For each service in context, derive attribute candidates and confidence scores:
 
+**`service.name` is already resolved — do not re-derive it here.** The scanner resolved it under
+its own observed-name ladder (`agents/repo-context-scanner.md`: `OTEL_SERVICE_NAME`/IaC >
+bootstrap literal > Dockerfile LABEL > manifest name > directory name) and recorded it as
+`services[i].name`, with `nameSource`/`nameConfidence`, plus a `conflicts[]` entry if a source
+disagreed with the resolved value. Read `services[i].name` as-is for the Auto-applied block in
+Step 5. Computing a competing answer from a manifest here (as this step used to) is exactly how
+#132 happened: it silently overwrote an already-correct observed name (e.g. `bootstrap-literal`
+or `env:OTEL_SERVICE_NAME`) with a stale manifest name at auto-write confidence, on the same
+service #57 had already fixed the scanner for. If `context.conflicts` names this service, run
+the conflict-resolution protocol in Step 4 — never resolve it in this step.
+
 **Tier 1 candidates (confidence ≥ 0.9 — auto-write):**
-- `service.name` from `package.json#name` or `pyproject.toml [project].name` → 0.97
-- `service.version` from `package.json#version` or `pyproject.toml [project].version` → 0.97
+- `service.version` from the language's manifest → 0.97:
+  - `nodejs`: `package.json#version`
+  - `python`: `pyproject.toml [project].version`
+  - `dotnet`: `*.csproj`'s `<Version>`
+  - `ruby`: `*.gemspec`'s `spec.version` (a bare `Gemfile` rarely carries a version)
+  - `java`: `pom.xml`'s `<version>`
+  - `go`: no manifest source. `go.mod` has no package-version field — Go module versions come
+    from VCS tags, not the manifest — so omit `service.version` for `go` rather than guessing.
+    Do NOT fall back to `languageVersion`; that is the Go toolchain version, a different thing.
 
 **Tier 2 candidates (confidence 0.5–0.9 — confirm):**
 - `service.namespace` from parent directory name → 0.71

@@ -13,9 +13,19 @@ Write immediately. Show a collapsed "✓ Auto-applied" block so the user can
 see what was written without being asked to confirm it.
 
 Example sources that reach Tier 1:
-- `service.name` from `package.json#name` → confidence 0.97
-- `service.version` from `package.json#version` → confidence 0.97
-- `service.name` from `pyproject.toml [project].name` → confidence 0.97
+- `service.version` from the language's manifest (`package.json#version`,
+  `pyproject.toml [project].version`, `*.csproj`'s `<Version>`, `*.gemspec`'s `spec.version`,
+  `pom.xml`'s `<version>`) → confidence 0.97. No manifest source for `go` — Go module versions
+  come from VCS tags, not `go.mod` — so omit it there rather than guessing.
+
+**`service.name` is NOT derived here at all — see #57/#132.** The scanner already resolved it
+under its own observed-name ladder (`agents/repo-context-scanner.md`) and recorded it as
+`services[i].name` with `nameSource`/`nameConfidence`, plus a `conflicts[]` entry if a source
+disagreed. Show it in the Auto-applied block as a carried-over fact, not a freshly computed Tier
+1 candidate — computing a second answer from the manifest here is exactly how #132 overwrote an
+already-correct observed name (`bootstrap-literal` / `env:OTEL_SERVICE_NAME`) with a stale
+manifest name at auto-write confidence. A `service.name` conflict is resolved through the
+conflict-resolution protocol below, never by re-deriving it in this tier.
 
 ### Tier 2 — Confirm (0.5–0.9)
 Show in an approval table. Each row shows: attribute | proposed value | confidence | source.
@@ -79,7 +89,7 @@ Format:
 
 ```
 ✓ Auto-applied (confidence ≥ 0.90):
-  service.name     = "checkout-api"    [0.97 · package.json#name]
+  service.name     = "checkout-api"    [0.97 · already resolved by the scanner: bootstrap-literal]
   service.version  = "1.4.2"           [0.97 · package.json#version]
 
 ⚠ Needs your approval (confidence 0.50–0.89):
