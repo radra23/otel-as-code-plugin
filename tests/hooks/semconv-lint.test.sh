@@ -222,10 +222,18 @@ else
   FAIL=$((FAIL+1))
 fi
 
-# --- #138: metric-dimension rule (gate 3, new Rule 8 — error tier, not warning) -------------------
+# --- #138: metric-dimension rule (gate 3, new Rule 8 — warn-only, see the post-critique fix below)
+# Rule 8 shipped as strict-mode-blocking in #140, then was downgraded to warn-only after a
+# post-merge critique found and reproduced a real false positive: the window heuristic that finds
+# a high-cardinality literal "near" an Add()/Record() call isn't scoped to the SPECIFIC instrument
+# variable a constructor created, only to "some constructor exists somewhere in this file." Rules
+# 1-4 are exact, deterministic literal matches with no such gap — that's what earns strict-mode
+# blocking, and Rule 8 doesn't clear it. This is a precision downgrade, not a severity one: the
+# CONCEPTUAL harm ranking in semconv-discipline (metric dimension worse than span attribute) is
+# unchanged; only whether this HOOK can block CI on it changed.
 
-# Test 21: a counter's .add() call carrying a high-cardinality dimension is Rule 8 (severe/error),
-# with the metric-specific "remove the tag" remediation — not Rule 7's "move to events" text.
+# Test 21: a counter's .add() call carrying a high-cardinality dimension is Rule 8, with the
+# metric-specific "remove the tag" remediation — not Rule 7's "move to events" text.
 printf "const { metrics } = require('@opentelemetry/api');\nconst counter = meter.createCounter('msgs');\ncounter.add(1, { 'user.id': uid });\n" \
   > "$GATEDIR/metric-dimension.js"
 OUTPUT=$(run_lint "$GATEDIR/metric-dimension.js")
@@ -238,9 +246,20 @@ else
   FAIL=$((FAIL+1))
 fi
 
-# Test 22: strict mode blocks on the metric-dimension violation (it's severe, same as Rules 1-4).
+# Test 22: strict mode does NOT block on a metric-dimension violation — Rule 8 is warn-only
+# (downgraded post-critique; see the block comment above for why).
 set +e; emit "$GATEDIR/metric-dimension.js" | OTEL_STRICT=1 bash "$HOOK" >/dev/null 2>&1; RC=$?; set -e
-check_rc "#138 strict mode blocks on a metric-dimension violation (Rule 8 is severe)" 2 "$RC"
+check_rc "#138 strict mode does NOT block on a metric-dimension violation (Rule 8 is warn-only)" 0 "$RC"
+
+# Test 22b: the confirmed false-positive case — an unrelated .add() call near an unrelated
+# high-cardinality literal, in a file that also happens to construct a counter elsewhere — still
+# fires Rule 8 as a WARNING (the window heuristic is unchanged; that's the honestly-scoped
+# limitation), but critically must NOT block strict mode, since it isn't the metric dimension it
+# looks like. This is the exact repro that motivated the downgrade.
+printf "const { metrics } = require('@opentelemetry/api');\nconst counter = meter.createCounter('unrelated_metric');\ncounter.add(1, { 'app.route': '/x' });\n\nfunction addToCart(cart, userId) {\n  cart.add({ id: 1, note: 'user.id' });\n}\n" \
+  > "$GATEDIR/rule8-false-positive.js"
+set +e; emit "$GATEDIR/rule8-false-positive.js" | OTEL_STRICT=1 bash "$HOOK" >/dev/null 2>&1; RC=$?; set -e
+check_rc "#138 Rule 8's known false-positive shape (unrelated .add() call) does not block strict mode" 0 "$RC"
 
 # Test 23: the SAME high-cardinality identifier as a plain SPAN attribute (no instrument
 # constructor anywhere in the file) stays Rule 7 (warning) — Rule 8 must not fire on every file
