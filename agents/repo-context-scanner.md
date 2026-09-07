@@ -152,6 +152,14 @@ found none.
      a framework-specific bootstrap PLACEMENT (an auto-loaded initializer), not the generic
      top-of-entry-point pattern (see the Ruby section in `agents/instrumentation-gen.md`). Do not
      collapse any of these three to `other`.
+   - `frameworkVersion`: the framework's own version string (NOT `languageVersion`), when directly
+     readable from a manifest — e.g. Next.js from the `next` dependency in `package.json`. Record
+     the stated string as-is (`"^14.2.0"`, not a resolved `"14.2.0"`); do not attempt semver
+     resolution. `null` when `framework` is `other`/`unknown` or no version is stated. This exists
+     so a generator/auditor extending a pre-existing framework-hook file (e.g. a Next.js
+     `instrumentation.ts` that already calls a version-gated hook) can tell whether that hook can
+     actually fire on the installed version — see `onRequestError` in `instrumentation-gen.md`'s
+     Next.js section.
    - `runnableEntry`: the main entry point file
    - `hasDockerfile`: boolean
 
@@ -255,6 +263,14 @@ found none.
    vendor equivalent) set in one of them, `false` if you read those files and it was absent,
    `null` if there were no such files to read. Do not infer it.
 
+   Alongside it, `deploymentEnvConfigured` — the same three-state rule, but for `DEPLOYMENT_ENV`:
+   `true` only if you saw `DEPLOYMENT_ENV` actually set (not merely referenced) in one of the same
+   deployment config files, a CI workflow, or a Dockerfile `ENV`/`ARG`; `false` if you read those
+   files and it was absent; `null` if there were no such files to read. `instrumentation-gen`
+   generates code that reads this exact variable name in every language — a bootstrap that falls
+   back to its hardcoded default silently misreports `deployment.environment.name` in every
+   environment where this is `false` (or unverifiable, `null`).
+
 5. Check for existing OTel and record **which files hold it**:
    - Node.js: `@opentelemetry/` in any `package.json` dependencies
    - Python: `opentelemetry-` in any `pyproject.toml` or `requirements.txt`
@@ -343,11 +359,13 @@ Return ONLY the following JSON object. No explanation, no preamble, no markdown 
       "host": "<standalone|container|kubernetes|azure-functions|azure-app-service|aws-lambda|gcp-cloud-functions|static-hosting|unknown>",
       "hostSource": "<the specific evidence, e.g. file:host.json>",
       "framework": "<express|fastapi|django|flask|gin|spring|rails|nextjs|nuxt|aspnetcore|minimal-api|blazor|other|unknown>",
+      "frameworkVersion": null,
       "runnableEntry": "<main entry file>",
       "hasDockerfile": true,
       "deployment": {
         "configFiles": ["infra/main.tf"],
-        "endpointConfigured": false
+        "endpointConfigured": false,
+        "deploymentEnvConfigured": false
       },
       "existingOtel": {
         "hasTraces": false,

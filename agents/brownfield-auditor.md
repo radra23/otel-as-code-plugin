@@ -131,6 +131,11 @@ all, and reads as "instrumented" in every other dimension. Check reachability ex
   fraction.
 - Is the deployment configured with an OTLP endpoint (`service.deployment.endpointConfigured`)?
   An instrumented service exporting nowhere is a live gap, not a latent one.
+- Is a framework hook that IS present in the code actually reachable on the *installed framework
+  version* — not just imported, but version-gated dead code? Next.js's `onRequestError` (exported
+  from `instrumentation.ts` alongside `register()`) only exists from Next.js 15 onward; if it's
+  present and `service.frameworkVersion` is below 15, it never fires — same "reads instrumented,
+  emits nothing" shape as an unimported bootstrap, just gated by version instead of by import.
 
 ### 6. Telemetry configuration — is every value the instrumentation depends on provisioned?
 A class distinct from SDK construction (§4) and from wiring (§5, which asks only whether the
@@ -139,7 +144,9 @@ report wrong data when that value is unset in a deployed environment. For each v
 instrumentation depends on (`OTEL_EXPORTER_OTLP_ENDPOINT` and vendor equivalents, a
 `deployment.environment` source, any custom `*OTEL*` the code reads):
 - Is it provisioned in EACH environment that deploys the service — deploy workflow, `.env*`,
-  Terraform/Bicep/k8s, platform settings (`service.deployment.configFiles` / `endpointConfigured`)?
+  Terraform/Bicep/k8s, platform settings (`service.deployment.configFiles` / `endpointConfigured`
+  / `deploymentEnvConfigured` — the latter answers this specifically for `DEPLOYMENT_ENV`, the
+  variable every language's generated bootstrap reads for `deployment.environment.name`)?
 - Does an unset value THROW (a config throw inside a module the bootstrap imports fires before the
   entry point's try/catch — the app does not render) or silently DEFAULT to a wrong-but-truthy
   value (e.g. `deployment.environment` = `"unknown"` in every environment)? The throw case is the
@@ -251,6 +258,8 @@ Semconv: <semconvVersion (the value passed in; never a remembered version)>
 ### Wiring
 🔴 [WR-1d8c] status:new — telemetry.js exports withServerSpan() but is imported by 0 files
    → 0 of 22 handlers wrapped. The instrumentation is well-formed and entirely unreachable.
+🟠 [WR-6f91] status:new — instrumentation.ts exports onRequestError, but frameworkVersion is
+   "^14.2.0" — the hook doesn't exist until Next.js 15, so it never fires on this build.
 
 ### Telemetry Configuration
 🔴 [CF-3e07] status:new — config.ts:8 — reads REACT_APP_OTEL_OTLP_ENDPOINT, which throws when

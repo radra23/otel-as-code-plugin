@@ -197,6 +197,27 @@ carries `trace_id` / `span_id` only while a recording span is active. `OTEL_LOGS
 with `OTEL_TRACES_EXPORTER=none` therefore yields logs that look instrumented but correlate
 with nothing. It is easy to hit and confusing to diagnose.
 
+## Deployment-environment provisioning check (all languages)
+
+Every language's bootstrap reads `DEPLOYMENT_ENV` at runtime and falls back to a hardcoded
+default when it is unset (see each language's `deployment.environment.name` line below) — the
+same silent-default failure mode as the OTLP endpoint, just for environment identity instead of
+export destination: an unset `DEPLOYMENT_ENV` doesn't error, it makes every environment report
+the fallback (commonly `"development"`) forever, and #32 is exactly this happening unnoticed.
+
+The scanner records whether it actually saw `DEPLOYMENT_ENV` provisioned anywhere it looked
+(`service.deployment.deploymentEnvConfigured` — `true`/`false`/`null`, the same three-state shape
+as `endpointConfigured`). Use it to decide how to phrase the "Deployment environment" line in
+each language's summary below:
+- `deploymentEnvConfigured: true` — state it as a plain, calm fact: it's already set, name where.
+- `deploymentEnvConfigured: false` or `null` — **elevate it to a `⚠`-prefixed headline warning**,
+  the same visual weight as the serverless handler-wrapping and maturity-gating warnings
+  elsewhere in this file, not a buried "Still required" bullet: e.g. `⚠ DEPLOYMENT_ENV is not
+  provisioned anywhere this scan looked — deployment.environment.name will report "development"
+  (or the confirmed default) in every environment until it is set per target.` `null` specifically
+  means the scanner found no deployment config files to check at all — say that explicitly rather
+  than implying "checked and absent."
+
 ## Node.js Bootstrap
 
 **Framework check first.** If `service.framework` is `nextjs`, do NOT use the generic bootstrap
@@ -389,11 +410,23 @@ For 13.4–14.x it must be opted into via `next.config.{js,mjs,ts}`:
 ```javascript
 module.exports = { experimental: { instrumentationHook: true } }
 ```
-Read the project's Next.js version and add this only when it is below 15.
+Use the scanned `frameworkVersion` (falling back to reading the `next` dependency in
+`package.json` directly if it is `null`) and add this only when it is below 15.
 
 **Extend, never clobber.** If `instrumentation.ts` already exists (it commonly wires Sentry or
 another tool inside `register()`), ADD the OTel call inside the existing `register()` rather than
 overwriting the file — read it first (the `preserve` contract) and keep what is there.
+
+**Check pre-existing hooks against the Next.js version before extending.** Some framework hooks
+are version-gated and silently never fire below their minimum version — `onRequestError` (also in
+`instrumentation.ts`, exported alongside `register()`) only exists from Next.js 15 onward. While
+reading the existing file under the `preserve` contract above, check whether it already exports
+`onRequestError` (commonly wired by hand for Sentry or another APM tool). If it does AND the
+scanned `frameworkVersion` is below 15, that export is dead code on the installed version — it is
+never called, so nothing it does (report to Sentry, log, etc.) ever runs. Say so plainly as a `⚠`
+headline warning in the summary; do not remove, rewrite, or "fix" someone else's hook — this rule
+is about surfacing a fact the user has no other way to see, same spirit as the `deploymentEnvConfigured`
+check above.
 
 **Nuxt** is detected as `framework: nuxt`, but a Nuxt-specific path is not implemented yet. Emit
 the generic Node bootstrap only with an explicit caveat in the summary that Nuxt (Nitro) likely
@@ -723,6 +756,9 @@ Next steps:
   3. Verify traces at http://localhost:16686 (Jaeger), with a local Collector listening on :4317.
 ```
 
+Per the "Deployment-environment provisioning check" section: if `deploymentEnvConfigured` is not
+`true`, lead the summary with a `⚠` headline warning instead of leaving this as a code comment.
+
 ## .NET (code-based SDK)
 
 .NET is instrumented in-process with the OpenTelemetry SDK wired into the DI container — **not**
@@ -816,7 +852,9 @@ Still required:
     the deployed service exports nowhere. Set OTEL_EXPORTER_OTLP_ENDPOINT in
     <the deployment config files from service.deployment.configFiles>.
   - Deployment environment: deployment.environment.name reads DEPLOYMENT_ENV, defaulting to
-    <the confirmed deploymentEnvironment, or "development">. Set DEPLOYMENT_ENV per target.
+    <the confirmed deploymentEnvironment, or "development">. <Per the "Deployment-environment
+    provisioning check" section: if deploymentEnvConfigured is not true, replace this bullet with
+    a ⚠ headline warning instead of listing it here.>
 ```
 
 ## Go (manual SDK wiring)
@@ -1053,7 +1091,9 @@ Still required:
     nowhere until it is configured. Set it in <the deployment config files from
     service.deployment.configFiles>.
   - Deployment environment: deployment.environment.name reads DEPLOYMENT_ENV, defaulting to
-    <the confirmed deploymentEnvironment, or "development">. Set DEPLOYMENT_ENV per target.
+    <the confirmed deploymentEnvironment, or "development">. <Per the "Deployment-environment
+    provisioning check" section: if deploymentEnvConfigured is not true, replace this bullet with
+    a ⚠ headline warning instead of listing it here.>
   - Optional: paste the InitOtelLogsBeta lines above too if you want the Beta logs pipeline.
 ```
 
@@ -1167,7 +1207,9 @@ Still required:
     service.deployment.configFiles> — Ruby uses OTLP/HTTP on :4318, not this plugin's usual
     gRPC :4317 (Ruby's main OTLP gem doesn't support gRPC reliably).
   - Deployment environment: deployment.environment.name reads DEPLOYMENT_ENV, defaulting to
-    <the confirmed deploymentEnvironment, or "development">. Set DEPLOYMENT_ENV per target.
+    <the confirmed deploymentEnvironment, or "development">. <Per the "Deployment-environment
+    provisioning check" section: if deploymentEnvConfigured is not true, replace this bullet with
+    a ⚠ headline warning instead of listing it here.>
   - Metrics and Logs are Development-maturity in the Ruby SDK and were not generated. Re-run with
     --experimental to add them.
 ```
@@ -1190,7 +1232,9 @@ Still required:
     <the confirmed deploymentEnvironment, or "development">. Set DEPLOYMENT_ENV per target
     (e.g. staging, production) in <the deployment config files>. If this repo deploys to more
     than one environment (the scanner records this in service.deployment), one default cannot be
-    right for all of them — set it per target rather than relying on the fallback.
+    right for all of them — set it per target rather than relying on the fallback. <Per the
+    "Deployment-environment provisioning check" section: if deploymentEnvConfigured is not true,
+    replace this bullet with a ⚠ headline warning instead of listing it here.>
   - <serverless handler-wrapping count, when host is a FaaS runtime>
 
 Next steps:

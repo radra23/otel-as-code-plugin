@@ -15,6 +15,11 @@
 #         one rule), not a flat alert body — caught by the first live tf-live-validate run.
 #   #107 — /otel-collector --public wires bearertokenauth into the OTLP receiver (both grpc and
 #         http), token from an env var; the default (non-public) config stays auth-free.
+#   #124 — two proactive hardening checks, not a live bug: (a) the scanner's deploymentEnvConfigured
+#         field must exist and instrumentation-gen/brownfield-auditor must both act on it (elevate
+#         an unprovisioned DEPLOYMENT_ENV to a warning / finding, not a buried doc note); (b) a
+#         pre-existing Next.js onRequestError export must be checked against frameworkVersion, since
+#         the hook doesn't exist before Next.js 15.
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 pass=0; fail=0
@@ -202,6 +207,31 @@ done
 # --- #107 Low fast-follow: --dry-run + --public still prints the REQUIRED TLS advisory ----------
 check "#107 --dry-run flag description addresses the --public interaction" \
   'grep -qF "Combined with \`--public\`, still" "$COLLECTOR_CMD"'
+
+# --- #124a: DEPLOYMENT_ENV provisioning is checked, not just documented -------------------------
+GEN="agents/instrumentation-gen.md"
+AUDITOR="agents/brownfield-auditor.md"
+
+check "#124a scanner defines deploymentEnvConfigured (mirrors endpointConfigured)" \
+  'grep -q "deploymentEnvConfigured" "$SCANNER"'
+check "#124a instrumentation-gen elevates an unprovisioned DEPLOYMENT_ENV to a warning" \
+  'grep -q "deploymentEnvConfigured" "$GEN" && grep -qF "elevate it to a \`⚠\`-prefixed headline warning" "$GEN"'
+check "#124a brownfield-auditor's telemetry-configuration dimension checks deploymentEnvConfigured" \
+  'grep -q "deploymentEnvConfigured" "$AUDITOR"'
+
+# --- #124b: a pre-existing onRequestError export is checked against the Next.js version ---------
+NEXTFIX="fixtures/nextjs-onrequesterror-old"
+
+check "#124b scanner defines frameworkVersion (so a version-gated hook can be judged)" \
+  'grep -q "frameworkVersion" "$SCANNER"'
+check "#124b instrumentation-gen's Next.js section names onRequestError's version gate (15)" \
+  'grep -q "onRequestError" "$GEN" && grep -qF "only exists from Next.js 15 onward" "$GEN"'
+check "#124b brownfield-auditor's wiring dimension names the same onRequestError gate" \
+  'grep -q "onRequestError" "$AUDITOR"'
+check "#124b fixture pins next below 15 (repro intact)" \
+  'grep -qE "\"next\": \"[\^~]?14\." "$NEXTFIX/package.json"'
+check "#124b fixture's instrumentation.ts actually exports onRequestError (the disqualifying fact)" \
+  'grep -q "onRequestError" "$NEXTFIX/instrumentation.ts"'
 
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

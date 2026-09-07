@@ -227,6 +227,15 @@ jobs:
           grep -q "http.method" fixtures/nodejs-brownfield/tracing.js
           grep -q "orderId" fixtures/nodejs-brownfield/tracing.js
 
+      - name: Check nextjs-onrequesterror-old fixture (#124 — dead hook below Next.js 15)
+        run: |
+          test -f fixtures/nextjs-onrequesterror-old/package.json
+          test -f fixtures/nextjs-onrequesterror-old/instrumentation.ts
+          # Pinned below Next.js 15, where onRequestError does not exist yet.
+          grep -qE '"next": "[\^~]?14\.' fixtures/nextjs-onrequesterror-old/package.json
+          # The disqualifying fact: the hook IS exported, so it reads instrumented but is dead code.
+          grep -q "onRequestError" fixtures/nextjs-onrequesterror-old/instrumentation.ts
+
       - name: Check dotnet-blazor-wasm fixture (#91 — browser, out of scope)
         run: |
           test -f fixtures/dotnet-blazor-wasm/portal-web.csproj
