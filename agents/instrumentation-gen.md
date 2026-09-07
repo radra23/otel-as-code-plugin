@@ -93,6 +93,18 @@ deliberately excluded liveness probe.
   discarding it is a regression, not a regeneration.
 - Either way, list in the summary what you kept and what you replaced.
 
+**A `CV` (semconv violation) fixList entry only gets applied if it says `mechanical`.** The
+auditor tags every OLD→NEW rename it reports with the semconv-discipline skill's `Fix` column
+(`mechanical` — a straight key substitution, same value — or `manual` — the value itself has to
+change shape, e.g. `http.target` splitting into `url.path` + `url.query`, or `peer.service` not
+being a rename at all). Apply `mechanical` entries exactly as named. For a `manual` entry, do
+**not** guess a value transformation — leave the site untouched and say so plainly in the summary
+(finding ID, file:line, why it needs a human: "value must be parsed apart, not renamed" /
+"not a rename — see semconv-discipline"). Wrong code is worse than no code, same principle as the
+runtime-gating refusal above, just scoped to one attribute instead of a whole file. If a `CV`
+entry in the `fixList` carries no `Fix` classification at all (an older `/otel-evaluate` report,
+predating this rule), treat it as `manual` — refusing is the safe default, not silently guessing.
+
 ## Maturity gating & `--experimental` (apply before generating any signal)
 
 Consult the per-language maturity matrix by `Read`ing the file at `languageMaturityPath` (the

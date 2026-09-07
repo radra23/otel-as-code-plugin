@@ -71,7 +71,12 @@ Check for these violations:
 - `service.name` / `service.version` set as span attributes (must be resource attributes)
 - Deprecated HTTP attributes: `http.method`, `http.url`, `http.host`, `http.scheme`,
   `http.target`, `http.status_code` — report the replacement from the OLD→NEW table in the
-  semconv-discipline guidance you read from `semconvGuidancePath` (at the pinned `semconvVersion`)
+  semconv-discipline guidance you read from `semconvGuidancePath` (at the pinned `semconvVersion`).
+  That table's **Fix** column (`mechanical` or `manual`) tells `/otel-instrument --fix` whether
+  this is a safe straight key rename or needs a human to reshape the value — carry it into the
+  finding text verbatim (e.g. `→ Replace with http.request.method (mechanical)` vs. `→ Split into
+  url.path + url.query (manual — value must be parsed apart, not renamed)`), the same rule applies
+  to any other OLD→NEW table entry (db.*, peer.service) you report this way
 - Custom attributes without reverse-DNS namespace prefix
 - Missing `span.kind` on client/server spans
 - `SimpleSpanProcessor` paired with a network exporter in production code (use
@@ -233,7 +238,10 @@ Semconv: <semconvVersion (the value passed in; never a remembered version)>
 ❌ [CV-1] tracing.js:12 — service.name set as span attribute
    → Must be a Resource attribute. Move to Resource({ [ATTR_SERVICE_NAME]: '...' })
 ❌ [CV-2] tracing.js:15 — http.method is deprecated (semconv 1.23+)
-   → Replace with http.request.method
+   → Replace with http.request.method (mechanical)
+❌ [CV-4] tracing.js:19 — http.target is deprecated (semconv 1.23+)
+   → Split into url.path + url.query (manual — value must be parsed apart, not renamed;
+     /otel-instrument --fix will name this and leave it for you rather than guess)
 ⚠  [CV-3] tracing.js:18 — Custom attribute 'orderId' has no namespace prefix
    → Rename to com.<your-org>.order.id (or your namespace)
 

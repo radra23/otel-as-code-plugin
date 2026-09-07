@@ -20,6 +20,10 @@
 #         an unprovisioned DEPLOYMENT_ENV to a warning / finding, not a buried doc note); (b) a
 #         pre-existing Next.js onRequestError export must be checked against frameworkVersion, since
 #         the hook doesn't exist before Next.js 15.
+#   #120 — /otel-instrument --fix must only mechanically rewrite a CV finding when the OLD->NEW
+#         table says it's a safe key rename; a value-shape change (http.target splitting into
+#         url.path + url.query; peer.service not being a rename at all) must be refused and
+#         reported, never guessed.
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 pass=0; fail=0
@@ -232,6 +236,33 @@ check "#124b fixture pins next below 15 (repro intact)" \
   'grep -qE "\"next\": \"[\^~]?14\." "$NEXTFIX/package.json"'
 check "#124b fixture's instrumentation.ts actually exports onRequestError (the disqualifying fact)" \
   'grep -q "onRequestError" "$NEXTFIX/instrumentation.ts"'
+
+# --- #120: --fix only mechanically rewrites a CV finding when it's a safe key rename ------------
+SEMCONV="skills/semconv-discipline/SKILL.md"
+INSTRUMENT_CMD="commands/otel-instrument.md"
+
+check "#120 semconv-discipline's OLD->NEW tables carry a Fix classification column" \
+  '[ "$(grep -c "| Fix |" "$SEMCONV")" -ge 2 ]'
+check "#120 semconv-discipline marks a same-value rename mechanical (http.method)" \
+  'grep -qF "| \`http.method\`       | \`http.request.method\`     | mechanical |" "$SEMCONV"'
+check "#120 semconv-discipline marks the value-split case manual (http.target)" \
+  'grep -qF "| \`http.target\`       | \`url.path\` + \`url.query\`  | manual" "$SEMCONV"'
+check "#120 semconv-discipline marks peer.service manual (not a rename at all)" \
+  'grep "peer.service" "$SEMCONV" | grep -q "manual — not a rename"'
+check "#120 instrumentation-gen's fixList handling only applies mechanical CV entries" \
+  'grep -qF "only gets applied if it says \`mechanical\`" agents/instrumentation-gen.md'
+check "#120 instrumentation-gen refuses (not guesses) a manual CV entry" \
+  'grep -qF "guess a value transformation" agents/instrumentation-gen.md'
+check "#120 instrumentation-gen treats an unclassified CV entry as manual (safe default)" \
+  'grep -qF "treat it as \`manual\` — refusing is the safe default" agents/instrumentation-gen.md'
+check "#120 brownfield-auditor carries the Fix classification into CV findings" \
+  'grep -qF "carry it into the" agents/brownfield-auditor.md'
+check "#120 brownfield-auditor's worked example shows a manual CV finding, not just mechanical" \
+  'grep -qF "manual — value must be parsed apart, not renamed" agents/brownfield-auditor.md'
+check "#120 /otel-instrument --fix flag docs state the mechanical/manual distinction" \
+  'grep -qF "reported back as skipped" "$INSTRUMENT_CMD"'
+check "#120 /otel-instrument documents --fix + --dry-run as the review-before-apply UX" \
+  'grep -qF "Also" "$INSTRUMENT_CMD" && grep -qF "pairs with \`--fix\`" "$INSTRUMENT_CMD"'
 
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
