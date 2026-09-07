@@ -105,8 +105,9 @@ Actions: [A]pprove all  [number] approve one  [E number] edit  [R number] remove
   1  com.myorg.checkout.orders_placed       counter    route POST /checkout (AST inference)
   2  com.myorg.checkout.conversion_rate     gauge      route POST /checkout (AST inference)
   3  com.myorg.checkout.customer_tier       dimension  route POST /checkout (AST inference)
+  4  com.myorg.checkout.payment_duration    histogram  route POST /checkout (AST inference)
 
-Actions: [A]pprove  [K number counter|gauge|dimension] set kind  [R number] reject
+Actions: [A]pprove  [K number counter|gauge|dimension|histogram] set kind  [R number] reject
 →
 ```
 
@@ -120,17 +121,31 @@ counter/gauge split matters because the aggregation differs (a rate is only vali
   `queue_depth`, anything `_rate`/`_ratio`/`_value`. Rendered as the value directly (avg / latest).
 - **`dimension`** — a low-cardinality attribute you break traffic down BY: `customer_tier`,
   `plan`, `region`. Rendered as a breakdown (facet / group-by) of request volume.
+- **`histogram`** — a duration or size **distribution**: `payment_duration`, `upload_size`,
+  `queue_wait_time`, anything `_duration`/`_latency`/`_size`/`_bytes`. Rendered as quantiles
+  (p50/p95/p99), never as an average — an average is the one view that hides exactly what a
+  histogram exists to show (a p99 that doubles while the mean holds flat is invisible on an
+  average panel, which is the ordinary shape of a latency regression). Filing a duration as
+  `gauge` plots its average instead and loses this; filing it as `counter` and rating it is
+  meaningless. This is the same reasoning as the counter-vs-gauge split, one step further out.
 
 Propose a `kind` from the candidate's shape (`_total`/`_count` → `counter`; `_rate`/`_ratio`/
-`_value` → `gauge`; a categorical noun → `dimension`), but it is a proposal the user can flip with
-`[K <n> counter|gauge|dimension]`. A high-cardinality identifier (an id, email, raw UUID) is none
-of these — it belongs in `derived.highCardinalityAttributes`, not here; do not accept it as a
-business dimension.
+`_value` → `gauge`; `_duration`/`_latency`/`_size`/`_bytes`, or an observed instrument `unit` of
+`s`/`ms`/`By` → `histogram`; a categorical noun → `dimension`), but it is a proposal the user can
+flip with `[K <n> counter|gauge|dimension|histogram]`. A high-cardinality identifier (an id,
+email, raw UUID) is none of these — it belongs in `derived.highCardinalityAttributes`, not here;
+do not accept it as a business dimension.
+
+**`unit` (optional, best-effort).** When the source makes an instrument's unit directly
+observable (e.g. `meter.CreateHistogram<double>("...", unit: "s", ...)`), carry it through to the
+written entry — a quantile panel needs it to label its axis (`ms`, `s`, bytes), and it is
+otherwise only recoverable by re-reading the instrument definition in source. `null` when not
+observed; never guess one from the name.
 
 After the user responds:
 - "a" or "A" → approve all items in that tier (with their currently-shown `kind`)
 - A number (e.g. "1") → approve that specific item
-- "k 2 gauge" → set item 2's kind before approving
+- "k 2 gauge" → set item 2's kind before approving (also accepts `histogram`, e.g. "k 4 histogram")
 - "e 2" → edit item 2's value (ask for new value inline)
 - "r 1" → remove item 1 from the proposal
 
@@ -175,6 +190,17 @@ On approval, update `.claude/otel-context.json` in place, changing only:
       "name": "com.myorg.checkout.conversion_rate",
       "candidateName": "biz.checkout.conversion_rate",
       "kind": "gauge",
+      "unit": null,
+      "source": "route POST /checkout (AST inference)",
+      "confidence": 0.42,
+      "confirmed": true,
+      "confirmedAt": "<ISO-8601 timestamp>"
+    },
+    {
+      "name": "com.myorg.checkout.payment_duration",
+      "candidateName": "biz.checkout.payment_duration",
+      "kind": "histogram",
+      "unit": "s",
       "source": "route POST /checkout (AST inference)",
       "confidence": 0.42,
       "confirmed": true,
@@ -183,6 +209,10 @@ On approval, update `.claude/otel-context.json` in place, changing only:
   ]
 }
 ```
+
+`unit` is always present (nullable) once this fix lands — `null` for every `kind` where it doesn't
+apply or wasn't observed, not just omitted. A cache written before `unit` existed simply lacks the
+key; treat an absent `unit` the same as `null`, never as a reason to skip the entry.
 
 and, per service, the identity fields the user confirmed:
 

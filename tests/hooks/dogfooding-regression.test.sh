@@ -325,5 +325,29 @@ check "#134/#135 worked example decorates the subcommand, NOT the group callback
   '! grep -B1 "^def cli():" "$GEN" | grep -q "@traced_command" \
      && grep -B1 "^def scan():" "$GEN" | grep -q "@traced_command"'
 
+# --- #133: businessAttrs needs a histogram kind, rendered as quantiles, not an average -----------
+BIZ_SKILL="skills/business-attr-ux/SKILL.md"
+TFGEN="agents/terraform-gen.md"
+TFPATTERNS="skills/terraform-patterns/SKILL.md"
+
+check "#133 business-attr-ux's kind enum includes histogram" \
+  'grep -qF "counter|gauge|dimension|histogram" "$BIZ_SKILL"'
+check "#133 business-attr-ux's histogram heuristic names the shape suffixes" \
+  'grep -qF "_duration\`/\`_latency\`/\`_size\`/\`_bytes\`" "$BIZ_SKILL"'
+check "#133 business-attr-ux adds a nullable unit field for axis labeling" \
+  'grep -qF "\`unit\` (optional, best-effort)" "$BIZ_SKILL"'
+check "#133 otel-business-attrs Step 6 writes histogram + unit into businessAttrs entries" \
+  'grep -qF "\`\"dimension\"\`, or" commands/otel-business-attrs.md && grep -qF "\"unit\"" commands/otel-business-attrs.md'
+check "#133 terraform-gen renders histogram as quantiles (p50/p95/p99), not an average" \
+  'grep -qF "kind: \"histogram\"" "$TFGEN" && grep -qF "p50/p95/p99" "$TFGEN"'
+check "#133 terraform-gen's kind-skip rule is kind-agnostic (future kind never falls through to a default)" \
+  'grep -qF "not one of the four values above" "$TFGEN" && grep -qF "never falls through to a default rendering" "$TFGEN"'
+check "#133 terraform-patterns defines a histogram query for all four backends" \
+  '[ "$(grep -c "kind: histogram" "$TFPATTERNS")" -eq 4 ]'
+check "#133 terraform-patterns' Grafana histogram query uses histogram_quantile, never avg(_sum/_count)" \
+  'grep -A3 "kind: histogram.*OTLP.Prometheus emits a" "$TFPATTERNS" | grep -q "histogram_quantile(0.50"'
+check "#133 terraform-patterns New Relic histogram query uses NRQL multi-value percentile() in one call" \
+  'grep -qF "percentile(\`<name>\`, 50, 95, 99)" "$TFPATTERNS"'
+
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

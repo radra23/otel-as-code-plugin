@@ -81,9 +81,11 @@ Update `.claude/otel-context.json`:
 - Merge approved attributes into `services[i]`
 - Set `confirmedAt` to current ISO-8601 timestamp
 - Add a `businessAttrs` array containing ONLY approved business attributes. Each entry MUST
-  carry `"confirmed": true` and a confirmed `"kind"` (`"counter"`, `"gauge"`, or `"dimension"` —
-  see `business-attr-ux`; it decides how `/otel-backend` renders the attribute), plus `name`,
-  `source`, `confidence`, `confirmedAt`. Do NOT include rejected or unreviewed candidates — the
+  carry `"confirmed": true` and a confirmed `"kind"` (`"counter"`, `"gauge"`, `"dimension"`, or
+  `"histogram"` — see `business-attr-ux`; it decides how `/otel-backend` renders the attribute),
+  plus `name`, `source`, `confidence`, `confirmedAt`, and `"unit"` (nullable — the instrument's
+  unit when observed, e.g. `"s"`/`"ms"`/`"By"`, used to label a histogram's quantile-panel axis;
+  `null` otherwise, never guessed). Do NOT include rejected or unreviewed candidates — the
   `write-guard` hook blocks the entire write if any `businessAttrs` entry lacks
   `"confirmed": true`.
 

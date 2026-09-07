@@ -101,6 +101,13 @@ as the panel description so an empty panel is self-explanatory.
   per-request **metric data-point attribute**, it already is one; if it is only a **resource
   attribute**, it is NOT a label on a default OTLP→Prometheus pipeline (see the `job`-label gotcha
   above) unless the producer promotes it (`otlp.promote_resource_attributes`).
+- `kind: histogram` → three query targets in one panel, one per quantile (OTLP→Prometheus emits a
+  native Prometheus histogram: `<M>_bucket`/`<M>_sum`/`<M>_count`):
+  `histogram_quantile(0.50, sum(rate(<M>_bucket{job="<name>"}[5m])) by (le))`,
+  `histogram_quantile(0.95, ...)`, `histogram_quantile(0.99, ...)`. Label the y-axis with the
+  entry's `unit` when present. Caveat: requires the app to emit a histogram named `<M>`; never
+  substitute `avg(<M>_sum{job="<name>"} / <M>_count{job="<name>"})` for this — an average, not a
+  quantile, defeats the reason a histogram was captured.
 
 ---
 
@@ -162,6 +169,14 @@ Two gotchas baked into those queries:
 - `kind: dimension` → group the request metric by the tag:
   `sum:trace.http.server.request.hits{service:<name>} by {<tag>}.as_rate()`. Caveat: the tag must
   be present on the spans/metrics (an OTel span attribute promoted to a Datadog tag).
+- `kind: histogram` → three query targets in one panel, one per percentile — Datadog distribution
+  metrics support a percentile aggregation prefix the same way the APM trace-metric queries above
+  do (`p99:trace.http.server.request{...}`): `p50:<name>{service:<name>}`,
+  `p95:<name>{service:<name>}`, `p99:<name>{service:<name>}`. Label the axis with the entry's
+  `unit` when present. Caveat: requires the metric to actually be ingested as a Datadog
+  distribution (not a gauge/count) — have the user confirm the metric type in Metrics Explorer if
+  the panel is empty; an OTLP histogram maps to a Datadog distribution by default, but a custom
+  exporter/pipeline could remap it.
 
 ---
 
@@ -221,6 +236,12 @@ for this). Backtick-quote dotted attribute names:
 - `kind: gauge` → ``SELECT average(`<name>`) FROM Metric WHERE service.name = '<name>' TIMESERIES``
   (`latest(...)` for a level) — never `sum()` a ratio/level.
 - `kind: dimension` → ``SELECT count(*) FROM Span WHERE service.name = '<name>' FACET `<name>` SINCE 5 MINUTES AGO`` — a native breakdown of traffic by the business dimension (no metric-label caveat: the attribute is on the span).
+- `kind: histogram` → one widget, one NRQL query producing all three quantiles (NRQL's
+  `percentile()` accepts multiple values in one call, unlike the other three backends):
+  ``SELECT percentile(`<name>`, 50, 95, 99) FROM Metric WHERE service.name = '<name>' TIMESERIES``.
+  Label the axis with the entry's `unit` when present. Caveat: requires the histogram to be
+  reported as a New Relic Metric; if it is only present as span/event data, query
+  `` percentile(`<name>`, 50, 95, 99) FROM Span `` instead.
 
 ---
 
@@ -326,3 +347,9 @@ attribute `name` to a PromQL metric/label (dots→underscores) as `<M>`.
   — a breakdown by the business attribute, which Dash0's OTel-native ingestion keeps queryable as a
   label where a vanilla Prometheus pipeline would not. Verify the label spelling against a live
   instance.
+- `kind: histogram` → three query targets in one panel, one per quantile (same PromQL shape as
+  Grafana above — Dash0's PromQL surface exposes the same `_bucket`/`_sum`/`_count` histogram
+  form): `histogram_quantile(0.50, sum(rate(<M>_bucket{service_name="<name>"}[5m])) by (le))`,
+  `histogram_quantile(0.95, ...)`, `histogram_quantile(0.99, ...)`. Label the axis with the entry's
+  `unit` when present. Caveat: requires the histogram to be emitted as `<M>`; verify against a live
+  instance, as with the dimension case above.
