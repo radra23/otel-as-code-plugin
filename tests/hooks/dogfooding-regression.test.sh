@@ -77,17 +77,23 @@ check "new .NET fixtures declare no OTel package reference (greenfield)" \
   '! grep -rqiE "Include=\"OpenTelemetry|@opentelemetry" "$BLAZOR" "$TESTPROJ"'
 
 # --- #99: npm-scoped service name sanitized in identifiers, raw in queries ----------------------
+# Position-aware, not substring-only (a #138-critique finding: a plain grep -q for both strings
+# anywhere in the file would still pass if the split were reversed — slug in the query, raw name
+# in the identifier — which is exactly the bug #99 fixed). Each check below pins WHICH kind of
+# line each form is allowed to appear in, not just that it appears somewhere.
 for g in dash0 grafana; do
   SNAP="tests/snapshots/$g/main.tf.snap"
   check "#99 $g golden defines a service_slug local" \
     'grep -q "service_slug" "'"$SNAP"'"'
-  check "#99 $g golden uses local.service_slug in an identifier position" \
-    'grep -q "local.service_slug" "'"$SNAP"'"'
+  check "#99 $g golden uses local.service_slug in an identifier position (uid/name/alert), not a query" \
+    'grep -qE "(uid|name)[[:space:]]*=.*local\.service_slug|alert:.*\\\$\{local\.service_slug\}" "'"$SNAP"'"'
+  check "#99 $g golden's service_slug NEVER leaks into a query/expr line (would silently break the query)" \
+    '! grep -E "expr|query" "'"$SNAP"'" | grep -q "service_slug"'
   # The split is the point: identifiers slugged, but the raw var.service_name MUST survive in
   # query filters / titles (grafana filters by job=, dash0 by service_name= — both interpolate
   # the raw value). If everything were slugged, the queries would stop matching the emitted name.
-  check "#99 $g golden still references the RAW var.service_name (queries/titles unslugged)" \
-    'grep -q "var.service_name" "'"$SNAP"'"'
+  check "#99 $g golden still references the RAW var.service_name WITHIN a query/expr line (queries/titles unslugged)" \
+    'grep -E "expr|query" "'"$SNAP"'" | grep -q "var.service_name"'
 done
 
 # --- #109: check_rule_yaml must be a full PrometheusRule doc, not a flat alert body -------------
@@ -338,8 +344,8 @@ check "#133 business-attr-ux adds a nullable unit field for axis labeling" \
   'grep -qF "\`unit\` (optional, best-effort)" "$BIZ_SKILL"'
 check "#133 otel-business-attrs Step 6 writes histogram + unit into businessAttrs entries" \
   'grep -qF "\`\"dimension\"\`, or" commands/otel-business-attrs.md && grep -qF "\"unit\"" commands/otel-business-attrs.md'
-check "#133 terraform-gen renders histogram as quantiles (p50/p95/p99), not an average" \
-  'grep -qF "kind: \"histogram\"" "$TFGEN" && grep -qF "p50/p95/p99" "$TFGEN"'
+check "#133 terraform-gen renders histogram as quantiles (p50/p95/p99), not an average — same line, not just same file" \
+  'grep -qE "kind: \"histogram\".*p50/p95/p99" "$TFGEN"'
 check "#133 terraform-gen's kind-skip rule is kind-agnostic (future kind never falls through to a default)" \
   'grep -qF "not one of the four values above" "$TFGEN" && grep -qF "never falls through to a default rendering" "$TFGEN"'
 check "#133 terraform-patterns defines a histogram query for all four backends" \
