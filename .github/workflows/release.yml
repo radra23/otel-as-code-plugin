@@ -1,0 +1,111 @@
+# .github/workflows/release.yml
+#
+# #128: nothing tagged or released a version, so there was no way to say "you're on 0.2.0,
+# current is 0.3.0" or bisect a user report to a version. This tags + drafts a GitHub Release
+# whenever .claude-plugin/plugin.json's version changes on main. The version-bump-guard job in
+# ci.yml already forces that version to move alongside any commands/agents/skills/hooks change,
+# so this workflow only has to react to it, not enforce it.
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.claude-plugin/plugin.json'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Tag and publish a release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      # Idempotent: re-running this workflow (workflow_dispatch, or a plugin.json edit that
+      # didn't touch "version") is a safe no-op when the tag for the current version already
+      # exists.
+      - name: Determine version and check for an existing tag
+        id: version
+        run: |
+          VERSION=$(python3 -c "import json; print(json.load(open('.claude-plugin/plugin.json'))['version'])")
+          TAG="v$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Tag $TAG already exists — nothing to release."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The commit discipline is already Conventional-Commits-shaped (see any `git log --oneline`
+      # on this repo), so group by type prefix rather than dumping a flat commit list.
+      - name: Generate release notes from Conventional Commit subjects
+        if: steps.version.outputs.exists == 'false'
+        run: |
+          PREV_TAG=$(git tag --list 'v*' --sort=-v:refname | head -1 || true)
+          if [ -n "$PREV_TAG" ]; then
+            RANGE="$PREV_TAG..HEAD"
+          else
+            RANGE="HEAD"
+          fi
+          python3 - "$RANGE" <<'EOF' > release-notes.md
+          import re
+          import subprocess
+          import sys
+
+          rng = sys.argv[1]
+          log = subprocess.run(
+              ["git", "log", "--no-merges", "--pretty=%s", rng],
+              capture_output=True, text=True, check=True,
+          ).stdout.splitlines()
+
+          labels = {
+              "feat": "Features", "fix": "Fixes", "perf": "Performance",
+              "refactor": "Refactors", "docs": "Docs", "test": "Tests",
+              "ci": "CI", "build": "Build", "chore": "Chores",
+          }
+          order = ["Features", "Fixes", "Performance", "Refactors", "Docs", "Tests", "CI", "Build", "Chores"]
+          pat = re.compile(r"^(\w+)(\([^)]*\))?:\s*(.+)$")
+
+          sections, other = {}, []
+          for subject in log:
+              m = pat.match(subject)
+              if m and m.group(1) in labels:
+                  sections.setdefault(labels[m.group(1)], []).append(subject)
+              else:
+                  other.append(subject)
+
+          lines = []
+          for label in order:
+              items = sections.get(label)
+              if items:
+                  lines.append(f"## {label}")
+                  lines.extend(f"- {s}" for s in items)
+                  lines.append("")
+          if other:
+              lines.append("## Other")
+              lines.extend(f"- {s}" for s in other)
+              lines.append("")
+
+          print("\n".join(lines) if (sections or other) else "No changes recorded.")
+          EOF
+
+      - name: Tag and publish the release
+        if: steps.version.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "$TAG"
+          gh release create "$TAG" --title "$TAG" --notes-file release-notes.md
