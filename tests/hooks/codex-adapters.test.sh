@@ -50,8 +50,11 @@ check "pre: blocks unconfirmed business-attr write" deny "$OUT"
 rm -rf "$TMP"
 
 # Test 4: PostToolUse on an OTel file with seeded violations -> additionalContext
+# (semconv-lint's content gate, #138, requires a real OTel API reference before it lints a file —
+# a bare setAttribute() with no import looks like any other file to it, same as real code would.)
 TMP=$(mktemp -d)
 cat > "$TMP/tracing.js" <<'EOF'
+const { trace } = require('@opentelemetry/api');
 span.setAttribute('service.name', 'x');
 span.setAttribute('http.method', 'POST');
 span.setAttribute('orderId', id);
@@ -66,6 +69,7 @@ rm -rf "$TMP"
 # reframes the additionalContext as a must-fix block (Codex PostToolUse can't deny).
 TMP=$(mktemp -d)
 cat > "$TMP/tracing.js" <<'EOF'
+const { trace } = require('@opentelemetry/api');
 span.setAttribute('http.method', 'POST');
 EOF
 PATCH=$'*** Begin Patch\n*** Update File: tracing.js\n@@\n+span.setAttribute("http.method","POST");\n*** End Patch'

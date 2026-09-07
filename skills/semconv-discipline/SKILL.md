@@ -182,9 +182,16 @@ identifiers do not belong as span attributes — use events or logs instead — 
 dimension is worse, not exempt.
 
 **Canonical high-cardinality identifiers** — the same set is enforced by the `semconv-lint`
-hook (at the source level, matching `userId` / `user_id` spellings) and by the Collector
-`transform` drop-list in `collector-topology` (at the span-attribute level, matching the
-dotted `user.id` form). Keep these two lists in sync when adding an identifier:
+hook (at the source level across all six supported languages, matching both the dotted `user.id`
+form and the common camelCase/snake_case spellings — `userId` / `user_id` — as a span attribute,
+AND as a metric dimension, which the hook treats as `error` tier per the ranking above, not
+`warning`) and by the Collector `transform` drop-list in `collector-topology` (at the
+span-attribute level only — see the cardinality-position table above for why the Collector
+guardrail cannot reach a metric dimension). `semconv-lint` reads this exact list at runtime
+(`hooks/semconv-lint.sh` greps the line below) rather than hardcoding a second copy — keep it in
+sync with the Collector drop-list when adding an identifier, and do not reformat this line (the
+hook's extraction depends on its shape: backtick-wrapped dotted identifiers, comma-separated,
+ending in a period):
 `user.id`, `session.id`, `request.id`, `order.id`.
 
 Also flag, and route to span events or structured logs:

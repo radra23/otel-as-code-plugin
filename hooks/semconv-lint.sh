@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 # hooks/semconv-lint.sh
 # PostToolUse hook — advisory semconv lint on OTel file writes.
-# Always exits 0 (advisory only). Writes warnings to stdout for Claude to display.
+# Always exits 0 (advisory only, unless strict mode — see below). Writes warnings to stdout.
 
 set -euo pipefail
 
 # Resolve the pinned semconv version from its single source of truth (the semconv-discipline
 # skill) instead of hardcoding it here. Falls back to "unknown" if the skill can't be read.
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+SEMCONV_SKILL="$PLUGIN_ROOT/skills/semconv-discipline/SKILL.md"
 SEMCONV_VERSION=$(grep -oE 'SEMCONV_VERSION:[[:space:]]*[0-9]+\.[0-9]+\.[0-9]+' \
-  "$PLUGIN_ROOT/skills/semconv-discipline/SKILL.md" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+  "$SEMCONV_SKILL" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
 SEMCONV_VERSION="${SEMCONV_VERSION:-unknown}"
 
 # Strict mode: hard-block (exit 2) on SEVERE violations instead of only warning. Opt-in via
@@ -50,29 +51,43 @@ d = json.load(sys.stdin)
 print(d.get('tool_input', {}).get('file_path', ''))
 " 2>/dev/null || echo "")
 
-# Only lint OTel-related files
-OTEL_PATTERNS=("tracing" "telemetry" "instrumentation" "opentelemetry")
+if [ ! -f "$FILE_PATH" ]; then
+  exit 0
+fi
+
+CONTENT=$(cat "$FILE_PATH" 2>/dev/null || echo "")
+
+# --- Gate: does this file actually reference an OTel API? (#138 gate 1) --------------------------
+# A basename substring check (the old gate) only matched files literally named tracing/telemetry/
+# instrumentation/opentelemetry — the bootstrap/wiring file. Attributes are set in handlers and
+# services, which are never named that. Every official OTel package/namespace, in every one of
+# the six supported languages, contains the substring "opentelemetry" somewhere in its import path
+# or namespace (@opentelemetry/*, opentelemetry.*, io.opentelemetry.*, OpenTelemetry.*,
+# go.opentelemetry.io/*, OpenTelemetry::*) — so a single case-insensitive content check covers all
+# six without an enumerated per-language import-pattern list to keep in sync.
+#
+# .NET is the one language where that alone under-detects: application code that creates spans
+# via System.Diagnostics.ActivitySource / records metrics via System.Diagnostics.Metrics.Meter
+# routinely never mentions "OpenTelemetry" by name at all — only the SDK-wiring file does, since
+# ActivitySource/Meter are .NET's own built-in diagnostics types that the OTel SDK listens to, not
+# OTel-namespaced types. Gate on those explicitly too. Meter is matched as a call/constructor
+# (`Meter(`) rather than a bare word, to avoid tripping on an unrelated `Meter` identifier.
 is_otel_file=0
-BASENAME=$(basename "$FILE_PATH" 2>/dev/null || echo "")
-BASENAME_LOWER=$(echo "$BASENAME" | tr '[:upper:]' '[:lower:]')
+if echo "$CONTENT" | grep -qi "opentelemetry"; then
+  is_otel_file=1
+elif echo "$CONTENT" | grep -qE "ActivitySource|System\.Diagnostics\.Metrics|[[:space:]]Meter\("; then
+  is_otel_file=1
+fi
 
-for pat in "${OTEL_PATTERNS[@]}"; do
-  if [[ "$BASENAME_LOWER" == *"$pat"* ]]; then
-    is_otel_file=1
-    break
-  fi
-done
-
-if [ "$is_otel_file" -eq 0 ] || [ ! -f "$FILE_PATH" ]; then
+if [ "$is_otel_file" -eq 0 ]; then
   exit 0
 fi
 
 WARNINGS=0
 SEVERE=0
 SEVERE_MSGS=""
-CONTENT=$(cat "$FILE_PATH" 2>/dev/null || echo "")
 
-# severe: an unambiguous, deterministic violation with a known fix (Rules 1-4). Shown on
+# severe: an unambiguous, deterministic violation with a known fix (Rules 1-4, 8). Shown on
 # stdout like any warning; additionally captured so strict mode can hard-block on it (exit 2,
 # details on stderr). warn-only rules (5-7) keep using plain echo + WARNINGS++.
 severe() {  # $1 = full message (may be multiline)
@@ -83,14 +98,33 @@ severe() {  # $1 = full message (may be multiline)
   WARNINGS=$((WARNINGS + 1))
 }
 
-# Rule 1 (severe): service.name / service.version / service.namespace as span attribute
-if echo "$CONTENT" | grep -qE "setAttribute\(['\"]service\.(name|version|namespace|instance)"; then
+# --- Language-aware attribute-setter call spellings (#138 gate 2) --------------------------------
+# nodejs/java: span.setAttribute(  |  python/ruby: span.set_attribute(  |  dotnet: activity.SetTag(
+# / .AddTag(  |  go: attribute.String(/.Int(/.Int64(/.Float64(/.Bool(/.*Slice( — go's API builds a
+# KeyValue via the attribute package rather than passing the key straight to a span-attribute
+# setter, so the "setter" IS that constructor call.
+ATTR_SETTER_GENERAL='(setAttribute|set_attribute|SetTag|AddTag)\('
+# Rules 5/7 add Go's attribute-builder pattern. Rule 1 deliberately does NOT: Go's resource
+# construction (resource.WithAttributes(attribute.String(...))) uses the exact same
+# attribute.String(...) call as span-attribute construction, so there is no way for a regex to
+# tell the correct (resource) use from the wrong (span) one in Go — including it in Rule 1 (a
+# SEVERE, strict-mode-blocking rule) would false-block legitimate Go resource setup. Go is not
+# covered by Rule 1 as a result; every other language IS, since none of their resource-construction
+# APIs go through this same call shape (they use an object/dict literal or a dedicated
+# `.AddService(...)`-style helper instead).
+ATTR_SETTER_WITH_GO='(setAttribute|set_attribute|SetTag|AddTag|attribute\.(String|Int64?|Float64|Bool|StringSlice|Int64Slice|Float64Slice|BoolSlice))\('
+
+# Rule 1 (severe): service.name / service.version / service.namespace / service.instance.id as a
+# span attribute (must be a Resource attribute instead). See the ATTR_SETTER_GENERAL comment above
+# for why Go is not checked by this rule.
+if echo "$CONTENT" | grep -qE "${ATTR_SETTER_GENERAL}['\"]service\.(name|version|namespace|instance)"; then
   severe "⚠ otel-lint [$FILE_PATH]: service.name / service.version / service.namespace must be Resource attributes, not span attributes.
   → Move to Resource({ [ATTR_SERVICE_NAME]: '...' }) in SDK initialization."
 fi
 
-# Rule 2 (severe): deprecated http.method
-if echo "$CONTENT" | grep -qE "setAttribute\(['\"]http\.method['\"]|['\"]http\.method['\"]"; then
+# Rule 2 (severe): deprecated http.method. Bare-literal match (not gated on a setter call) — there
+# is no legitimate use of the OLD name in any position, so this is already language-independent.
+if echo "$CONTENT" | grep -qE "['\"]http\.method['\"]"; then
   severe "⚠ otel-lint [$FILE_PATH]: 'http.method' is deprecated since semconv 1.23.
   → Replace with 'http.request.method'."
 fi
@@ -107,12 +141,13 @@ if echo "$CONTENT" | grep -qE "['\"]http\.status_code['\"]"; then
   → Replace with 'http.response.status_code'."
 fi
 
-# Rule 5: Custom attribute without namespace prefix
-# Heuristic: setAttribute call with a single-word or camelCase key (no dots)
-if echo "$CONTENT" | grep -qE "setAttribute\(['\"][a-zA-Z][a-zA-Z0-9]*['\"]"; then
+# Rule 5: Custom attribute without namespace prefix.
+# Heuristic: an attribute-setter call with a single-word or camelCase key (no dots).
+if echo "$CONTENT" | grep -qE "${ATTR_SETTER_WITH_GO}['\"][a-zA-Z][a-zA-Z0-9]*['\"]"; then
   # Exclude known valid single-segment keys (standard span/event keys, not custom business attrs)
-  NON_NAMESPACED=$(echo "$CONTENT" | grep -oE "setAttribute\(['\"][a-zA-Z][a-zA-Z0-9]*['\"]" | \
-    grep -vE "setAttribute\(['\"](id|name|error|exception|event|type|status|code|message|level|kind)['\"]" || true)
+  NON_NAMESPACED=$(echo "$CONTENT" | grep -oE "${ATTR_SETTER_WITH_GO}['\"][a-zA-Z][a-zA-Z0-9]*['\"]" | \
+    grep -oE "['\"][a-zA-Z][a-zA-Z0-9]*['\"]$" | \
+    grep -vE "^['\"](id|name|error|exception|event|type|status|code|message|level|kind)['\"]$" || true)
   if [ -n "$NON_NAMESPACED" ]; then
     echo "⚠ otel-lint [$FILE_PATH]: Custom attribute(s) may be missing a namespace prefix."
     echo "  → Custom attributes must use reverse-DNS prefix (e.g. com.myorg.order.id)."
@@ -121,22 +156,73 @@ if echo "$CONTENT" | grep -qE "setAttribute\(['\"][a-zA-Z][a-zA-Z0-9]*['\"]"; th
   fi
 fi
 
-# Rule 6: SimpleSpanProcessor in non-test file
-if echo "$CONTENT" | grep -qE "SimpleSpanProcessor" && ! echo "$FILE_PATH" | grep -qE "test|spec|fixture"; then
-  echo "⚠ otel-lint [$FILE_PATH]: SimpleSpanProcessor is not recommended for production."
-  echo "  → Replace with BatchSpanProcessor."
+# Rule 6: (Simple, not Batch) span processor in non-test file. SimpleSpanProcessor is the spelling
+# in nodejs/python/java/go/ruby; .NET's equivalent class is SimpleActivityExportProcessor.
+if echo "$CONTENT" | grep -qE "SimpleSpanProcessor|SimpleActivityExportProcessor" && ! echo "$FILE_PATH" | grep -qE "test|spec|fixture"; then
+  echo "⚠ otel-lint [$FILE_PATH]: a per-span (Simple) export processor is not recommended for production."
+  echo "  → Replace with the batched processor (BatchSpanProcessor / BatchActivityExportProcessor)."
   WARNINGS=$((WARNINGS+1))
 fi
 
-# Rule 7: High-cardinality attribute names
-HIGH_CARD_PATTERNS=("userId" "user_id" "orderId" "order_id" "sessionId" "session_id" "requestId" "request_id")
+# --- Canonical high-cardinality identifiers (#138 gate 4) -----------------------------------------
+# Read the dotted-form list from semconv-discipline (single source of truth, same pattern this
+# hook already uses for SEMCONV_VERSION) instead of hardcoding a second copy that can drift. Falls
+# back to a hardcoded default if the skill's anchor text moves or the file is unreadable.
+DOTTED_HIGH_CARD=$(grep -A2 "hook's extraction depends on its shape" "$SEMCONV_SKILL" 2>/dev/null | \
+  tail -1 | grep -oE '`[a-z_]+\.[a-z_]+`' | tr -d '`' || true)
+if [ -z "$DOTTED_HIGH_CARD" ]; then
+  DOTTED_HIGH_CARD="user.id
+session.id
+request.id
+order.id"
+fi
+# The same identifiers' common sloppy camelCase/snake_case spellings — code that uses the JS/Python
+# variable name as the attribute KEY itself, instead of the dotted semconv form. Not derivable from
+# the dotted list mechanically (capitalization is per-word), so paired by hand; keep in sync with
+# DOTTED_HIGH_CARD's source above when adding an identifier.
+CAMEL_SNAKE_HIGH_CARD=("userId" "user_id" "orderId" "order_id" "sessionId" "session_id" "requestId" "request_id")
+
+HIGH_CARD_PATTERNS=()
+while IFS= read -r line; do
+  [ -n "$line" ] && HIGH_CARD_PATTERNS+=("$line")
+done <<< "$DOTTED_HIGH_CARD"
+HIGH_CARD_PATTERNS+=("${CAMEL_SNAKE_HIGH_CARD[@]}")
+
+# Rule 7 (warning): high-cardinality identifier as a SPAN attribute. Ingest/index cost only,
+# bounded by sampling and span retention — see the cardinality-position table in semconv-discipline
+# for why this is a lower tier than Rule 8 (a metric dimension), not the same finding.
 for attr in "${HIGH_CARD_PATTERNS[@]}"; do
-  if echo "$CONTENT" | grep -qE "setAttribute\(['\"]${attr}['\"]"; then
-    echo "⚠ otel-lint [$FILE_PATH]: High-cardinality attribute '$attr' detected."
+  escaped_attr=$(printf '%s' "$attr" | sed 's/\./\\./g')
+  if echo "$CONTENT" | grep -qE "${ATTR_SETTER_WITH_GO}['\"]${escaped_attr}['\"]"; then
+    echo "⚠ otel-lint [$FILE_PATH]: High-cardinality attribute '$attr' detected as a span attribute."
     echo "  → Move to span events or structured logs. Or scope to a category (e.g. order.type)."
     WARNINGS=$((WARNINGS+1))
   fi
 done
+
+# --- Rule 8 (severe, #138 gate 3): high-cardinality identifier as a METRIC dimension -------------
+# One permanently-retained time series per distinct value; sampling never touches it, and the
+# series persists in the backend even after the code is fixed — semconv-discipline ranks this
+# `error`, not `warning`, and the remediation differs (remove the tag, not "move it").
+#
+# Scope, stated plainly: this catches the LITERAL-attribute-name case only — a quoted
+# high-cardinality key passed near an instrument's Add/Record call. It cannot resolve a symbolic
+# constant to its string value (e.g. a C# `KeyValuePair<string, object?>(BotSemanticAttributes.UserId,
+# userId)`, where the key is a named constant, not an inline literal). That needs real static
+# analysis or LLM judgment — exactly what /otel-evaluate's brownfield-auditor is for, and exactly
+# how it caught that case when this hook could not. Gated on an instrument CONSTRUCTOR appearing
+# somewhere in the file, so an unrelated .Add()/.Record() call in a non-metrics file cannot fire it.
+INSTRUMENT_CTOR_PATTERN='(createCounter|create_counter|CreateCounter|counterBuilder|createHistogram|create_histogram|CreateHistogram|histogramBuilder|createUpDownCounter|create_up_down_counter|CreateUpDownCounter)\('
+if echo "$CONTENT" | grep -qE "$INSTRUMENT_CTOR_PATTERN"; then
+  MUTATE_WINDOW=$(echo "$CONTENT" | grep -B1 -A3 -E '\.(Add|add|Record|record)\(' || true)
+  for attr in "${HIGH_CARD_PATTERNS[@]}"; do
+    escaped_attr=$(printf '%s' "$attr" | sed 's/\./\\./g')
+    if echo "$MUTATE_WINDOW" | grep -qE "['\"]${escaped_attr}['\"]"; then
+      severe "⚠ otel-lint [$FILE_PATH]: high-cardinality attribute '$attr' used as a METRIC dimension (counter/histogram tag).
+  → Remove the tag entirely. Unlike a span attribute, a metric dimension cannot be cleaned up after the fact: it is one permanently-retained time series per distinct value, unaffected by sampling."
+    fi
+  done
+fi
 
 if [ "$WARNINGS" -gt 0 ]; then
   echo ""
