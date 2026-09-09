@@ -1,0 +1,33 @@
+# Regression fixture for #144: a real-shape Keycloak Kubernetes Deployment — no application
+# source anywhere in this repo (generatorSupported:false, inScope:true is the correct scanner
+# classification), with metrics already enabled but tracing/logging/service-name unconfigured.
+# This is the exact gap /otel-remediate exists to close: /otel-evaluate can already audit this
+# file and find these missing, but nothing turned that into a diff before #144.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  namespace: auth
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: keycloak
+  template:
+    metadata:
+      labels:
+        app: keycloak
+    spec:
+      containers:
+        - name: keycloak
+          image: quay.io/keycloak/keycloak:26.7.0
+          args: ["start"]
+          env:
+            - name: KC_METRICS_ENABLED
+              value: "true"
+            - name: KC_HOSTNAME
+              value: "auth.example.com"
+            - name: KC_DB
+              value: "postgres"
+          ports:
+            - containerPort: 8080

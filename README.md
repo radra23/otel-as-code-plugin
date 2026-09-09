@@ -96,6 +96,7 @@ a command says "dispatch the `<x>` agent", read `agents/<x>.md` and do that work
 | `/otel-instrument [lang]` | SDK bootstrap for Node.js / Python / Go / Ruby, Java agent config, or .NET SDK wiring |
 | `/otel-uninstrument` | Remove the generated SDK bootstrap for a service (marker-gated rollback) |
 | `/otel-evaluate` | Read-only brownfield gap audit |
+| `/otel-remediate` | Deployment-config diff (env vars) for a service with no app source to bootstrap but native OTel support — v1: Keycloak only |
 | `/otel-collector [mode]` | otelcol-contrib config (agent \| gateway) |
 | `/otel-business-attrs` | Infer + confirm service identity and business metrics |
 | `/otel-backend <vendor>` | Terraform for grafana \| datadog \| newrelic \| dash0 |
