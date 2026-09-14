@@ -350,8 +350,12 @@ check "#133 terraform-gen's kind-skip rule is kind-agnostic (future kind never f
   'grep -qF "not one of the four values above" "$TFGEN" && grep -qF "never falls through to a default rendering" "$TFGEN"'
 check "#133 terraform-patterns defines a histogram query for all four backends" \
   '[ "$(grep -c "kind: histogram" "$TFPATTERNS")" -eq 4 ]'
+# Anchor on ASCII only. The previous anchor spanned "OTLP\u2192Prometheus", and `.` matches one
+# BYTE in the C locale but one CHARACTER in a UTF-8 one — so this check passed on CI runners
+# (C.UTF-8) and failed on any machine with no locale set. Same class as the --force path bug:
+# an environment-dependent match that silently reports the wrong thing.
 check "#133 terraform-patterns' Grafana histogram query uses histogram_quantile, never avg(_sum/_count)" \
-  'grep -A3 "kind: histogram.*OTLP.Prometheus emits a" "$TFPATTERNS" | grep -q "histogram_quantile(0.50"'
+  'grep -A3 "native Prometheus histogram" "$TFPATTERNS" | grep -q "histogram_quantile(0.50"'
 check "#133 terraform-patterns New Relic histogram query uses NRQL multi-value percentile() in one call" \
   'grep -qF "percentile(\`<name>\`, 50, 95, 99)" "$TFPATTERNS"'
 

@@ -418,10 +418,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # PyYAML parses the upstream semconv attribute registry. Without it the guidance
+      # check reports "not checked" rather than failing — but then it checks nothing, so
+      # install it explicitly instead of relying on what the runner image happens to ship.
+      - name: Install drift-check dependencies
+        run: python3 -m pip install --quiet --disable-pip-version-check pyyaml
+
       # Reports where the plugin's pinned versions — semconv spec, OTel Node/Python SDK
-      # packages, Terraform providers — have fallen behind upstream, as a ::warning:: + a
-      # job-summary table. Also writes drift-report.md and a `count` output for the issue
-      # steps below. Informational: never fails the build. See scripts/drift_check.py.
+      # packages, Terraform providers — have fallen behind upstream, AND where the
+      # semconv-discipline OLD->NEW table disagrees with the upstream attribute registry at
+      # the pinned version (a current pin can still carry wrong guidance). Emits ::warning::
+      # lines + a job-summary table, writes drift-report.md and a `count` output for the
+      # issue steps below. Informational: never fails the build. See scripts/drift_check.py.
       - name: Check pinned versions against upstream
         id: drift
         run: python3 scripts/drift_check.py

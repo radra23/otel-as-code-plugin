@@ -41,6 +41,46 @@ check("behind: ^0.219.0 < 0.230.0", d.behind("0.219.0", "0.230.0"))
 check("behind_major: ~>3.0 < 4.0.0", d.behind_major("~> 3.0", "4.0.0"))
 check("not behind_major: ~>3.0 vs 3.30.0 (within constraint)", not d.behind_major("~> 3.0", "3.30.0"))
 
+# --- semconv guidance check (offline: real table, stubbed registry) ----------------------
+# The table parser runs against the REAL skill file — that is the part that breaks when
+# someone reformats the tables. The registry side is stubbed, so this stays offline.
+rows = dict(d.semconv_table_entries())
+check("OLD->NEW table parsed (http.method -> http.request.method)",
+      rows.get("http.method") == ["http.request.method"])
+check("a row naming two replacements keeps both (http.target)",
+      rows.get("http.target") == ["url.path", "url.query"])
+check("prose-heavy row still yields its attributes (peer.service)",
+      "server.address" in rows.get("peer.service", []))
+check("table rows found for every OLD name the skill deprecates", len(rows) >= 10)
+# Rows must not be invented from unrelated tables (span-kind, cardinality) in the same file.
+check("non-attribute tables are not mistaken for OLD->NEW rows",
+      all("." in old for old in rows))
+
+# Teeth: a stubbed registry proves each failure class is actually detected. Without this,
+# "no findings" is indistinguishable from a checker that inspects nothing.
+_REGISTRY = {
+    "http.request.method": {"stability": "stable", "deprecated": False},
+    "url.full":            {"stability": "stable", "deprecated": False},
+    "service.name":        {"stability": "stable", "deprecated": False},
+    "db.query.text":       {"stability": "development", "deprecated": False},
+}
+d.semconv_lookup = lambda name, version: _REGISTRY.get(name)
+d._read = lambda path: """
+| OLD (deprecated) | NEW (use this)         | Fix |
+|------------------|------------------------|-----|
+| `http.method`    | `http.request.method`  | correct row |
+| `http.url`       | `url.nonexistent`      | replacement does not exist |
+| `service.name`   | `url.full`             | OLD is still stable |
+| `db.statement`   | `db.query.text`        | replacement is not stable |
+"""
+found = d.semconv_guidance_findings("1.44.0")
+blob = " | ".join(found)
+check("teeth: flags a replacement absent from the registry", "url.nonexistent" in blob)
+check("teeth: flags an OLD name that is still stable", "service.name" in blob and "still stable" in blob)
+check("teeth: flags a replacement that is not stable", "db.query.text" in blob and "development" in blob)
+check("teeth: leaves a correct row alone", "http.request.method" not in blob)
+check("teeth: exactly three findings, not a blanket alarm", len(found) == 3)
+
 print()
 print("Results:", "OK" if ok else "FAILED")
 sys.exit(0 if ok else 1)

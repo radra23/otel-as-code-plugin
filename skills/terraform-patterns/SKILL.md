@@ -6,6 +6,26 @@ version: 0.1.0
 
 # Terraform Patterns for Observability Backends
 
+## What this file is, and what outranks it
+
+This is a **cache of provider schemas**, hand-written and pinned to a provider major. It carries
+what a schema dump cannot — which resources are worth emitting, which queries are right for OTel
+data, and the per-vendor gotchas below. That is its value.
+
+It is also, unavoidably, stale the moment a provider ships a release. So when a schema lookup is
+available (a Terraform registry/MCP tool, or a local `terraform providers schema -json` —
+see "Optional: verify against the live provider schema" in `agents/terraform-gen.md`), the
+**live schema wins on facts**: whether a resource exists, its required arguments, whether an
+argument is deprecated. This file keeps governing judgement.
+
+Two consequences worth stating plainly:
+
+- A disagreement between this file and the live schema is a bug **here**, and should be reported
+  so it gets fixed — not silently worked around in generated output.
+- No lookup being available is normal. The gotchas below are still correct enough to generate
+  from, and the golden snapshots are validated offline in CI precisely so this file stays
+  usable on its own.
+
 ## Module Shape (all backends)
 
 Every generated module has exactly three files:
