@@ -37,6 +37,11 @@
 #         section lumped all three FaaS hosts together as "no inbound HTTP server", but the Node
 #         Functions Framework runs a real in-process Express server, so the prescribed
 #         withServerSpan() wrapper would have emitted a SECOND SERVER span per request.
+#   #122b — non-npm monorepo layouts. Member resolution existed only for npm `workspaces`;
+#         pnpm (services/*), Go multi-module (go.work) and Maven multi-module (<modules>) each
+#         went undetected as ONE service — the aggregator or the root — while every real service
+#         was missed. Two shapes must not be conflated: several go.mod means several services,
+#         but one go.mod with cmd/<name> is one service with several binaries.
 #   #134/#135 — a Python CLI's instrumentation-gen contract must (a) know a standalone service can
 #         be a multi-entry-point CLI tool (cliEntryPoints), not just a single process, and (b)
 #         never decorate a Click Group's own callback — Click invokes the group callback and
@@ -48,6 +53,7 @@ pass=0; fail=0
 check() { if eval "$2"; then echo "PASS: $1"; pass=$((pass+1)); else echo "FAIL: $1"; fail=$((fail+1)); fi; }
 
 SCANNER="agents/repo-context-scanner.md"
+INIT="commands/otel-init.md"
 BLAZOR="fixtures/dotnet-blazor-wasm"
 TESTPROJ="fixtures/dotnet-testproject"
 
@@ -497,6 +503,61 @@ check "#122 version-specific claims are stamped, not asserted from memory" \
   'srvless_section | grep -qiE "Verified against functions-framework|re-check if either"'
 check "#122 nodejs-gcp-functions stays greenfield (no OTel dep)" \
   '! grep -rq opentelemetry "$GCPFN"'
+
+# --- #122b: non-npm monorepo layouts -----------------------------------------------------------
+GOMONO="fixtures/go-monorepo"
+MVNMONO="fixtures/java-maven-multimodule"
+PNPMMONO="fixtures/pnpm-monorepo"
+
+# pnpm — members under services/*, which the packages/* and apps/* globs cannot see.
+check "#122b scanner resolves pnpm members from pnpm-workspace.yaml" \
+  'grep -q "pnpm-workspace.yaml" "$SCANNER"'
+check "#122b pnpm fixture declares members under services/* (invisible to the globs)" \
+  'grep -q "services/\*" "$PNPMMONO/pnpm-workspace.yaml" && [ ! -d "$PNPMMONO/packages" ]'
+check "#122b pnpm fixture has 2 real members" \
+  '[ "$(ls -d "$PNPMMONO"/services/*/ | wc -l)" -eq 2 ]'
+
+# Go — go.work lists modules; several go.mod means several SERVICES, but cmd/* under one
+# go.mod means several BINARIES of one service. Conflating them doubles the service count.
+check "#122b scanner resolves Go modules from go.work" \
+  'grep -q "go.work" "$SCANNER"'
+check "#122b scanner distinguishes several modules from one module with several binaries" \
+  'grep -qiE "several MODULES|one module with several BINARIES" "$SCANNER"'
+check "#122b scanner routes multi-binary modules to cliEntryPoints, not extra services" \
+  'grep -q "cliEntryPoints" "$SCANNER"'
+check "#122b go fixture has a go.work listing both modules (repro intact)" \
+  '[ -f "$GOMONO/go.work" ] && [ "$(grep -c "./services/" "$GOMONO/go.work")" -eq 2 ]'
+check "#122b go fixture has exactly 2 modules" \
+  '[ "$(find "$GOMONO" -name go.mod | wc -l)" -eq 2 ]'
+check "#122b go fixture has one module with TWO binaries (the conflation trap)" \
+  '[ "$(ls "$GOMONO"/services/orders/cmd | wc -l)" -eq 2 ]'
+check "#122b go fixture uses services/* so a cmd/* glob alone would miss it" \
+  '[ -d "$GOMONO/services" ] && [ ! -d "$GOMONO/cmd" ]'
+
+# Maven — the parent POM is an aggregator, not a service.
+check "#122b scanner resolves Maven modules from the parent POM" \
+  'grep -qE "<modules>|parent POM" "$SCANNER"'
+check "#122b scanner also handles Gradle settings include" \
+  'grep -qE "settings\.gradle" "$SCANNER"'
+check "#122b scanner knows packaging=pom is an aggregator, not a service" \
+  'grep -qiE "packaging>pom|aggregator, not a service" "$SCANNER"'
+check "#122b maven fixture root is an aggregator with 2 modules (repro intact)" \
+  'grep -q "<packaging>pom</packaging>" "$MVNMONO/pom.xml" && [ "$(grep -c "<module>" "$MVNMONO/pom.xml")" -eq 2 ]'
+check "#122b maven child modules carry their own POMs" \
+  '[ "$(find "$MVNMONO" -mindepth 2 -name pom.xml | wc -l)" -eq 2 ]'
+
+# Freshness contract: a new member appearing must invalidate the cache, so the declaration
+# files have to be identity inputs. Missing that, adding a service is silently invisible.
+check "#122b go.work is an identity input (adding a module re-scans)" \
+  'grep -qF "go\\.work" "$INIT"'
+check "#122b pnpm-workspace.yaml is an identity input" \
+  'grep -qF "pnpm-workspace\\.yaml" "$INIT"'
+check "#122b settings.gradle is an identity input" \
+  'grep -qF "settings\\.gradle" "$INIT"'
+
+for fx in "$GOMONO" "$MVNMONO" "$PNPMMONO"; do
+  check "#122b $(basename "$fx") stays greenfield (no OTel dep)" "! grep -rqi opentelemetry $fx"
+done
 
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

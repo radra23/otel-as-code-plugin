@@ -257,6 +257,25 @@ jobs:
           grep -q "functions.cloudEvent(" fixtures/nodejs-gcp-functions/index.js
           ! grep -rq opentelemetry fixtures/nodejs-gcp-functions
 
+      # #122b — non-npm monorepo layouts. Each member lives where the packages/* and apps/*
+      # globs cannot see it, which is the point: resolution has to come from the repo's own
+      # declaration (pnpm-workspace.yaml, go.work, the parent POM's <modules>).
+      - name: Check non-npm monorepo fixtures
+        run: |
+          # pnpm: members under services/*, and no packages/ dir to fall back on
+          grep -q "services/\*" fixtures/pnpm-monorepo/pnpm-workspace.yaml
+          ! test -d fixtures/pnpm-monorepo/packages
+          [ "$(ls -d fixtures/pnpm-monorepo/services/*/ | wc -l)" -eq 2 ]
+          # go: 2 modules, and one of them has 2 binaries — the conflation trap
+          [ "$(grep -c './services/' fixtures/go-monorepo/go.work)" -eq 2 ]
+          [ "$(find fixtures/go-monorepo -name go.mod | wc -l)" -eq 2 ]
+          [ "$(ls fixtures/go-monorepo/services/orders/cmd | wc -l)" -eq 2 ]
+          # maven: aggregator root + 2 child modules
+          grep -q "<packaging>pom</packaging>" fixtures/java-maven-multimodule/pom.xml
+          [ "$(grep -c '<module>' fixtures/java-maven-multimodule/pom.xml)" -eq 2 ]
+          [ "$(find fixtures/java-maven-multimodule -mindepth 2 -name pom.xml | wc -l)" -eq 2 ]
+          ! grep -rqi opentelemetry fixtures/pnpm-monorepo fixtures/go-monorepo fixtures/java-maven-multimodule
+
       - name: Check nodejs-brownfield fixture has seeded violations
         run: |
           test -f fixtures/nodejs-brownfield/tracing.js

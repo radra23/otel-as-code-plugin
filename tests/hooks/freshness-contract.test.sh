@@ -14,13 +14,17 @@ INIT="commands/otel-init.md"
 
 # The /otel-init Step 1 freshness regex, kept identical to commands/otel-init.md. If the doc's
 # regex legitimately changes, update this line too — that update IS the point of check 0.
-REGEX='(^|/)(package\.json|pyproject\.toml|requirements\.txt|go\.mod|Cargo\.toml|pom\.xml|build\.gradle(\.kts)?|global\.json|Directory\.Packages\.props|[^/]+\.(csproj|fsproj|sln)|Dockerfile|host\.json|serverless\.yml|CODEOWNERS)$'
+REGEX='(^|/)(package\.json|pnpm-workspace\.yaml|pyproject\.toml|requirements\.txt|go\.mod|go\.work|Cargo\.toml|pom\.xml|build\.gradle(\.kts)?|settings\.gradle(\.kts)?|global\.json|Directory\.Packages\.props|[^/]+\.(csproj|fsproj|sln)|Dockerfile|host\.json|serverless\.yml|CODEOWNERS)$'
 
-# check 0: otel-init.md still carries the regex this test mirrors (drift guard on the mirror).
-if grep -qF 'package\.json|pyproject\.toml|requirements\.txt|go\.mod|Cargo\.toml|pom\.xml|build\.gradle' "$INIT"; then
-  echo "PASS: /otel-init Step 1 still carries the expected freshness regex"; pass=$((pass+1))
+# check 0: otel-init.md carries EXACTLY the regex this test mirrors. This compared only a
+# prefix before, so appending a new alternative to the doc — the way every new manifest type
+# arrives — slipped past silently while the mirror went stale. Compare the whole expression.
+if grep -qF "$REGEX" "$INIT"; then
+  echo "PASS: /otel-init Step 1 carries exactly the freshness regex this test mirrors"; pass=$((pass+1))
 else
-  echo "FAIL: /otel-init Step 1 freshness regex changed — update REGEX in this test to match"; fail=$((fail+1))
+  echo "FAIL: /otel-init Step 1 freshness regex differs from REGEX in this test — update the mirror"; fail=$((fail+1))
+  echo "  test mirror: $REGEX"
+  echo "  in the doc : $(grep -oE "\(\^\|/\)\([^']*\)\\\$" "$INIT" | head -1)"
 fi
 
 # check 1: every path in the scanner's documented identityInputs example is reproducible by the regex.

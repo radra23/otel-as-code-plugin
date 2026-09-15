@@ -46,8 +46,12 @@ just a larger surface to be wrong on. So the near-term work is depth.
   which immediately earned its keep: the serverless guidance had lumped all three FaaS hosts
   together as having no inbound HTTP server, but the Node Functions Framework runs a real
   in-process Express server, so the prescribed wrapper would have emitted a second SERVER span
-  per request. Exactly the roadmap's own argument for fixtures over guesswork. Still uncovered:
-  non-npm monorepo layouts beyond a `workspaces` declaration. Ongoing:
+  per request. Exactly the roadmap's own argument for fixtures over guesswork. **Non-npm monorepo layouts
+  are covered too** — pnpm (`services/*`), Go multi-module (`go.work`) and Maven multi-module
+  (`<modules>`): member resolution previously existed only for npm `workspaces`, so each of
+  those read as a single service (the aggregator or the repo root) while every real service went
+  undetected. The Go fixture also pins the distinction that several `go.mod` files means several
+  services while one module with `cmd/<name>` means one service with several binaries. Ongoing:
   [#122](https://github.com/radra23/otel-as-code-plugin/issues/122).
 - **Keep the pins honest — and the guidance with them.** The weekly drift-check CI job reports
   staleness automatically and opens/closes a tracking issue on its own; acting on what it reports
