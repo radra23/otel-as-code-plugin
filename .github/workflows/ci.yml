@@ -367,6 +367,45 @@ jobs:
           fi
           echo "Version bumped $BASE_VERSION -> $HEAD_VERSION alongside behavior changes."
 
+      # The bump above is only half the drift. ROADMAP.md opens with a "Current release" line
+      # that nothing checked, and it sat at 0.2.0 while the plugin shipped 0.8.0 — six minors
+      # of a public-facing doc quietly contradicting the manifest. Fires only when the version
+      # actually moved in this PR, so it never nags a PR that didn't touch the version.
+      #
+      # Advisory, not blocking: the roadmap is explicitly a draft and its currency is the
+      # maintainer's call, not CI's. The step therefore always exits 0. To stay useful rather
+      # than decorative it writes to the job summary as well as the log — a ::warning:: alone
+      # scrolls past, and an unread warning is how this drifted in the first place.
+      - name: Warn if a version bump leaves ROADMAP.md's current release behind
+        if: always()
+        run: |
+          BASE="${{ github.event.pull_request.base.sha }}"
+          HEAD="${{ github.event.pull_request.head.sha }}"
+          BASE_VERSION=$(git show "$BASE:.claude-plugin/plugin.json" | python3 -c "import json,sys; print(json.load(sys.stdin)['version'])")
+          HEAD_VERSION=$(git show "$HEAD:.claude-plugin/plugin.json" | python3 -c "import json,sys; print(json.load(sys.stdin)['version'])")
+          if [ "$BASE_VERSION" = "$HEAD_VERSION" ]; then
+            echo "Version unchanged in this PR; nothing to keep in step."
+            exit 0
+          fi
+          ROADMAP_VERSION=$(sed -n 's/^Current release: \*\*\([0-9][^*]*\)\*\*.*/\1/p' ROADMAP.md | head -1)
+          # The summary write is guarded: with GITHUB_STEP_SUMMARY unset (running this block
+          # anywhere but Actions) `>> ""` is an ambiguous redirect, which under `bash -eo
+          # pipefail` would fail the step — the opposite of advisory.
+          note() {
+            echo "::warning file=ROADMAP.md::$1"
+            if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+              echo "⚠ **ROADMAP.md is behind the version bump.** $1" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          }
+          if [ -z "$ROADMAP_VERSION" ]; then
+            note "No 'Current release: **<version>**' line found in ROADMAP.md (plugin.json is now $HEAD_VERSION). Restore the line, or update this guard if it was deliberately renamed."
+          elif [ "$ROADMAP_VERSION" != "$HEAD_VERSION" ]; then
+            note "plugin.json is $HEAD_VERSION but ROADMAP.md says 'Current release: $ROADMAP_VERSION'. Worth updating in this PR."
+          else
+            echo "ROADMAP.md current release ($ROADMAP_VERSION) matches plugin.json."
+          fi
+          exit 0
+
   validate-terraform:
     name: Terraform validate (snapshots)
     runs-on: ubuntu-latest
