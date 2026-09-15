@@ -30,9 +30,13 @@
 #   #132 — /otel-business-attrs Step 3 must not re-derive service.name from the manifest; the
 #         scanner already resolved it under its ladder (#57) and Step 3 re-deriving it at
 #         auto-write confidence silently overwrote the correct observed name.
-#   #122 — three codebase shapes the prompts author rules for but no fixture exercised:
+#   #122 — four codebase shapes the prompts author rules for but no fixture exercised:
 #         azure-functions (the serverless no-SERVER-span gap), an npm-workspaces monorepo mixing
-#         a browser SPA with two node services, and aws-lambda. Rule and repro pinned together.
+#         a browser SPA with two node services, aws-lambda, and gcp-cloud-functions. Rule and
+#         repro pinned together. Adding the GCP fixture found a real guidance bug: the serverless
+#         section lumped all three FaaS hosts together as "no inbound HTTP server", but the Node
+#         Functions Framework runs a real in-process Express server, so the prescribed
+#         withServerSpan() wrapper would have emitted a SECOND SERVER span per request.
 #   #134/#135 — a Python CLI's instrumentation-gen contract must (a) know a standalone service can
 #         be a multi-entry-point CLI tool (cliEntryPoints), not just a single process, and (b)
 #         never decorate a Click Group's own callback — Click invokes the group callback and
@@ -462,6 +466,37 @@ for fx in "$AZFN" "$MONO" "$LAMBDA"; do
   check "#122 $(basename "$fx") stays greenfield (no OTel dep)" \
     "! grep -rq opentelemetry $fx"
 done
+
+# gcp-cloud-functions — the host that must NOT be treated like the other two.
+GCPFN="fixtures/nodejs-gcp-functions"
+srvless_section() { sed -n "/^## Serverless hosts/,/^## /p" "$IGEN"; }
+
+check "#122 scanner host rule names gcp-cloud-functions evidence" \
+  'grep -q "functions-framework" "$SCANNER"'
+check "#122 gcp fixture carries that evidence (repro intact)" \
+  'grep -q "@google-cloud/functions-framework" "$GCPFN/package.json"'
+check "#122 gcp fixture invokes the framework API a wrapper would target" \
+  'grep -q "functions.http(" "$GCPFN/index.js"'
+check "#122 gcp fixture also has a non-HTTP (CloudEvent) trigger" \
+  'grep -q "functions.cloudEvent(" "$GCPFN/index.js"'
+# The correction itself. Without these, a later edit could quietly re-merge GCP into the
+# no-inbound-server group and reintroduce double SERVER spans.
+check "#122 serverless section distinguishes the three FaaS hosts, not one rule for all" \
+  'srvless_section | grep -qiE "do not behave the same|Inbound HTTP server in-process"'
+check "#122 guidance explicitly forbids wrapping a GCP handler" \
+  'srvless_section | grep -qiE "Do not wrap a GCP|no wrapper"'
+check "#122 guidance names WHY (in-process Express server)" \
+  'srvless_section | grep -qiE "in-process Express|depends on .?express"'
+check "#122 guidance names the cost of getting it wrong (double SERVER spans)" \
+  'srvless_section | grep -qiE "two SERVER spans|second SERVER span"'
+check "#122 the wrapper instruction is scoped to azure+lambda only" \
+  'srvless_section | grep -qE "For .azure-functions. and .aws-lambda. only"'
+check "#122 guidance keeps the real GCP caveat (catch-all route, http.route cannot distinguish)" \
+  'srvless_section | grep -qiE "catch-all route|http\.route is the same"'
+check "#122 version-specific claims are stamped, not asserted from memory" \
+  'srvless_section | grep -qiE "Verified against functions-framework|re-check if either"'
+check "#122 nodejs-gcp-functions stays greenfield (no OTel dep)" \
+  '! grep -rq opentelemetry "$GCPFN"'
 
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

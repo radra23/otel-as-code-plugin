@@ -660,8 +660,32 @@ multi-entry-point CLI" below instead of applying this subsection.
 
 ## Serverless hosts — instrumentation that is present but unreachable
 
-When `host` is `azure-functions`, `aws-lambda`, or `gcp-cloud-functions`, check how invocations
-reach the code before reporting the service instrumented.
+When `host` is a serverless runtime, check how invocations reach the code before reporting the
+service instrumented. **The three do not behave the same way, and the difference decides whether
+a wrapper helps or actively harms:**
+
+| `host` | Inbound HTTP server in-process? | What to generate |
+|---|---|---|
+| `azure-functions` | no — the host delivers over gRPC | the `withServerSpan()` wrapper below |
+| `aws-lambda` | no — the runtime invokes the handler directly | the same wrapper |
+| `gcp-cloud-functions` | **yes** — see below | **no wrapper**; auto-instrumentation already covers it |
+
+**Do not wrap a GCP Cloud Functions handler.** The Node Functions Framework
+(`@google-cloud/functions-framework`) depends on `express` and serves your function from a real
+in-process Express app (`express()` + `.listen()`), so `@opentelemetry/instrumentation-http`
+already emits a SERVER span per invocation and `@opentelemetry/instrumentation-express` adds the
+layer spans. Adding `withServerSpan()` on top produces **two SERVER spans for one request** —
+a corrupted trace shape and double the span cost, which is worse than the gap it was meant to
+close. Verified against functions-framework 5.0.5 and instrumentation-express 0.70.0 (which
+patches `express >=4.0.0 <6`, so the framework's Express 5 is covered); re-check if either
+moves, rather than assuming this stays true.
+
+There is a real caveat for GCP, just a different one: the framework mounts the function on a
+catch-all route (`app.use('/{*splat}', ...)`) and one process serves exactly one function, so
+`http.route` is the same for every request and cannot distinguish functions. Set the function
+target name (the `--target` value) as a resource or span attribute so traces are attributable;
+do not reach for a server-span wrapper to solve it. CloudEvent triggers arrive as HTTP POSTs to
+that same process, so they get SERVER spans too — describing the transport, not the event.
 
 In the Azure Functions v4 Node model the host delivers invocations to the worker over gRPC.
 There is **no inbound Node HTTP server**, so `@opentelemetry/instrumentation-http` emits no
@@ -670,7 +694,7 @@ nothing whatsoever, and routes that do call out emit orphaned CLIENT spans — o
 outbound call, with no way to reconstruct a request. "Instrumented out of the box" is false
 here, and the SDK reports no error saying so.
 
-For any such host:
+For `azure-functions` and `aws-lambda` only:
 
 1. Generate a `withServerSpan()` helper beside the bootstrap (in `telemetry.js` / `telemetry.ts`
    / `telemetry.py`) that opens a SERVER span around a handler, names it

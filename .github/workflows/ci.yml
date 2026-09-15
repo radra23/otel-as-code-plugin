@@ -249,6 +249,14 @@ jobs:
           grep -q exports.handler fixtures/nodejs-aws-lambda/src/charge.js
           ! grep -rq opentelemetry fixtures/nodejs-aws-lambda
 
+      - name: Check nodejs-gcp-functions fixture
+        run: |
+          grep -q "@google-cloud/functions-framework" fixtures/nodejs-gcp-functions/package.json
+          grep -q "functions-framework --target" fixtures/nodejs-gcp-functions/package.json
+          grep -q "functions.http(" fixtures/nodejs-gcp-functions/index.js
+          grep -q "functions.cloudEvent(" fixtures/nodejs-gcp-functions/index.js
+          ! grep -rq opentelemetry fixtures/nodejs-gcp-functions
+
       - name: Check nodejs-brownfield fixture has seeded violations
         run: |
           test -f fixtures/nodejs-brownfield/tracing.js
