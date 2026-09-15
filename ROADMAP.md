@@ -24,12 +24,16 @@ just a larger surface to be wrong on. So the near-term work is depth.
 - **Validate the Terraform against live vendor accounts — partially proven.** An opt-in,
   dormant-until-configured CI job (`tf-live-validate.yml`) applies a golden module against a real
   vendor account, reads back the created resources to confirm the API actually accepted them, then
-  destroys everything. **Dash0 is wired and has run live** — its first run immediately caught a
-  real bug offline `terraform validate` could never have caught. New Relic's leg exists in code but
-  has no account configured yet; Grafana and Datadog aren't wired in at all.
-  [#121](https://github.com/radra23/otel-as-code-plugin/issues/121) tracks broadening this. The
-  README's "not yet proven against live vendor backends" caveat narrows or comes off as each
-  backend joins Dash0.
+  destroys everything. **All four backends are now wired** — the matrix covers every vendor in
+  `backends.txt`, and the offline gating test enforces that rather than trusting it. **Dash0 has
+  run live**; its first run immediately caught a real bug offline `terraform validate` could never
+  have caught. The other three stay dormant until accounts are configured — each skips cleanly, so
+  the job is safe to run with any subset enabled. Grafana and New Relic each need one extra secret
+  naming a pre-existing object (a Prometheus datasource UID, an entity GUID), both documented in
+  `tests/tf-live/README.md` and both a real finding when they fail.
+  [#121](https://github.com/radra23/otel-as-code-plugin/issues/121) now tracks getting the
+  remaining three actually running. The README's "not yet proven against live vendor backends"
+  caveat narrows or comes off as each backend joins Dash0 — wiring is not proof; a green run is.
 - **Widen the fixture set.** Every generator bug found so far came from a codebase shape we had
   not met: a monorepo, a framework that hides the entry point, an unusual Python layout, a Blazor
   WASM app, a hostless .NET test project. Fixtures are cheaper than guesswork — see the

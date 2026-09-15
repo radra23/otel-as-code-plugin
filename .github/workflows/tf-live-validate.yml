@@ -27,7 +27,7 @@ jobs:
     strategy:
       fail-fast: false   # one vendor failing must not cancel the others
       matrix:
-        vendor: [newrelic, dash0]
+        vendor: [newrelic, dash0, grafana, datadog]
     steps:
       - uses: actions/checkout@v4
 
@@ -48,4 +48,10 @@ jobs:
           DASH0_AUTH_TOKEN: ${{ secrets.DASH0_AUTH_TOKEN }}
           DASH0_URL: ${{ secrets.DASH0_URL }}
           DASH0_DATASET: ${{ secrets.DASH0_DATASET }}
+          GRAFANA_URL: ${{ secrets.GRAFANA_URL }}
+          GRAFANA_SERVICE_ACCOUNT_TOKEN: ${{ secrets.GRAFANA_SERVICE_ACCOUNT_TOKEN }}
+          GRAFANA_PROMETHEUS_DATASOURCE_UID: ${{ secrets.GRAFANA_PROMETHEUS_DATASOURCE_UID }}
+          DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
+          DATADOG_APP_KEY: ${{ secrets.DATADOG_APP_KEY }}
+          DATADOG_SITE: ${{ secrets.DATADOG_SITE }}
         run: bash tests/tf-live/validate-vendor.sh ${{ matrix.vendor }}
