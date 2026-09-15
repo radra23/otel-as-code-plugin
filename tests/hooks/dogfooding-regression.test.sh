@@ -30,6 +30,9 @@
 #   #132 — /otel-business-attrs Step 3 must not re-derive service.name from the manifest; the
 #         scanner already resolved it under its ladder (#57) and Step 3 re-deriving it at
 #         auto-write confidence silently overwrote the correct observed name.
+#   #122 — three codebase shapes the prompts author rules for but no fixture exercised:
+#         azure-functions (the serverless no-SERVER-span gap), an npm-workspaces monorepo mixing
+#         a browser SPA with two node services, and aws-lambda. Rule and repro pinned together.
 #   #134/#135 — a Python CLI's instrumentation-gen contract must (a) know a standalone service can
 #         be a multi-entry-point CLI tool (cliEntryPoints), not just a single process, and (b)
 #         never decorate a Click Group's own callback — Click invokes the group callback and
@@ -387,6 +390,78 @@ check "#144 the command refuses a generatorSupported:true service (wrong tool fo
   'grep -qF "use /otel-instrument for it, not /otel-remediate" "$DEPREM_CMD"'
 check "#144 /otel-evaluate points generatorSupported:false findings at /otel-remediate, not --fix" \
   'grep -qF "/otel-remediate --service" commands/otel-evaluate.md'
+
+# --- #122: fixture coverage for authored-but-unexercised codebase shapes ------------------------
+# Same lockstep discipline as #91/#94 above: each check pairs the RULE in a prompt with the
+# FIXTURE that reproduces it. A rule with no fixture is a claim nothing tests; a fixture with no
+# rule is a directory nothing reads.
+AZFN="fixtures/nodejs-azure-functions"
+MONO="fixtures/nodejs-monorepo"
+LAMBDA="fixtures/nodejs-aws-lambda"
+IGEN="agents/instrumentation-gen.md"
+
+# host: azure-functions — the shape behind the worst reported gap (handlers emitting nothing,
+# withServerSpan generated but wired into zero files).
+check "#122 scanner host rule names azure-functions evidence" \
+  'grep -qE "azure-functions.*host\.json|host\.json.*@azure/functions" "$SCANNER"'
+check "#122 azure-functions fixture carries that evidence (repro intact)" \
+  '[ -f "$AZFN/host.json" ] && grep -q "@azure/functions" "$AZFN/package.json"'
+check "#122 fixture registers HTTP handlers for the wrapper to cover" \
+  '[ "$(grep -rhoE "app\.http\(" "$AZFN/src/functions/" | wc -l)" -ge 3 ]'
+check "#122 fixture has a non-HTTP trigger too (timer invocations need wrapping as well)" \
+  'grep -rq "app\.timer(" "$AZFN/src/functions/"'
+check "#122 fixture has a route with NO outbound call (emits silence, not an orphan span)" \
+  '! grep -q "undici\|fetch(" "$AZFN/src/functions/orderStatus.js"'
+check "#122 fixture has a liveness probe (the deliberate exclusion that makes a count meaningful)" \
+  '[ -f "$AZFN/src/functions/healthz.js" ]'
+check "#122 generator still requires WIRING the wrapper, not just emitting it" \
+  'grep -qiE "wire it|imports is instrumentation that never runs" "$IGEN"'
+# Scoped to the Serverless section. An unscoped grep passed against the Python-CLI section's
+# cross-reference to this same rule — i.e. it went green while the rule it claimed to pin was
+# gone. Extract the section first, then assert inside it.
+azfn_section() { sed -n "/^## Serverless hosts/,/^## /p" "$IGEN"; }
+check "#122 serverless section requires a wrapped-over-total COUNT" \
+  'azfn_section | grep -qE "Report a count in the summary|Handlers wrapped: [0-9]+/[0-9]+"'
+check "#122 that count must be READ from registrations, never estimated" \
+  'azfn_section | grep -qiE "never by estimating|by reading the registrations"'
+check "#122 a 0-of-N wrapped result must headline, not footnote" \
+  'azfn_section | grep -qiE "0/N|headline"'
+
+# aws-lambda — same class of gap, different vendor; the rule existed with nothing exercising it.
+check "#122 scanner host rule names aws-lambda evidence" \
+  'grep -qE "aws-lambda.*serverless\.yml|serverless\.yml.*template\.yaml" "$SCANNER"'
+check "#122 lambda fixture carries serverless.yml + the aws-lambda types dep" \
+  '[ -f "$LAMBDA/serverless.yml" ] && grep -q "aws-lambda" "$LAMBDA/package.json"'
+check "#122 lambda fixture exports a handler (what a wrapper has to wrap)" \
+  'grep -q "exports.handler" "$LAMBDA/src/charge.js"'
+
+# monorepo — resolve members from the repo's own `workspaces` declaration, not a glob guess.
+check "#122 scanner resolves monorepo members from the workspaces field" \
+  'grep -q "workspaces" "$SCANNER"'
+check "#122 scanner still keeps packages/* + apps/* as the fallback" \
+  'grep -qE "packages/\*.*apps/\*|apps/\*.*packages/\*" "$SCANNER"'
+check "#122 scanner excludes the workspace ROOT from services" \
+  'grep -qiE "workspace ROOT, not a service|not a service" "$SCANNER"'
+check "#122 monorepo fixture declares workspaces (repro intact)" \
+  'grep -q "\"workspaces\"" "$MONO/package.json"'
+check "#122 monorepo fixture has 3 members" \
+  '[ "$(ls -d "$MONO"/packages/*/ | wc -l)" -eq 3 ]'
+# The trap: all three members are language nodejs, but one runs in a browser. This is the exact
+# pair that made services[0] the wrong default.
+check "#122 monorepo mixes a browser SPA with node services (language != runtime)" \
+  'grep -q "vite" "$MONO/packages/portal-web/package.json" && grep -q "express" "$MONO/packages/checkout-api/package.json"'
+check "#122 the SPA member carries browser evidence the scanner rule names" \
+  'grep -q "react-dom" "$MONO/packages/portal-web/package.json" && [ -f "$MONO/packages/portal-web/index.html" ]'
+check "#122 two node members remain, so 'which service?' is a real prompt not a rhetorical one" \
+  '[ "$(grep -l "\"engines\"" "$MONO"/packages/*/package.json | wc -l)" -eq 2 ]'
+check "#122 /otel-instrument still refuses to default to services[0]" \
+  'grep -qE "services\[0\] is not a safe default|Never default to the first" commands/otel-instrument.md'
+
+# All three are greenfield: an OTel dep would mean the fixture tests regeneration, not detection.
+for fx in "$AZFN" "$MONO" "$LAMBDA"; do
+  check "#122 $(basename "$fx") stays greenfield (no OTel dep)" \
+    "! grep -rq opentelemetry $fx"
+done
 
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

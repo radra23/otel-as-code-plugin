@@ -1,0 +1,9 @@
+{
+  "name": "@storefront/checkout-api",
+  "version": "1.9.2",
+  "private": true,
+  "main": "src/index.js",
+  "engines": { "node": ">=20" },
+  "scripts": { "start": "node src/index.js" },
+  "dependencies": { "express": "^4.21.0" }
+}

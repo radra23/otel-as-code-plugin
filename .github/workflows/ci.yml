@@ -220,6 +220,35 @@ jobs:
           ! grep -qE "@opentelemetry|@vercel/otel|instrumentation" fixtures/nextjs-greenfield/package.json
           ! test -f fixtures/nextjs-greenfield/instrumentation.js
 
+      # The three shapes added for #122. Each is greenfield on purpose: an OTel dependency would
+      # turn it into a regeneration fixture and stop it testing detection, which is the point.
+      - name: Check nodejs-azure-functions fixture
+        run: |
+          test -f fixtures/nodejs-azure-functions/host.json
+          grep -q "@azure/functions" fixtures/nodejs-azure-functions/package.json
+          test -f fixtures/nodejs-azure-functions/src/functions/healthz.js
+          # >=3 http registrations + a timer: what makes a wrapped-over-total count meaningful
+          [ "$(grep -rhoE 'app\.http\(' fixtures/nodejs-azure-functions/src/functions/ | wc -l)" -ge 3 ]
+          grep -rq 'app\.timer(' fixtures/nodejs-azure-functions/src/functions/
+          ! grep -rq opentelemetry fixtures/nodejs-azure-functions
+
+      - name: Check nodejs-monorepo fixture
+        run: |
+          grep -q '"workspaces"' fixtures/nodejs-monorepo/package.json
+          [ "$(ls -d fixtures/nodejs-monorepo/packages/*/ | wc -l)" -eq 3 ]
+          # the trap: same language, different runtime
+          grep -q vite fixtures/nodejs-monorepo/packages/portal-web/package.json
+          test -f fixtures/nodejs-monorepo/packages/portal-web/index.html
+          grep -q express fixtures/nodejs-monorepo/packages/checkout-api/package.json
+          ! grep -rq opentelemetry fixtures/nodejs-monorepo
+
+      - name: Check nodejs-aws-lambda fixture
+        run: |
+          test -f fixtures/nodejs-aws-lambda/serverless.yml
+          grep -q aws-lambda fixtures/nodejs-aws-lambda/package.json
+          grep -q exports.handler fixtures/nodejs-aws-lambda/src/charge.js
+          ! grep -rq opentelemetry fixtures/nodejs-aws-lambda
+
       - name: Check nodejs-brownfield fixture has seeded violations
         run: |
           test -f fixtures/nodejs-brownfield/tracing.js

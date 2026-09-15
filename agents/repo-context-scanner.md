@@ -106,7 +106,15 @@ found none.
 ## Instructions
 
 1. Read the following files if they exist (use Read tool; skip if absent):
-   - `package.json` (and all `packages/*/package.json`, `apps/*/package.json` for monorepos)
+   - `package.json` — and, for a monorepo, every member's `package.json`. **Resolve members from
+     the root manifest's `workspaces` field when it has one** (npm/yarn/bun), or from
+     `pnpm-workspace.yaml`'s `packages:` list: that is the repo's own declaration of what its
+     services are. `packages/*` and `apps/*` are only the common conventions — a repo using
+     `services/*` or an explicit member list is invisible to a glob and its services go
+     undetected, which reads downstream as "this repo has one service" rather than as a miss.
+     Fall back to the `packages/*` / `apps/*` globs only when no workspace declaration exists.
+     A root manifest that is `private` with `workspaces` and no entry point is the workspace
+     ROOT, not a service — do not emit it as one.
    - `pyproject.toml` (and nested variants)
    - `go.mod` (and nested variants in `cmd/*/`)
    - `Cargo.toml`

@@ -1,0 +1,7 @@
+{
+  "name": "@storefront/root",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ]
+}

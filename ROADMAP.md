@@ -38,7 +38,12 @@ just a larger surface to be wrong on. So the near-term work is depth.
   not met: a monorepo, a framework that hides the entry point, an unusual Python layout, a Blazor
   WASM app, a hostless .NET test project. Fixtures are cheaper than guesswork — see the
   `dogfooding-regression.test.sh` pattern that ties an authored classification rule to the fixture
-  that exercises it, so a fix can't silently regress. Ongoing:
+  that exercises it, so a fix can't silently regress. Three shapes the prompts had rules for but
+  nothing exercised are now covered: **azure-functions** (the serverless no-SERVER-span gap — the
+  shape behind the worst field report, where the generated wrapper was imported by zero files),
+  an **npm-workspaces monorepo** mixing a browser SPA with two node services (the pair that made
+  `services[0]` the wrong default), and **aws-lambda**. Still uncovered: `gcp-cloud-functions`,
+  and non-npm monorepo layouts beyond a `workspaces` declaration. Ongoing:
   [#122](https://github.com/radra23/otel-as-code-plugin/issues/122).
 - **Keep the pins honest — and the guidance with them.** The weekly drift-check CI job reports
   staleness automatically and opens/closes a tracking issue on its own; acting on what it reports

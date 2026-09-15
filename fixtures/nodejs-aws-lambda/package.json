@@ -1,0 +1,16 @@
+{
+  "name": "payments-fn",
+  "version": "0.5.1",
+  "private": true,
+  "main": "src/charge.js",
+  "scripts": {
+    "deploy": "serverless deploy"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.658.0"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.145",
+    "serverless": "^3.39.0"
+  }
+}
