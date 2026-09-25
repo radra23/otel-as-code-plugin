@@ -344,7 +344,10 @@ found none.
      `/otel-init` Step 1 recomputes this set with a fixed filename regex and compares it to what
      you stored; any entry that regex cannot produce (a directory, a `.env` file) guarantees the
      two sets differ on every comparison, so the cache is judged stale forever and never hits.
-     Keep this list in lockstep with that regex. Sort it.
+     Keep this list in lockstep with that regex. Sort it. An empty list is valid: a GitOps or
+     config-only repo may have none of these files. Store `[]` and don't pad it with deployment
+     files. `/otel-init` Step 1 treats an in-scope service with no identity input under its
+     `rootDir` as always stale, so its `deployment.configFiles` get re-read on every run (#150).
    - `identityFingerprint`: a hash over those files' contents. Compute it with
      `git hash-object` over the listed paths and hash the result list, e.g.
      `git hash-object <paths...> | sha256sum | cut -c1-16`; for a non-git repo, `sha256sum` the

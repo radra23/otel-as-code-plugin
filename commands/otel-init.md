@@ -37,19 +37,34 @@ costs minutes per command for nothing.
    must store exactly the paths this regex produces — no bare directories, no `.env`/CI files —
    or the two sets differ on every run and the cache can never be judged current. Compare the
    two as sorted sets, not by order.
-2. Otherwise recompute the fingerprint over that same list and compare to
+2. Next, check that the fingerprint actually covers every service. The fingerprint only sees files
+   matched by the regex above, so a service with none of them has nothing that can change it. A
+   deployment-only workload (an upstream binary configured by a Kubernetes manifest, Helm
+   values, or Terraform) is the common case, and a GitOps/config-only repo can have none of these
+   files at all. There the stored and recomputed sets are both `[]`, the fingerprint is a hash
+   of nothing, and without this check the cache would read as current forever, however much the
+   deployment config changed (#150).
+   An in-scope service (`inScope: true`) is **uncovered** when no `identityInputs` path other than
+   `CODEOWNERS` is at or under its `rootDir`. A path is under `rootDir` when it equals it or starts
+   with `<rootDir>/`, and `rootDir: "."` covers every path. `CODEOWNERS` maps owners and says
+   nothing about how a service is built or deployed, so it doesn't count. If any in-scope service
+   is uncovered, or `identityInputs` is empty, the cache is STALE. Re-scanning such a service is
+   cheap, since there is little source to read. Don't try to fix this by adding deployment
+   files to `identityInputs`: the regex can't reproduce them, so the sets would never match (#30).
+3. Otherwise recompute the fingerprint over that same list and compare to
    `freshness.identityFingerprint`:
    ```
    git hash-object <the paths above> | sha256sum | cut -c1-16
    ```
    If it differs, the cache is STALE (a manifest changed). If it matches, the cache is CURRENT
    even when `HEAD` has moved.
-3. If this is not a git repo (`git rev-parse` fails), fall back to `sha256sum` over the same
+4. If this is not a git repo (`git rev-parse` fails), fall back to `sha256sum` over the same
    paths; if that also fails, treat the cache as stale.
 
 - If CURRENT: print "✓ Context cache is current (identity: <fingerprint>)" and skip to Step 4.
 - If STALE: print "↻ Context cache is stale (<reason: new/removed manifest <path> | <path>
-  changed>) — re-scanning, confirmed answers preserved..." and continue to Step 2.
+  changed | service <id> has no identity manifest, so its deployment config is always
+  re-checked>) — re-scanning, confirmed answers preserved..." and continue to Step 2.
 
 ## Step 2: Invoke repo-context-scanner
 

@@ -4,7 +4,8 @@
 # EXACTLY the set that /otel-init Step 1's freshness regex (commands/otel-init.md) can reproduce.
 # When they disagree, the recomputed set never equals the stored set, so the cache is judged stale
 # on every command forever — a cache that can never hit. The two were written independently and
-# never cross-checked, which is how that shipped; this test cross-checks them.
+# never cross-checked, which is how that shipped; this test cross-checks them. It also guards #150:
+# a service with no identity input to fingerprint (a config-only repo) must always read as stale.
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 pass=0; fail=0
@@ -53,6 +54,32 @@ if ! grep -q "service root directories themselves" "$SCANNER"; then
   echo "PASS: scanner no longer includes bare service root directories in identityInputs"; pass=$((pass+1))
 else
   echo "FAIL: scanner still lists bare service root directories in identityInputs (#30 regression)"; fail=$((fail+1))
+fi
+
+# check 3 (#150): an in-scope service no identity input covers must make the cache STALE. Without
+# this rule a repo with zero identity inputs fingerprints the empty set, so both sides are `[]` and
+# the cache reads as current forever, whatever happens to its deployment config.
+if grep -q "is \*\*uncovered\*\* when no \`identityInputs\` path other than" "$INIT" \
+   && grep -q "or \`identityInputs\` is empty, the cache is STALE" "$INIT"; then
+  echo "PASS: /otel-init Step 1 treats uncovered services / empty identityInputs as stale (#150)"; pass=$((pass+1))
+else
+  echo "FAIL: /otel-init Step 1 lost the uncovered-service / empty-identityInputs stale rule (#150)"; fail=$((fail+1))
+fi
+if grep -q "An empty list is valid" "$SCANNER" && grep -q "always stale" "$SCANNER"; then
+  echo "PASS: scanner documents empty identityInputs as valid and always-stale (#150)"; pass=$((pass+1))
+else
+  echo "FAIL: scanner no longer documents the empty-identityInputs contract (#150)"; fail=$((fail+1))
+fi
+
+# check 4 (#150): the keycloak-deployment fixture is the repro, a deployment-only service that the
+# Step 1 regex can't match at all. If someone adds a manifest to it, the fixture stops exercising
+# the empty-set case, and this check says so.
+KC_DIR="fixtures/keycloak-deployment"
+kc_matches=$(cd "$KC_DIR" && find . -type f | sed 's|^\./||' | grep -E "$REGEX" || true)
+if [ -d "$KC_DIR" ] && [ -z "$kc_matches" ]; then
+  echo "PASS: $KC_DIR has no identity inputs, so it exercises the empty-set case (#150)"; pass=$((pass+1))
+else
+  echo "FAIL: $KC_DIR is missing or now has identity inputs ($kc_matches) — it no longer reproduces #150"; fail=$((fail+1))
 fi
 
 echo ""
