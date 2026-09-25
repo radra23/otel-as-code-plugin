@@ -7,6 +7,7 @@ reports what is behind:
   - Node OTel SDK packages   (agents/instrumentation-gen.md pins vs the npm registry)
   - Python OTel SDK packages (agents/instrumentation-gen.md pins vs PyPI)
   - Terraform providers       (snapshot required_providers major vs the Terraform registry)
+  - Semconv GUIDANCE          (the OLD->NEW table vs the upstream attribute registry at the pin)
 
 Informational: always exits 0. Drift is reported as `::warning::` lines plus a markdown table
 written to $GITHUB_STEP_SUMMARY (when set). Run locally: `python3 scripts/drift_check.py`.
@@ -48,6 +49,109 @@ def latest_tf(source):  # e.g. "grafana/grafana"
 
 def latest_semconv():
     return fetch_json("https://api.github.com/repos/open-telemetry/semantic-conventions/releases/latest")["tag_name"].lstrip("v")
+
+
+# --- semconv attribute registry (first-party, pinned) -----------------------
+# The version comparison above catches the PIN falling behind upstream. It cannot catch the
+# guidance itself being wrong — a NEW attribute this plugin tells people to migrate TO that
+# does not exist at the pinned version, or an OLD one we call deprecated that is in fact still
+# current. That is the failure the field report hit (generated comments asserting stability
+# facts that were false at the installed version), so it is checked against the registry
+# rather than trusted.
+#
+# Source is the semantic-conventions repo itself at the pinned tag — first-party, versioned,
+# no auth, no third-party service in the path.
+_REGISTRY_CACHE = {}
+_REGISTRY_URL = ("https://raw.githubusercontent.com/open-telemetry/semantic-conventions/"
+                 "v{version}/model/{area}/registry.yaml")
+
+
+def _registry_area(area, version):
+    """Attributes defined in one registry area, as {name: {stability, deprecated}}.
+
+    An area that 404s returns {} (no such namespace at this version) — distinct from a
+    parse/dependency failure, which raises so the caller can report "unavailable" rather
+    than mistaking it for "the guidance is wrong".
+    """
+    key = (area, version)
+    if key not in _REGISTRY_CACHE:
+        import yaml  # raises if PyYAML is absent — reported as unavailable, never as drift
+        out = subprocess.run(
+            ["curl", "-fsSL", "--max-time", "20", _REGISTRY_URL.format(version=version, area=area)],
+            capture_output=True, text=True, timeout=30,
+        )
+        attrs = {}
+        if out.returncode == 0:
+            doc = yaml.safe_load(out.stdout) or {}
+            # Two file shapes coexist at the SAME tag: the older `groups[].attributes[].id`
+            # and `file_format: definition/2`'s top-level `attributes[].key`. Handling only
+            # one silently reports every attribute in the other as absent — i.e. a false
+            # "the guidance is wrong" alarm.
+            entries = [a for g in (doc.get("groups") or []) for a in (g.get("attributes") or [])]
+            entries += doc.get("attributes") or []
+            for a in entries:
+                if isinstance(a, dict) and (a.get("id") or a.get("key")):
+                    attrs[a.get("id") or a.get("key")] = {
+                        "stability": a.get("stability"),
+                        "deprecated": bool(a.get("deprecated")),
+                    }
+        _REGISTRY_CACHE[key] = attrs
+    return _REGISTRY_CACHE[key]
+
+
+def semconv_lookup(name, version):
+    """Registry record for one attribute, or None when absent at this version.
+
+    The area is derived from the attribute's own root namespace (`server.address` ->
+    model/server/) rather than a hardcoded list of areas, which would rot exactly the way
+    this check exists to catch.
+    """
+    return _registry_area(name.split(".")[0], version).get(name)
+
+
+_ATTR_TOKEN = re.compile(r"`([a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+)`")
+
+
+def semconv_table_entries():
+    """(old, [new, ...]) for each row of the OLD->NEW tables in the discipline skill.
+
+    A row can name several replacements (`http.target` -> `url.path` + `url.query`), so every
+    backticked dotted token in the NEW cell is returned and checked.
+    """
+    rows = []
+    for line in _read("skills/semconv-discipline/SKILL.md").splitlines():
+        if not line.startswith("|") or "---" in line:
+            continue
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if len(cells) < 2:
+            continue
+        old, new = _ATTR_TOKEN.findall(cells[0]), _ATTR_TOKEN.findall(cells[1])
+        if len(old) == 1 and new:
+            rows.append((old[0], new))
+    return rows
+
+
+def semconv_guidance_findings(version):
+    """Check every OLD->NEW claim against the registry. Returns a list of human-readable
+    findings (empty when the guidance matches upstream)."""
+    findings = []
+    for old, news in semconv_table_entries():
+        for new in news:
+            rec = semconv_lookup(new, version)
+            if rec is None:
+                findings.append(
+                    f"`{new}` is offered as the replacement for `{old}`, but no such attribute "
+                    f"exists in the registry at v{version}")
+            elif rec["stability"] != "stable":
+                findings.append(
+                    f"`{new}` is offered as a replacement for `{old}`, but is "
+                    f"`{rec['stability']}` (not stable) at v{version}")
+        rec = semconv_lookup(old, version)
+        if rec is not None and rec["stability"] == "stable" and not rec["deprecated"]:
+            findings.append(
+                f"`{old}` is listed as deprecated, but is still stable and not marked "
+                f"deprecated at v{version}")
+    return findings
 
 
 def safe(fn, *a):
@@ -142,12 +246,31 @@ def main():
         ["| Component | Pinned | Latest | Status |", "|---|---|---|---|"]
         + [f"| {c} | `{p}` | `{l}` | {s} |" for c, p, l, s in rows]
     )
+
+    # Guidance accuracy is a different question from version lag and is reported separately:
+    # the pin can be perfectly current while the OLD->NEW table still tells people to migrate
+    # to an attribute that does not exist. Unavailable (no PyYAML / no network) is reported as
+    # "not checked", never as a finding — a broken checker must not read as broken guidance.
+    pin = semconv_pin()
+    guidance, gerr = safe(semconv_guidance_findings, pin)
+    if gerr:
+        guidance_md = f"_Not checked ({gerr})._"
+    elif guidance:
+        warnings.extend(f"semconv guidance: {g}" for g in guidance)
+        guidance_md = "\n".join(f"- ⚠ {g}" for g in guidance)
+    else:
+        guidance_md = (f"_Every OLD→NEW replacement in `semconv-discipline` resolves as a stable "
+                       f"attribute in the upstream registry at v{pin}._")
+
     for w in warnings:
         print(f"::warning::otel-as-code drift — {w}")
-    summary = f"**{len(warnings)} component(s) behind upstream.** Bump the pins, regenerate the affected snapshots, and re-validate." if warnings \
-        else "**All pinned versions are current.**"
-    body = "## otel-as-code upstream drift\n\n" + table + "\n\n" + summary + \
-        "\n\n_Generated by the `drift-check` CI job (`scripts/drift_check.py`)._\n"
+    summary = (f"**{len(warnings)} item(s) need attention.** Bump the pins, regenerate the "
+               f"affected snapshots, correct any guidance finding, and re-validate.") if warnings \
+        else "**All pinned versions are current and the semconv guidance matches the registry.**"
+    body = ("## otel-as-code upstream drift\n\n" + table
+            + "\n\n### Semconv guidance vs registry\n\n" + guidance_md
+            + "\n\n" + summary
+            + "\n\n_Generated by the `drift-check` CI job (`scripts/drift_check.py`)._\n")
     print(body)
 
     # Report body for the CI issue step; drift count for gating (both consumed by ci.yml).

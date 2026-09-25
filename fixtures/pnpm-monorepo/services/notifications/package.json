@@ -1,0 +1,9 @@
+{
+  "name": "@acme/notifications",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.js",
+  "engines": { "node": ">=20" },
+  "scripts": { "start": "node index.js" },
+  "dependencies": { "fastify": "^5.0.0" }
+}

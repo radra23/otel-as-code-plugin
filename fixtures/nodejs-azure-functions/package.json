@@ -1,0 +1,13 @@
+{
+  "name": "orders-fn",
+  "version": "1.2.0",
+  "private": true,
+  "main": "src/functions/*.js",
+  "scripts": {
+    "start": "func start"
+  },
+  "dependencies": {
+    "@azure/functions": "^4.5.0",
+    "undici": "^6.19.8"
+  }
+}

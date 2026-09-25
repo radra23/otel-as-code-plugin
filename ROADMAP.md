@@ -8,9 +8,12 @@
 > of the same shape, and every concrete line item that isn't done yet has a linked tracking issue —
 > comment there rather than only in this file if you want to weigh in.
 
-Current release: **0.2.0**. Node.js, Python, Java, .NET, Go, and Ruby instrumentation, Terraform
-for Grafana, Datadog, New Relic, and Dash0, semconv pinned at 1.44.0. Everything shipped so far is
-tracked (closed) under the
+Current release: **0.8.0**. Node.js, Python, Java, .NET, Go, and Ruby instrumentation, Terraform
+for Grafana, Datadog, New Relic, and Dash0, semconv pinned at 1.44.0. Since 0.2.0 the command set
+has grown past generation: `/otel-uninstrument` rolls instrumentation back behind an ownership
+marker, `/otel-remediate` proposes a deployment-config diff for services that have no application
+source to bootstrap, and `--dry-run` previews any writing command before it writes. Everything
+shipped so far is tracked (closed) under the
 [`0.1.0 MVP — shipped`](https://github.com/radra23/otel-as-code-plugin/milestone/4) milestone.
 
 ## Now: earning trust in what already ships — [milestone](https://github.com/radra23/otel-as-code-plugin/milestone/1)
@@ -21,21 +24,44 @@ just a larger surface to be wrong on. So the near-term work is depth.
 - **Validate the Terraform against live vendor accounts — partially proven.** An opt-in,
   dormant-until-configured CI job (`tf-live-validate.yml`) applies a golden module against a real
   vendor account, reads back the created resources to confirm the API actually accepted them, then
-  destroys everything. **Dash0 is wired and has run live** — its first run immediately caught a
-  real bug offline `terraform validate` could never have caught. New Relic's leg exists in code but
-  has no account configured yet; Grafana and Datadog aren't wired in at all.
-  [#121](https://github.com/radra23/otel-as-code-plugin/issues/121) tracks broadening this. The
-  README's "not yet proven against live vendor backends" caveat narrows or comes off as each
-  backend joins Dash0.
+  destroys everything. **All four backends are now wired** — the matrix covers every vendor in
+  `backends.txt`, and the offline gating test enforces that rather than trusting it. **Dash0 has
+  run live**; its first run immediately caught a real bug offline `terraform validate` could never
+  have caught. The other three stay dormant until accounts are configured — each skips cleanly, so
+  the job is safe to run with any subset enabled. Grafana and New Relic each need one extra secret
+  naming a pre-existing object (a Prometheus datasource UID, an entity GUID), both documented in
+  `tests/tf-live/README.md` and both a real finding when they fail.
+  [#121](https://github.com/radra23/otel-as-code-plugin/issues/121) now tracks getting the
+  remaining three actually running. The README's "not yet proven against live vendor backends"
+  caveat narrows or comes off as each backend joins Dash0 — wiring is not proof; a green run is.
 - **Widen the fixture set.** Every generator bug found so far came from a codebase shape we had
   not met: a monorepo, a framework that hides the entry point, an unusual Python layout, a Blazor
   WASM app, a hostless .NET test project. Fixtures are cheaper than guesswork — see the
   `dogfooding-regression.test.sh` pattern that ties an authored classification rule to the fixture
-  that exercises it, so a fix can't silently regress. Ongoing:
+  that exercises it, so a fix can't silently regress. Three shapes the prompts had rules for but
+  nothing exercised are now covered: **azure-functions** (the serverless no-SERVER-span gap — the
+  shape behind the worst field report, where the generated wrapper was imported by zero files),
+  an **npm-workspaces monorepo** mixing a browser SPA with two node services (the pair that made
+  `services[0]` the wrong default), **aws-lambda**, and **gcp-cloud-functions** — the last of
+  which immediately earned its keep: the serverless guidance had lumped all three FaaS hosts
+  together as having no inbound HTTP server, but the Node Functions Framework runs a real
+  in-process Express server, so the prescribed wrapper would have emitted a second SERVER span
+  per request. Exactly the roadmap's own argument for fixtures over guesswork. **Non-npm monorepo layouts
+  are covered too** — pnpm (`services/*`), Go multi-module (`go.work`) and Maven multi-module
+  (`<modules>`): member resolution previously existed only for npm `workspaces`, so each of
+  those read as a single service (the aggregator or the repo root) while every real service went
+  undetected. The Go fixture also pins the distinction that several `go.mod` files means several
+  services while one module with `cmd/<name>` means one service with several binaries. Ongoing:
   [#122](https://github.com/radra23/otel-as-code-plugin/issues/122).
-- **Keep the pins honest.** The weekly drift-check CI job reports staleness automatically and
-  opens/closes a tracking issue on its own; acting on what it reports (bumping semconv, the SDKs,
-  the Java agent, the providers) stays routine, manual work that keeps the output worth trusting.
+- **Keep the pins honest — and the guidance with them.** The weekly drift-check CI job reports
+  staleness automatically and opens/closes a tracking issue on its own; acting on what it reports
+  (bumping semconv, the SDKs, the Java agent, the providers) stays routine, manual work that keeps
+  the output worth trusting. It also checks something a version comparison cannot: every OLD→NEW
+  row in `semconv-discipline` is verified against the upstream attribute registry at the pinned
+  tag, so a replacement that does not exist — or an attribute called deprecated that is still
+  current — is caught while the pin itself looks perfectly fresh. That failure mode is the one
+  that actually bit: confidently wrong guidance ages worse than an old pin, because nothing about
+  it looks stale.
 
 ## Next: the coverage people ask for most — [milestone](https://github.com/radra23/otel-as-code-plugin/milestone/2)
 
@@ -59,10 +85,15 @@ just a larger surface to be wrong on. So the near-term work is depth.
   Collector is the right place to enforce it, and almost nobody does it, because writing the
   config by hand is tedious. That is exactly the kind of tedium a generator should absorb.
   Tracked: [#119](https://github.com/radra23/otel-as-code-plugin/issues/119).
-- **Semconv migration assistance.** `/otel-evaluate` already finds deprecated attributes and
-  reports them with stable finding IDs. The natural next step is generating the migration (via the
-  existing `--fix <ids>` mechanism) rather than only reporting the gap.
-  Tracked: [#120](https://github.com/radra23/otel-as-code-plugin/issues/120).
+- **Semconv migration assistance — shipped for the mechanical cases.**
+  [#120](https://github.com/radra23/otel-as-code-plugin/issues/120) landed: `/otel-evaluate`
+  reports deprecated attributes with stable finding IDs, and `/otel-instrument --fix <ids>` now
+  generates the migration for rows the `semconv-discipline` table marks `mechanical` — a straight
+  key rename. What is left is the `manual` class, where the value itself changes shape
+  (`http.target` splitting into `url.path` + `url.query`, `http.host` carrying a port that
+  `server.address` does not). Those are reported back as skipped, naming why, rather than guessed
+  at — and a generator that reshapes values wrongly is worse than one that declines, so this stays
+  deliberately unfinished until the reshaping can be proven per case.
 
 ## Not planned
 
@@ -73,7 +104,12 @@ Saying no in public saves everyone time.
   cannot run in a bundle. RUM is a genuinely different problem and it deserves a different tool.
 - **Becoming a vendor's agent.** Backends are generated from the same vendor-neutral service
   model, and that is the point. If a feature only makes sense for one vendor's proprietary
-  surface, it belongs in that vendor's tooling.
+  surface, it belongs in that vendor's tooling. All four supported backends now ship an official
+  MCP server, and the answer there is the same: those are runtime tools that query a live account,
+  while this plugin generates committed artifacts before one exists. They are worth using to
+  *verify* generated output against a real account — never to generate it, which would route
+  vendor-neutral output back through a single vendor. Any external source stays optional: the
+  offline path has to keep working, because that is what CI validates against.
 - **Replacing your IaC.** The generated Terraform is a reviewed starting point that you own
   after generation. It is not a module to depend on, and there will be no registry release.
 

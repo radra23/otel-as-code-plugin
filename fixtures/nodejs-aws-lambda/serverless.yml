@@ -1,0 +1,20 @@
+service: payments-fn
+
+provider:
+  name: aws
+  runtime: nodejs20.x
+  region: eu-west-1
+  environment:
+    PAYMENTS_TABLE: ${self:service}-${sls:stage}
+
+functions:
+  charge:
+    handler: src/charge.handler
+    events:
+      - httpApi:
+          path: /charge
+          method: post
+  settle:
+    handler: src/settle.handler
+    events:
+      - schedule: rate(1 hour)

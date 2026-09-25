@@ -1,0 +1,9 @@
+{
+  "name": "@storefront/billing-worker",
+  "version": "0.8.0",
+  "private": true,
+  "main": "worker.js",
+  "engines": { "node": ">=20" },
+  "scripts": { "start": "node worker.js" },
+  "dependencies": { "amqplib": "^0.10.4" }
+}

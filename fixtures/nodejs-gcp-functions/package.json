@@ -1,0 +1,14 @@
+{
+  "name": "notify-fn",
+  "version": "1.1.0",
+  "private": true,
+  "main": "index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "functions-framework --target=sendNotification --port=8080"
+  },
+  "dependencies": {
+    "@google-cloud/functions-framework": "^5.0.5",
+    "undici": "^6.19.8"
+  }
+}

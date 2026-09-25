@@ -59,6 +59,55 @@ identifier positions (uids, `alert:` names, `metadata.name`), while keeping the 
 `var.service_name` in query filters and display titles. See that section for the exact expression
 and the per-field separator choice.
 
+## Optional: verify against the live provider schema
+
+`terraform-patterns` is a **cache of the provider schema**, hand-written and pinned to a provider
+major. That is what makes it useful (it carries gotchas a schema dump does not) and also what
+makes it rot: a provider release can rename an argument, add a required field, or deprecate a
+resource, and the skill will keep confidently describing the old shape.
+
+So when a schema lookup is available, prefer it for *facts* (does this resource exist, what are
+its required arguments, is this argument deprecated) and keep using the skill for *judgement*
+(which resources to emit, which queries, the gotchas). Take the first of these that is available:
+
+1. **A Terraform registry/schema lookup tool**, if the session exposes one (the HashiCorp
+   Terraform MCP server provides provider docs and resource schemas straight from the registry —
+   no provider download, no `terraform` binary). Resolve each resource type you are about to
+   emit, at the provider version pinned in `required_providers`.
+2. **The `terraform` binary**, if present: after `init`, run
+   `terraform -chdir=<output_dir> providers schema -json` and read the resource blocks out of it.
+3. **Neither** — generate from `terraform-patterns` alone.
+
+Apply the result:
+
+- An argument the skill names that the schema does not have, or marks deprecated → trust the
+  schema, emit the current form, and report the disagreement so the skill gets corrected. That
+  report is the point: it is how the cache gets repaired instead of quietly drifting.
+- A required argument the schema has and the skill omits → emit it.
+- Anything the schema is silent on → the skill still governs.
+
+Both paths need tools from the session: a registry/MCP lookup tool for (1), `Bash` for (2).
+This agent deliberately declares no `tools:` restriction in its frontmatter so it inherits them
+— adding one would silently disable this step, the same way a `Skill` reference in an agent file
+silently fails.
+
+**This step is optional and must stay that way.** No lookup being available is a normal
+outcome, not an error: CI validates the golden snapshots offline, and a user with no Terraform
+MCP and no `terraform` binary must still get a module. Never block generation on it, never
+require credentials for it, and never claim verification you did not perform — if you generated
+from the skill alone, say so in one line:
+
+```
+Provider schema: not verified (no registry lookup available) — generated from terraform-patterns
+at grafana/grafana ~> 4.0.
+```
+
+and when you did verify, say that instead, naming the source and version:
+
+```
+Provider schema: verified against grafana/grafana 4.9.0 via the Terraform registry.
+```
+
 ## Generation steps
 
 1. Create `<output_dir>/` if it does not exist.

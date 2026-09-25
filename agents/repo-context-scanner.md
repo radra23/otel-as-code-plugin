@@ -106,12 +106,31 @@ found none.
 ## Instructions
 
 1. Read the following files if they exist (use Read tool; skip if absent):
-   - `package.json` (and all `packages/*/package.json`, `apps/*/package.json` for monorepos)
+   - `package.json` — and, for a monorepo, every member's `package.json`. **Resolve members from
+     the root manifest's `workspaces` field when it has one** (npm/yarn/bun), or from
+     `pnpm-workspace.yaml`'s `packages:` list: that is the repo's own declaration of what its
+     services are. `packages/*` and `apps/*` are only the common conventions — a repo using
+     `services/*` or an explicit member list is invisible to a glob and its services go
+     undetected, which reads downstream as "this repo has one service" rather than as a miss.
+     Fall back to the `packages/*` / `apps/*` globs only when no workspace declaration exists.
+     A root manifest that is `private` with `workspaces` and no entry point is the workspace
+     ROOT, not a service — do not emit it as one.
    - `pyproject.toml` (and nested variants)
-   - `go.mod` (and nested variants in `cmd/*/`)
+   - `go.mod` — and every module of a multi-module repo. **Resolve modules from `go.work`'s
+     `use` list when the repo has one**, otherwise find every nested `go.mod`. Do not conflate
+     Go's two monorepo shapes: several `go.mod` files means several MODULES, each its own
+     service; one `go.mod` with `cmd/<name>/main.go` is ONE module with several BINARIES — a
+     single service with multiple entry points (record them as `cliEntryPoints`), not several
+     services. A `services/*/go.mod` layout is invisible to a `cmd/*` glob.
    - `Cargo.toml`
-   - `pom.xml` / `build.gradle`
-   - `*.csproj` / `*.fsproj` / `*.sln` / `global.json` / `Directory.Packages.props` (.NET)
+   - `pom.xml` / `build.gradle` — and every module of a multi-module build. **Resolve modules
+     from the parent POM's `<modules>` list, or from `settings.gradle(.kts)`'s `include` lines.**
+     A POM with `<packaging>pom</packaging>` is an aggregator, not a service: reading only the
+     root file yields one "service" that is really the build container while every real service
+     goes undetected.
+   - `*.csproj` / `*.fsproj` / `*.sln` / `global.json` / `Directory.Packages.props` (.NET) —
+     a `.sln` enumerates its projects; resolve them from it rather than globbing, then apply the
+     host-builder rule below to each (that is what excludes a test project).
    - `Dockerfile` (and all `*/Dockerfile`)
    - `docker-compose.yml` / `docker-compose.yaml`
    - `CODEOWNERS` / `.github/CODEOWNERS`
@@ -348,7 +367,8 @@ Return ONLY the following JSON object. No explanation, no preamble, no markdown 
     "gitHash": "<output of: git rev-parse HEAD, or 'unknown' if not a git repo>",
     "gitDirty": false,
     "identityFingerprint": "<hash over identityInputs>",
-    "identityInputs": ["package.json", "api/package.json", "api/Dockerfile", "CODEOWNERS"]
+    "identityInputs": ["package.json", "pnpm-workspace.yaml", "go.work", "settings.gradle",
+                       "api/package.json", "api/Dockerfile", "CODEOWNERS"]
   },
   "services": [
     {

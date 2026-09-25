@@ -28,6 +28,12 @@ creds_present() {
   case "$VENDOR" in
     newrelic) [ -n "${NEW_RELIC_ACCOUNT_ID:-}" ] && [ -n "${NEW_RELIC_API_KEY:-}" ] ;;
     dash0)    [ -n "${DASH0_AUTH_TOKEN:-}" ] ;;
+    # Both halves are required. The module's grafana_url default is the placeholder
+    # https://example.grafana.net, so a token without a URL would apply against nothing.
+    grafana)  [ -n "${GRAFANA_URL:-}" ] && [ -n "${GRAFANA_SERVICE_ACCOUNT_TOKEN:-}" ] ;;
+    # Datadog needs BOTH keys: the API key authenticates the org, but resource CRUD
+    # (dashboards, monitors, SLOs) is rejected with only an API key.
+    datadog)  [ -n "${DATADOG_API_KEY:-}" ] && [ -n "${DATADOG_APP_KEY:-}" ] ;;
     *) echo "::error::live validation is not wired for vendor '$VENDOR' yet (add its cred mapping below)"; return 2 ;;
   esac
 }
@@ -62,6 +68,24 @@ case "$VENDOR" in
     export TF_VAR_dash0_auth_token="$DASH0_AUTH_TOKEN"
     [ -n "${DASH0_URL:-}" ]     && export TF_VAR_dash0_url="$DASH0_URL"
     [ -n "${DASH0_DATASET:-}" ] && export TF_VAR_dash0_dataset="$DASH0_DATASET"
+    ;;
+  grafana)
+    export TF_VAR_grafana_url="$GRAFANA_URL"
+    export TF_VAR_grafana_service_account_token="$GRAFANA_SERVICE_ACCOUNT_TOKEN"
+    # Same shape as New Relic's entity GUID: the module CREATES its folder and dashboard, but
+    # grafana_rule_group and grafana_slo REFERENCE an existing Prometheus datasource by UID, and
+    # Grafana validates that UID when an alert rule is created (a dashboard is stored as opaque
+    # JSON and would not complain). The default `grafanacloud-prom` is the Grafana Cloud
+    # convention and is wrong for most self-hosted stacks — set this to your stack's UID, or the
+    # alert-rule apply fails. That failure is a real finding, not harness noise.
+    [ -n "${GRAFANA_PROMETHEUS_DATASOURCE_UID:-}" ] && \
+      export TF_VAR_prometheus_datasource_uid="$GRAFANA_PROMETHEUS_DATASOURCE_UID"
+    ;;
+  datadog)
+    export TF_VAR_datadog_api_key="$DATADOG_API_KEY"
+    export TF_VAR_datadog_app_key="$DATADOG_APP_KEY"
+    # datadoghq.eu / us3 / us5 / ddog-gov.com all need this; the module builds api_url from it.
+    [ -n "${DATADOG_SITE:-}" ] && export TF_VAR_datadog_site="$DATADOG_SITE"
     ;;
 esac
 

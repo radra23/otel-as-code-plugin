@@ -30,6 +30,18 @@
 #   #132 — /otel-business-attrs Step 3 must not re-derive service.name from the manifest; the
 #         scanner already resolved it under its ladder (#57) and Step 3 re-deriving it at
 #         auto-write confidence silently overwrote the correct observed name.
+#   #122 — four codebase shapes the prompts author rules for but no fixture exercised:
+#         azure-functions (the serverless no-SERVER-span gap), an npm-workspaces monorepo mixing
+#         a browser SPA with two node services, aws-lambda, and gcp-cloud-functions. Rule and
+#         repro pinned together. Adding the GCP fixture found a real guidance bug: the serverless
+#         section lumped all three FaaS hosts together as "no inbound HTTP server", but the Node
+#         Functions Framework runs a real in-process Express server, so the prescribed
+#         withServerSpan() wrapper would have emitted a SECOND SERVER span per request.
+#   #122b — non-npm monorepo layouts. Member resolution existed only for npm `workspaces`;
+#         pnpm (services/*), Go multi-module (go.work) and Maven multi-module (<modules>) each
+#         went undetected as ONE service — the aggregator or the root — while every real service
+#         was missed. Two shapes must not be conflated: several go.mod means several services,
+#         but one go.mod with cmd/<name> is one service with several binaries.
 #   #134/#135 — a Python CLI's instrumentation-gen contract must (a) know a standalone service can
 #         be a multi-entry-point CLI tool (cliEntryPoints), not just a single process, and (b)
 #         never decorate a Click Group's own callback — Click invokes the group callback and
@@ -41,6 +53,7 @@ pass=0; fail=0
 check() { if eval "$2"; then echo "PASS: $1"; pass=$((pass+1)); else echo "FAIL: $1"; fail=$((fail+1)); fi; }
 
 SCANNER="agents/repo-context-scanner.md"
+INIT="commands/otel-init.md"
 BLAZOR="fixtures/dotnet-blazor-wasm"
 TESTPROJ="fixtures/dotnet-testproject"
 
@@ -350,8 +363,12 @@ check "#133 terraform-gen's kind-skip rule is kind-agnostic (future kind never f
   'grep -qF "not one of the four values above" "$TFGEN" && grep -qF "never falls through to a default rendering" "$TFGEN"'
 check "#133 terraform-patterns defines a histogram query for all four backends" \
   '[ "$(grep -c "kind: histogram" "$TFPATTERNS")" -eq 4 ]'
+# Anchor on ASCII only. The previous anchor spanned "OTLP\u2192Prometheus", and `.` matches one
+# BYTE in the C locale but one CHARACTER in a UTF-8 one — so this check passed on CI runners
+# (C.UTF-8) and failed on any machine with no locale set. Same class as the --force path bug:
+# an environment-dependent match that silently reports the wrong thing.
 check "#133 terraform-patterns' Grafana histogram query uses histogram_quantile, never avg(_sum/_count)" \
-  'grep -A3 "kind: histogram.*OTLP.Prometheus emits a" "$TFPATTERNS" | grep -q "histogram_quantile(0.50"'
+  'grep -A3 "native Prometheus histogram" "$TFPATTERNS" | grep -q "histogram_quantile(0.50"'
 check "#133 terraform-patterns New Relic histogram query uses NRQL multi-value percentile() in one call" \
   'grep -qF "percentile(\`<name>\`, 50, 95, 99)" "$TFPATTERNS"'
 
@@ -383,6 +400,164 @@ check "#144 the command refuses a generatorSupported:true service (wrong tool fo
   'grep -qF "use /otel-instrument for it, not /otel-remediate" "$DEPREM_CMD"'
 check "#144 /otel-evaluate points generatorSupported:false findings at /otel-remediate, not --fix" \
   'grep -qF "/otel-remediate --service" commands/otel-evaluate.md'
+
+# --- #122: fixture coverage for authored-but-unexercised codebase shapes ------------------------
+# Same lockstep discipline as #91/#94 above: each check pairs the RULE in a prompt with the
+# FIXTURE that reproduces it. A rule with no fixture is a claim nothing tests; a fixture with no
+# rule is a directory nothing reads.
+AZFN="fixtures/nodejs-azure-functions"
+MONO="fixtures/nodejs-monorepo"
+LAMBDA="fixtures/nodejs-aws-lambda"
+IGEN="agents/instrumentation-gen.md"
+
+# host: azure-functions — the shape behind the worst reported gap (handlers emitting nothing,
+# withServerSpan generated but wired into zero files).
+check "#122 scanner host rule names azure-functions evidence" \
+  'grep -qE "azure-functions.*host\.json|host\.json.*@azure/functions" "$SCANNER"'
+check "#122 azure-functions fixture carries that evidence (repro intact)" \
+  '[ -f "$AZFN/host.json" ] && grep -q "@azure/functions" "$AZFN/package.json"'
+check "#122 fixture registers HTTP handlers for the wrapper to cover" \
+  '[ "$(grep -rhoE "app\.http\(" "$AZFN/src/functions/" | wc -l)" -ge 3 ]'
+check "#122 fixture has a non-HTTP trigger too (timer invocations need wrapping as well)" \
+  'grep -rq "app\.timer(" "$AZFN/src/functions/"'
+check "#122 fixture has a route with NO outbound call (emits silence, not an orphan span)" \
+  '! grep -q "undici\|fetch(" "$AZFN/src/functions/orderStatus.js"'
+check "#122 fixture has a liveness probe (the deliberate exclusion that makes a count meaningful)" \
+  '[ -f "$AZFN/src/functions/healthz.js" ]'
+check "#122 generator still requires WIRING the wrapper, not just emitting it" \
+  'grep -qiE "wire it|imports is instrumentation that never runs" "$IGEN"'
+# Scoped to the Serverless section. An unscoped grep passed against the Python-CLI section's
+# cross-reference to this same rule — i.e. it went green while the rule it claimed to pin was
+# gone. Extract the section first, then assert inside it.
+azfn_section() { sed -n "/^## Serverless hosts/,/^## /p" "$IGEN"; }
+check "#122 serverless section requires a wrapped-over-total COUNT" \
+  'azfn_section | grep -qE "Report a count in the summary|Handlers wrapped: [0-9]+/[0-9]+"'
+check "#122 that count must be READ from registrations, never estimated" \
+  'azfn_section | grep -qiE "never by estimating|by reading the registrations"'
+check "#122 a 0-of-N wrapped result must headline, not footnote" \
+  'azfn_section | grep -qiE "0/N|headline"'
+
+# aws-lambda — same class of gap, different vendor; the rule existed with nothing exercising it.
+check "#122 scanner host rule names aws-lambda evidence" \
+  'grep -qE "aws-lambda.*serverless\.yml|serverless\.yml.*template\.yaml" "$SCANNER"'
+check "#122 lambda fixture carries serverless.yml + the aws-lambda types dep" \
+  '[ -f "$LAMBDA/serverless.yml" ] && grep -q "aws-lambda" "$LAMBDA/package.json"'
+check "#122 lambda fixture exports a handler (what a wrapper has to wrap)" \
+  'grep -q "exports.handler" "$LAMBDA/src/charge.js"'
+
+# monorepo — resolve members from the repo's own `workspaces` declaration, not a glob guess.
+check "#122 scanner resolves monorepo members from the workspaces field" \
+  'grep -q "workspaces" "$SCANNER"'
+check "#122 scanner still keeps packages/* + apps/* as the fallback" \
+  'grep -qE "packages/\*.*apps/\*|apps/\*.*packages/\*" "$SCANNER"'
+check "#122 scanner excludes the workspace ROOT from services" \
+  'grep -qiE "workspace ROOT, not a service|not a service" "$SCANNER"'
+check "#122 monorepo fixture declares workspaces (repro intact)" \
+  'grep -q "\"workspaces\"" "$MONO/package.json"'
+check "#122 monorepo fixture has 3 members" \
+  '[ "$(ls -d "$MONO"/packages/*/ | wc -l)" -eq 3 ]'
+# The trap: all three members are language nodejs, but one runs in a browser. This is the exact
+# pair that made services[0] the wrong default.
+check "#122 monorepo mixes a browser SPA with node services (language != runtime)" \
+  'grep -q "vite" "$MONO/packages/portal-web/package.json" && grep -q "express" "$MONO/packages/checkout-api/package.json"'
+check "#122 the SPA member carries browser evidence the scanner rule names" \
+  'grep -q "react-dom" "$MONO/packages/portal-web/package.json" && [ -f "$MONO/packages/portal-web/index.html" ]'
+check "#122 two node members remain, so 'which service?' is a real prompt not a rhetorical one" \
+  '[ "$(grep -l "\"engines\"" "$MONO"/packages/*/package.json | wc -l)" -eq 2 ]'
+check "#122 /otel-instrument still refuses to default to services[0]" \
+  'grep -qE "services\[0\] is not a safe default|Never default to the first" commands/otel-instrument.md'
+
+# All three are greenfield: an OTel dep would mean the fixture tests regeneration, not detection.
+for fx in "$AZFN" "$MONO" "$LAMBDA"; do
+  check "#122 $(basename "$fx") stays greenfield (no OTel dep)" \
+    "! grep -rq opentelemetry $fx"
+done
+
+# gcp-cloud-functions — the host that must NOT be treated like the other two.
+GCPFN="fixtures/nodejs-gcp-functions"
+srvless_section() { sed -n "/^## Serverless hosts/,/^## /p" "$IGEN"; }
+
+check "#122 scanner host rule names gcp-cloud-functions evidence" \
+  'grep -q "functions-framework" "$SCANNER"'
+check "#122 gcp fixture carries that evidence (repro intact)" \
+  'grep -q "@google-cloud/functions-framework" "$GCPFN/package.json"'
+check "#122 gcp fixture invokes the framework API a wrapper would target" \
+  'grep -q "functions.http(" "$GCPFN/index.js"'
+check "#122 gcp fixture also has a non-HTTP (CloudEvent) trigger" \
+  'grep -q "functions.cloudEvent(" "$GCPFN/index.js"'
+# The correction itself. Without these, a later edit could quietly re-merge GCP into the
+# no-inbound-server group and reintroduce double SERVER spans.
+check "#122 serverless section distinguishes the three FaaS hosts, not one rule for all" \
+  'srvless_section | grep -qiE "do not behave the same|Inbound HTTP server in-process"'
+check "#122 guidance explicitly forbids wrapping a GCP handler" \
+  'srvless_section | grep -qiE "Do not wrap a GCP|no wrapper"'
+check "#122 guidance names WHY (in-process Express server)" \
+  'srvless_section | grep -qiE "in-process Express|depends on .?express"'
+check "#122 guidance names the cost of getting it wrong (double SERVER spans)" \
+  'srvless_section | grep -qiE "two SERVER spans|second SERVER span"'
+check "#122 the wrapper instruction is scoped to azure+lambda only" \
+  'srvless_section | grep -qE "For .azure-functions. and .aws-lambda. only"'
+check "#122 guidance keeps the real GCP caveat (catch-all route, http.route cannot distinguish)" \
+  'srvless_section | grep -qiE "catch-all route|http\.route is the same"'
+check "#122 version-specific claims are stamped, not asserted from memory" \
+  'srvless_section | grep -qiE "Verified against functions-framework|re-check if either"'
+check "#122 nodejs-gcp-functions stays greenfield (no OTel dep)" \
+  '! grep -rq opentelemetry "$GCPFN"'
+
+# --- #122b: non-npm monorepo layouts -----------------------------------------------------------
+GOMONO="fixtures/go-monorepo"
+MVNMONO="fixtures/java-maven-multimodule"
+PNPMMONO="fixtures/pnpm-monorepo"
+
+# pnpm — members under services/*, which the packages/* and apps/* globs cannot see.
+check "#122b scanner resolves pnpm members from pnpm-workspace.yaml" \
+  'grep -q "pnpm-workspace.yaml" "$SCANNER"'
+check "#122b pnpm fixture declares members under services/* (invisible to the globs)" \
+  'grep -q "services/\*" "$PNPMMONO/pnpm-workspace.yaml" && [ ! -d "$PNPMMONO/packages" ]'
+check "#122b pnpm fixture has 2 real members" \
+  '[ "$(ls -d "$PNPMMONO"/services/*/ | wc -l)" -eq 2 ]'
+
+# Go — go.work lists modules; several go.mod means several SERVICES, but cmd/* under one
+# go.mod means several BINARIES of one service. Conflating them doubles the service count.
+check "#122b scanner resolves Go modules from go.work" \
+  'grep -q "go.work" "$SCANNER"'
+check "#122b scanner distinguishes several modules from one module with several binaries" \
+  'grep -qiE "several MODULES|one module with several BINARIES" "$SCANNER"'
+check "#122b scanner routes multi-binary modules to cliEntryPoints, not extra services" \
+  'grep -q "cliEntryPoints" "$SCANNER"'
+check "#122b go fixture has a go.work listing both modules (repro intact)" \
+  '[ -f "$GOMONO/go.work" ] && [ "$(grep -c "./services/" "$GOMONO/go.work")" -eq 2 ]'
+check "#122b go fixture has exactly 2 modules" \
+  '[ "$(find "$GOMONO" -name go.mod | wc -l)" -eq 2 ]'
+check "#122b go fixture has one module with TWO binaries (the conflation trap)" \
+  '[ "$(ls "$GOMONO"/services/orders/cmd | wc -l)" -eq 2 ]'
+check "#122b go fixture uses services/* so a cmd/* glob alone would miss it" \
+  '[ -d "$GOMONO/services" ] && [ ! -d "$GOMONO/cmd" ]'
+
+# Maven — the parent POM is an aggregator, not a service.
+check "#122b scanner resolves Maven modules from the parent POM" \
+  'grep -qE "<modules>|parent POM" "$SCANNER"'
+check "#122b scanner also handles Gradle settings include" \
+  'grep -qE "settings\.gradle" "$SCANNER"'
+check "#122b scanner knows packaging=pom is an aggregator, not a service" \
+  'grep -qiE "packaging>pom|aggregator, not a service" "$SCANNER"'
+check "#122b maven fixture root is an aggregator with 2 modules (repro intact)" \
+  'grep -q "<packaging>pom</packaging>" "$MVNMONO/pom.xml" && [ "$(grep -c "<module>" "$MVNMONO/pom.xml")" -eq 2 ]'
+check "#122b maven child modules carry their own POMs" \
+  '[ "$(find "$MVNMONO" -mindepth 2 -name pom.xml | wc -l)" -eq 2 ]'
+
+# Freshness contract: a new member appearing must invalidate the cache, so the declaration
+# files have to be identity inputs. Missing that, adding a service is silently invisible.
+check "#122b go.work is an identity input (adding a module re-scans)" \
+  'grep -qF "go\\.work" "$INIT"'
+check "#122b pnpm-workspace.yaml is an identity input" \
+  'grep -qF "pnpm-workspace\\.yaml" "$INIT"'
+check "#122b settings.gradle is an identity input" \
+  'grep -qF "settings\\.gradle" "$INIT"'
+
+for fx in "$GOMONO" "$MVNMONO" "$PNPMMONO"; do
+  check "#122b $(basename "$fx") stays greenfield (no OTel dep)" "! grep -rqi opentelemetry $fx"
+done
 
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
