@@ -47,6 +47,10 @@
 #         never decorate a Click Group's own callback — Click invokes the group callback and
 #         returns from it BEFORE separately invoking the chosen subcommand, so a decorator there
 #         produces a zero-duration span and tears down telemetry before the subcommand runs.
+#   #149 — /otel-backend's confirmation prompts had no defined behavior when no one can answer
+#         (CI, another agent). A caller could only hang or silently skip. --yes makes the skip
+#         explicit and visible (a `↷ --yes:` line, plus a main.tf header stamp for unconfirmed
+#         business attributes); without --yes, an unanswerable prompt stops instead of assuming yes.
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 pass=0; fail=0
@@ -558,6 +562,24 @@ check "#122b settings.gradle is an identity input" \
 for fx in "$GOMONO" "$MVNMONO" "$PNPMMONO"; do
   check "#122b $(basename "$fx") stays greenfield (no OTel dep)" "! grep -rqi opentelemetry $fx"
 done
+
+# --- #149: /otel-backend confirmations when no one can answer ------------------------------------
+BACKEND="commands/otel-backend.md"
+TFGEN="agents/terraform-gen.md"
+check "#149 /otel-backend declares --yes (argument-hint and Flags)" \
+  'grep -q "\[--yes\]" "$BACKEND" && grep -q "^- \`--yes\`" "$BACKEND"'
+check "#149 an unanswerable prompt stops instead of assuming yes" \
+  'grep -q "do NOT assume yes" "$BACKEND"'
+check "#149 --yes prints what it skipped" \
+  '[ "$(grep -c "↷ --yes:" "$BACKEND")" -ge 2 ]'
+check "#149 --yes never implies --force" \
+  'grep -q "never implies" "$BACKEND"'
+check "#149 command hands businessAttrsUnconfirmed to terraform-gen" \
+  'grep -q "businessAttrsUnconfirmed" "$BACKEND" && grep -q "businessAttrsUnconfirmed" "$TFGEN"'
+check "#149 terraform-gen stamps the unconfirmed-attributes header line" \
+  'grep -q "# Business attributes were NOT confirmed" "$TFGEN"'
+check "#149 goldens stay unstamped (they are generated from confirmed attributes)" \
+  '! grep -rq "Business attributes were NOT confirmed" tests/snapshots/'
 
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

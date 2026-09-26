@@ -1,9 +1,9 @@
 ---
 description: Generate Terraform for one observability backend (grafana | datadog | newrelic | dash0)
-argument-hint: "<vendor> [--kind all|dashboard|alerts|slo] [--output-dir <path>] [--experimental] [--force] [--dry-run]"
+argument-hint: "<vendor> [--kind all|dashboard|alerts|slo] [--output-dir <path>] [--experimental] [--force] [--dry-run] [--yes]"
 ---
 
-# /otel-backend <vendor> [--kind all|dashboard|alerts|slo] [--output-dir <path>] [--experimental] [--force]
+# /otel-backend <vendor> [--kind all|dashboard|alerts|slo] [--output-dir <path>] [--experimental] [--force] [--dry-run] [--yes]
 
 Generate a complete Terraform module for one observability backend.
 Supported vendors: the backends listed in `backends.txt` at the plugin root — the single
@@ -20,6 +20,18 @@ source of truth (currently grafana, datadog, newrelic, dash0).
   on-disk (or "would create" for a new file), write nothing, do NOT create the `.otel-force`
   sentinel, and exit non-zero if anything would change. `terraform fmt`/`validate` are skipped
   (they need files on disk)
+- `--yes` — answer yes to this command's confirmation prompts: continuing without confirmed
+  business attributes (Step 2) and overwriting an existing module under `--force` (Step 3). For
+  callers that can't answer a prompt: CI, another agent, an orchestration layer. It never implies
+  `--force`. Each prompt it answers is printed as a `↷ --yes:` line, and an unconfirmed-attributes
+  skip is also stamped into the generated `main.tf` header, so the choice stays visible afterwards.
+
+**No one to answer a prompt?** If this run can't get an answer from a person (you were dispatched
+by another agent, or run headless) and `--yes` is not set, do NOT assume yes, even where the
+prompt's default is yes (`[Y/n]`). Treat it as no, and say which flag would have continued, e.g.
+"Stopped: business attributes are unconfirmed and no one can confirm. Re-run with --yes to
+continue anyway."
+Silently continuing is the behavior this flag exists to replace (#149).
 
 ## Step 1: Validate vendor argument
 
@@ -42,8 +54,13 @@ what it returns — a refresh is a merge, never a replace (see the cache ownersh
 If `context.confirmedAt` is null (business attrs not confirmed):
 - Print: "⚠ Business attributes have not been confirmed yet. Running /otel-business-attrs first
   will improve the generated dashboard queries and SLO targets."
-- Ask: "Continue anyway? [Y/n]"
-- If 'n': exit with "Run /otel-business-attrs first, then re-run /otel-backend <vendor>"
+- If `--yes` is set, don't ask. Print "↷ --yes: continuing without confirmed business attributes
+  (context.confirmedAt is null). Queries and SLO targets use scanner defaults." and pass
+  `businessAttrsUnconfirmed: true` to `terraform-gen` (Step 4).
+- Otherwise ask: "Continue anyway? [Y/n]". On yes, pass `businessAttrsUnconfirmed: true` as above.
+- If 'n', or if no one can answer (see "No one to answer a prompt?" above): exit non-zero with
+  "Run /otel-business-attrs first, then re-run /otel-backend <vendor> (or pass --yes to continue
+  without confirmed business attributes)"
 
 ## Step 3: Check for existing module
 
@@ -53,7 +70,9 @@ If `<output_dir>/*.tf` files exist AND `--force` is NOT set:
 
 If they exist AND `--force` IS set:
 - Print which files will be regenerated from scratch and confirm before writing — `--force`
-  discards hand edits to the module.
+  discards hand edits to the module. With `--yes`, still print the list, then print
+  "↷ --yes: overwriting without asking" instead of confirming. With no one to answer and no
+  `--yes`, exit without writing and say `--yes` would have continued.
 - Authorize the overwrite for the `write-guard` hook by listing the module files (`main.tf`,
   `variables.tf`, `outputs.tf`) under `<output_dir>` in the `.claude/.otel-force` sentinel, one
   per line (this is how `--force` reaches the hook). **Truncate the sentinel first** (`:>`) so a
@@ -75,6 +94,8 @@ Pass to `otel-as-code:terraform-gen`:
 - `output_dir`: resolved output directory
 - `kind`: from --kind flag (default 'all')
 - `experimental`: from --experimental flag
+- `businessAttrsUnconfirmed`: `true` when Step 2 continued past unconfirmed business attributes
+  (by `--yes` or a yes answer); otherwise omit it
 
 ## Step 5: Display the subagent's output
 

@@ -18,5 +18,8 @@ Follow the canonical procedure in this repo — it is the single source of truth
 
 Args: `$ARGUMENTS` (e.g. `datadog --kind dashboard`, `grafana --output-dir infra/o11y/grafana`).
 
+Running non-interactively (`codex exec`, CI)? Pass `--yes` if the run should continue past the
+confirmation prompts; without it the command stops rather than assuming yes.
+
 Codex note: `.codex/hooks.json` enforces write-guard here — a denied overwrite of existing
 `infra/observability/<vendor>/*.tf` means regenerate deliberately.

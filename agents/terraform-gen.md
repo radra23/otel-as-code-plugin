@@ -21,6 +21,10 @@ to the target directory. You run `terraform fmt` and `terraform validate` after 
 7. `dryRun` (optional, default false) — when `true`, do NOT write the module files (and skip
    `terraform fmt`/`validate`, which need files on disk). Generate as normal and return each file
    as a `{path, content}` object so the command can diff it against disk.
+8. `businessAttrsUnconfirmed` (optional, default false) — `true` when the command continued
+   without confirmed business attributes (`context.confirmedAt` is null). Add the extra header
+   line shown under "Required header in every main.tf" so anyone reading the module later can
+   see the queries and SLO targets were not built from confirmed attributes.
 
 ## kind parameter behavior
 
@@ -132,6 +136,14 @@ Provider schema: verified against grafana/grafana 4.9.0 via the Terraform regist
 #   terraform init
 #   terraform plan    # requires backend credentials in environment
 #   terraform apply   # apply only after reviewing the plan
+```
+
+When `businessAttrsUnconfirmed` is `true`, add this line directly under the
+`# Re-run /otel-backend <backend> to regenerate.` line (omit it otherwise, so modules built from
+confirmed attributes and the golden snapshots don't change):
+
+```hcl
+# Business attributes were NOT confirmed when this was generated; run /otel-business-attrs, then regenerate.
 ```
 
 ## Required providers block (all backends)
