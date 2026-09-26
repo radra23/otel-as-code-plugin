@@ -51,6 +51,13 @@
 #         (CI, another agent). A caller could only hang or silently skip. --yes makes the skip
 #         explicit and visible (a `↷ --yes:` line, plus a main.tf header stamp for unconfirmed
 #         business attributes); without --yes, an unanswerable prompt stops instead of assuming yes.
+#   #148 — /otel-backend had no metric names for workloads without an OTel SDK (Micrometer/Quarkus,
+#         Keycloak, blackbox/node exporters), so dashboards guessed or shipped empty panels. The
+#         skill now catalogs names verified against each exporter's source, and requires filtering
+#         by the scrape job (the prometheus receiver maps job_name -> service.name -> job).
+#   #147 — Grafana notification routing had no guidance. Verified: provider >= 4.6.0 has webhook
+#         `headers`/`payload`; ntfy >= 2.14.0 reads Grafana's payload via ?template=grafana;
+#         grafana_notification_policy overwrites the whole routing tree, so route per rule.
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 pass=0; fail=0
@@ -580,6 +587,46 @@ check "#149 terraform-gen stamps the unconfirmed-attributes header line" \
   'grep -q "# Business attributes were NOT confirmed" "$TFGEN"'
 check "#149 goldens stay unstamped (they are generated from confirmed attributes)" \
   '! grep -rq "Business attributes were NOT confirmed" tests/snapshots/'
+
+# --- #148: scraped (non-OTel-SDK) workloads -------------------------------------------------------
+PATTERNS="skills/terraform-patterns/SKILL.md"
+TFGEN="agents/terraform-gen.md"
+check "#148 skill has the scraped-metrics section" \
+  'grep -q "^## Workloads without an OTel SDK (scraped metrics)" "$PATTERNS"'
+check "#148 terraform-gen routes generatorSupported:false services to that section" \
+  'grep -q "Workloads without an OTel SDK (scraped metrics)" "$TFGEN"'
+check "#148 filter by the scrape job, not the service name" \
+  'grep -q "is the scrape job, not the service name" "$PATTERNS"'
+check "#148 Micrometer HTTP name (not the OTel semconv name) is catalogued" \
+  'grep -q "http_server_requests_seconds_count" "$PATTERNS"'
+check "#148 cert expiry is catalogued as a Unix timestamp" \
+  'grep -q "probe_ssl_earliest_cert_expiry" "$PATTERNS" && grep -q "Unix timestamp" "$PATTERNS"'
+check "#148 Keycloak event metrics are flagged as off by default" \
+  'grep -q "event-metrics-user-enabled=true" "$PATTERNS"'
+check "#148 each generated query carries the verify note" \
+  'grep -q "Verify against your scrape config" "$PATTERNS" && grep -q "Verify against your scrape config" "$TFGEN"'
+check "#148 keycloak fixture still reproduces the Micrometer case" \
+  'grep -q "KC_METRICS_ENABLED" fixtures/keycloak-deployment/deployment.yaml'
+
+# --- #147: Grafana notification routing ---------------------------------------------------------
+check "#147 skill has the notification-routing section" \
+  'grep -q "^### Notification routing (contact points)" "$PATTERNS"'
+check "#147 ntfy's built-in grafana template is the first choice" \
+  'grep -q "?template=grafana" "$PATTERNS"'
+check "#147 headers/payload require the ~> 4.6 pin" \
+  'grep -q "Pin \`~> 4.6\` when using \`headers\` or \`payload\`" "$PATTERNS" && grep -q "~> 4.6" "$TFGEN"'
+check "#147 notification_policy overwrite hazard is stated" \
+  'grep -q "overwrites policies it didn" "$PATTERNS"'
+check "#147 terraform-gen never emits grafana_notification_policy" \
+  'grep -q "never emit" "$TFGEN" && grep -q "grafana_notification_policy" "$TFGEN"'
+check "#147 ntfy priority via query parameter needs no 4.6 pin" \
+  'grep -q "?template=grafana&priority=5" "$PATTERNS"'
+check "#147 simplified routing flag is on by default from Grafana 11.0 (not always required)" \
+  'grep -q "on by default from Grafana 11.0" "$PATTERNS"'
+check "#148 mean latency uses rate() of _sum and _count, not raw counters" \
+  'grep -q "sum(rate(http_server_requests_seconds_sum" "$PATTERNS"'
+check "#147 goldens do not use notification_policy" \
+  '! grep -rq "grafana_notification_policy" tests/snapshots/'
 
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

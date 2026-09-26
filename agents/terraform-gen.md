@@ -63,6 +63,16 @@ identifier positions (uids, `alert:` names, `metadata.name`), while keeping the 
 `var.service_name` in query filters and display titles. See that section for the exact expression
 and the per-field separator choice.
 
+For a service with `generatorSupported: false` and `inScope: true` (a workload with no OTel SDK,
+such as an upstream binary scraped by the Collector), the OTel semconv queries don't apply. Use its
+**"Workloads without an OTel SDK (scraped metrics)"** section: filter by the scrape job, use the
+exporter's own metric names, and put the "Verify against your scrape config" note in each panel
+and alert description. Never leave a query empty.
+
+If the user asks for alert routing on Grafana, follow the skill's **"Notification routing"**
+section. In particular, route per rule with `notification_settings` and never emit
+`grafana_notification_policy`, which overwrites the org's whole routing tree.
+
 ## Optional: verify against the live provider schema
 
 `terraform-patterns` is a **cache of the provider schema**, hand-written and pinned to a provider
@@ -150,7 +160,8 @@ confirmed attributes and the golden snapshots don't change):
 
 Every main.tf must include a `terraform` block with `required_providers`. Use the correct source for each backend:
 
-- Grafana: `source = "grafana/grafana"`, `version = "~> 4.0"`
+- Grafana: `source = "grafana/grafana"`, `version = "~> 4.0"` (`"~> 4.6"` if a webhook contact point
+  uses `headers` or `payload`; see "Notification routing" in the skill)
 - Datadog: `source = "DataDog/datadog"`, `version = "~> 4.0"`
 - New Relic: `source = "newrelic/newrelic"`, `version = "~> 3.0"`
 - Dash0: `source = "dash0hq/dash0"` (check registry for current version)

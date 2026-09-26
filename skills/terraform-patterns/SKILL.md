@@ -69,6 +69,52 @@ locals {
 - **Do NOT sanitize** a **display title** (`name = "High error rate — ${var.service_name}"`) —
   free text, the real name reads better.
 
+## Workloads without an OTel SDK (scraped metrics)
+
+Some in-scope services emit no OTel SDK telemetry, such as an upstream binary like Keycloak (the
+scanner marks these `generatorSupported: false`, `inScope: true`). Their metrics come from a
+Prometheus endpoint that the Collector scrapes, so the OTel semconv names used in the backend
+sections below (`http_server_request_duration_seconds`, `http_response_status_code`) don't exist
+for them. Use the names in this section instead. Don't guess other names, and don't leave a
+panel's query empty: put "Verify against your scrape config: `<metric>`" in the description of
+every panel and alert built from this table.
+
+Two rules differ from the OTel-SDK queries elsewhere in this file:
+
+- **`job` is the scrape job, not the service name.** The Collector's `prometheus` receiver sets
+  `service.name` from the scrape config's `job_name`, and that becomes the `job` label. Filter by
+  the `job_name` in the user's scrape config (read it from the Collector config in the repo, or
+  ask). It is often not the scanner's service name. Three variations:
+  - If the Collector sets `service.namespace`, `job` is `<namespace>/<job_name>`.
+  - If the Collector re-exposes metrics through its `prometheus` exporter and a Prometheus server
+    scrapes that, the server's own `job` wins unless its scrape config sets `honor_labels: true`.
+  - On Dash0, filter `{service_name="<scrape job>"}` instead (see the Dash0 section below).
+- **Names follow the exporter, not OTel semconv.** Micrometer (Quarkus, Spring Boot, Keycloak)
+  names its HTTP server timer `http_server_requests_seconds_*` with labels `method`, `uri`,
+  `status` and `outcome`.
+
+These are the names on the scrape endpoint. PromQL backends (Grafana, Dash0) normally see them
+unchanged after a Collector `prometheus` receiver, unless the receiver sets
+`trim_metric_suffixes: true`, which drops unit and type suffixes (`http_server_requests_seconds`
+becomes `http_server_requests`, `node_cpu_seconds_total` becomes `node_cpu`). Check the
+Collector config. Datadog and New Relic apply their own
+ingestion naming, which this file doesn't catalog: look the metric up in the account before
+writing a query for those backends.
+
+| Source | Metric | What it is | Query notes |
+|---|---|---|---|
+| Micrometer HTTP server (Quarkus, Spring Boot, Keycloak) | `http_server_requests_seconds_count`, `_sum`, `_max` | request count, total seconds, max seconds; labels `method`, `uri`, `status`, `outcome` | Request rate `sum(rate(http_server_requests_seconds_count{job="<scrape job>"}[5m]))`; errors add `status=~"5.."`. `_bucket` exists only when histograms are enabled (Keycloak: `http-metrics-histograms-enabled=true`); without it, mean latency is `sum(rate(http_server_requests_seconds_sum{job="<scrape job>"}[5m])) / sum(rate(http_server_requests_seconds_count{job="<scrape job>"}[5m]))` (never a raw `_sum / _count`, which averages since process start and barely moves), and `max(http_server_requests_seconds_max{job="<scrape job>"})` is a decaying worst case, not a quantile. Never `histogram_quantile` without `_bucket` |
+| Micrometer JVM | `jvm_memory_used_bytes`, `jvm_memory_committed_bytes`, `jvm_gc_pause_seconds_count` / `_sum` / `_max` | heap and non-heap memory; GC pauses | GC pause share: `sum by (instance) (rate(jvm_gc_pause_seconds_sum{job="<scrape job>"}[5m]))` (series are split by `action`, `cause` and `gc`, so aggregate). Concurrent collectors (ZGC, Shenandoah) do most work outside pauses; Keycloak also exposes `jvm_gc_overhead` directly |
+| Keycloak user events | `keycloak_user_events_total` | counter per user event; labels `realm`, `event` (e.g. `login`, `logout`), `error` (empty string on success); `client_id` and `idp` are off by default | Off by default: needs `--metrics-enabled=true --event-metrics-user-enabled=true`. Login rate `sum(rate(keycloak_user_events_total{job="<scrape job>",event="login",error=""}[5m]))`; failures use `error!=""` |
+| blackbox_exporter | `probe_success`, `probe_duration_seconds`, `probe_http_status_code`, `probe_ssl_earliest_cert_expiry` | probe result (1/0), duration, status code, earliest certificate expiry as a Unix timestamp in seconds | Days to cert expiry `(probe_ssl_earliest_cert_expiry{job="<scrape job>"} - time()) / 86400`; alert when it drops below the renewal lead time, e.g. `< 14` |
+| node_exporter | `node_cpu_seconds_total` (labels `cpu`, `mode`), `node_memory_MemAvailable_bytes`, `node_filesystem_avail_bytes`, `node_filesystem_size_bytes` | host CPU, memory, disk | CPU busy per host `1 - avg by (instance) (rate(node_cpu_seconds_total{job="<scrape job>",mode="idle"}[5m]))` (a bare `avg()` hides one saturated host among idle ones); disk free share `node_filesystem_avail_bytes{job="<scrape job>",fstype!~"tmpfs|overlay|squashfs"} / node_filesystem_size_bytes{job="<scrape job>",fstype!~"tmpfs|overlay|squashfs"}` (pseudo filesystems read near 0% or 100%) |
+
+Verified against upstream source, not memory: Quarkus `telemetry-micrometer.adoc`; Keycloak
+`docs/guides/observability/metrics-for-troubleshooting-{http,jvm,keycloak}.adoc` and
+`event-metrics.adoc`; blackbox_exporter `prober/`; node_exporter `collector/`; the Collector
+`prometheusreceiver` README for the `job_name` → `service.name` mapping. If an exporter is not in
+this table, find its metric names in its own docs and say which source you used.
+
 ---
 
 ## Grafana Cloud (`grafana/grafana ~> 4.0`)
@@ -128,6 +174,46 @@ as the panel description so an empty panel is self-explanatory.
   entry's `unit` when present. Caveat: requires the app to emit a histogram named `<M>`; never
   substitute `avg(<M>_sum{job="<name>"} / <M>_count{job="<name>"})` for this — an average, not a
   quantile, defeats the reason a histogram was captured.
+
+### Notification routing (contact points)
+Emit contact points only when the user asks for alert routing. Without one, the generated
+`grafana_rule_group` alerts go through the stack's existing notification policy.
+
+- **Prefer a native integration.** `grafana_contact_point` has blocks for many receivers (Slack,
+  PagerDuty, email, Opsgenie, and more). Use the matching block when one exists.
+- **`webhook` sends Grafana's own JSON** (`receiver`, `status`, `alerts[]`, `commonLabels`,
+  `title`, `message`, ...). For a receiver that expects a different shape, in order of preference:
+  1. **The receiver reads Grafana's payload.** ntfy v2.14.0 and later has a built-in `grafana`
+     template: set `url` to `https://<ntfy-host>/<topic>?template=grafana` and ntfy formats the
+     title and message itself. No adapter is needed.
+  2. **Priority and other request options:** ntfy takes priority from the `X-Priority` header or
+     the `priority`/`p` query parameter. Prefer the query parameter
+     (`?template=grafana&priority=5`): it needs no `headers` and so no `~> 4.6` pin. Either way it
+     is fixed per contact point. For priority by severity, create one contact point per level and
+     route each rule to its own (see below), or, on ntfy v2.17.0 and later with a server the user
+     controls, use a custom server-side template whose `priority:` reads `.commonLabels.severity`.
+     Use `headers = { ... }` only for a receiver that accepts no query-parameter form.
+  3. **Custom body:** `payload { template = "..." vars = { ... } }` replaces the whole body; the
+     `title` and `message` fields are then ignored. Grafana's docs say Custom Payload is not yet
+     generally available in Grafana Cloud, so use it only when the user confirms their Grafana
+     supports it.
+  4. **Otherwise** the receiver needs a translating adapter between it and Grafana. The module
+     can't provide one: say so in a comment on the contact point.
+- **Pin `~> 4.6` when using `headers` or `payload`.** Both first appear in grafana/grafana v4.6.0;
+  `~> 4.0` would accept an older 4.x release that rejects them.
+- **Route per rule, not with `grafana_notification_policy`.** That resource manages the entire
+  notification policy tree and overwrites policies it didn't create, including the user's own
+  routing. Set `notification_settings { contact_point = grafana_contact_point.<label>.name }` on
+  each rule in the `grafana_rule_group` instead. This needs Grafana 10.4 or later; on 10.4.x the
+  `alertingSimplifiedRouting` feature flag must be enabled (it is on by default from Grafana 11.0).
+  State that in a comment.
+- **Keep the URL out of the module.** A contact point URL often embeds a secret (a private ntfy
+  topic, a tokened endpoint). Pass it from a `sensitive = true` variable.
+
+Verified against the grafana/grafana provider docs at v4.46.0 (`contact_point`, `rule_group`,
+`notification_policy`), the provider docs at each 4.x tag (to find v4.6.0), Grafana's webhook
+notifier docs, Grafana's `featuremgmt/registry.go` at v10.4.0 and v11.0.0, and ntfy's
+`publish.md` and `releases.md`.
 
 ---
 
