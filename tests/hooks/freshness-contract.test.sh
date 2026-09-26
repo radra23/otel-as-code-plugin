@@ -6,6 +6,7 @@
 # on every command forever — a cache that can never hit. The two were written independently and
 # never cross-checked, which is how that shipped; this test cross-checks them. It also guards #150:
 # a service with no identity input to fingerprint (a config-only repo) must always read as stale.
+# And the scanner's prose basename list must name the same files as the regex (check 5).
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 pass=0; fail=0
@@ -80,6 +81,40 @@ if [ -d "$KC_DIR" ] && [ -z "$kc_matches" ]; then
   echo "PASS: $KC_DIR has no identity inputs, so it exercises the empty-set case (#150)"; pass=$((pass+1))
 else
   echo "FAIL: $KC_DIR is missing or now has identity inputs ($kc_matches) — it no longer reproduces #150"; fail=$((fail+1))
+fi
+
+# check 5: the scanner's prose list of identity basenames and the Step 1 regex name the same
+# files, in both directions. Check 1 only covers the JSON example, so the prose drifted:
+# pnpm-workspace.yaml, go.work and settings.gradle(.kts) were in the regex and the example but
+# missing from the list the scanner is told to follow, so a scanner obeying the prose stored
+# fewer paths than Step 1 recomputes and the cache read as stale on every run in those repos.
+if python3 - "$SCANNER" "$REGEX" <<'PY'
+import re, sys
+doc = open(sys.argv[1]).read()
+m = re.search(r'basename is one of (.*?)Nothing else', doc, re.S)
+if not m:
+    print("no 'basename is one of ... Nothing else' list found in scanner doc"); sys.exit(1)
+# `*.csproj` names a pattern, not a file; test it as a concrete basename.
+names = [n.replace('*', 'x') for n in re.findall(r'`([^`]+)`', m.group(1))]
+body = sys.argv[2][len('(^|/)('):-len(')$')]
+alts, depth, cur = [], 0, ''
+for ch in body:  # split on top-level '|' only; nested groups keep theirs
+    if ch == '|' and depth == 0:
+        alts.append(cur); cur = ''
+        continue
+    depth += (ch == '(') - (ch == ')')
+    cur += ch
+alts.append(cur)
+unmatched = [n for n in names if not any(re.fullmatch(a, n) for a in alts)]
+missing = [a for a in alts if not any(re.fullmatch(a, n) for n in names)]
+if unmatched: print("in the prose list but not the regex:", unmatched)
+if missing: print("in the regex but not the prose list:", missing)
+sys.exit(1 if unmatched or missing else 0)
+PY
+then
+  echo "PASS: scanner prose basename list and the Step 1 regex name the same files"; pass=$((pass+1))
+else
+  echo "FAIL: scanner prose basename list and the Step 1 regex disagree"; fail=$((fail+1))
 fi
 
 echo ""

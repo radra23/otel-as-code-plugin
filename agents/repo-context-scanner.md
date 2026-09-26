@@ -336,8 +336,9 @@ found none.
    - `gitHash`: `git rev-parse HEAD` (or `"unknown"` if not a git repo).
    - `identityInputs`: the repo-relative paths that define service identity, and EXACTLY the set
      the `/otel-init` Step 1 freshness check rediscovers — every tracked-or-untracked file whose
-     basename is one of `package.json`, `pyproject.toml`, `requirements.txt`, `go.mod`,
-     `Cargo.toml`, `pom.xml`, `build.gradle`/`build.gradle.kts`, `global.json`,
+     basename is one of `package.json`, `pnpm-workspace.yaml`, `pyproject.toml`,
+     `requirements.txt`, `go.mod`, `go.work`, `Cargo.toml`, `pom.xml`,
+     `build.gradle`/`build.gradle.kts`, `settings.gradle`/`settings.gradle.kts`, `global.json`,
      `Directory.Packages.props`, any `*.csproj`/`*.fsproj`/`*.sln`, `Dockerfile`, `host.json`,
      `serverless.yml`, `CODEOWNERS`. Nothing else — **NOT** bare service root directories, and
      **NOT** files like `.env.example` or CI workflows even if you read them during detection.
