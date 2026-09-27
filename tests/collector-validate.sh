@@ -7,7 +7,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-OTELCOL_VERSION="${OTELCOL_VERSION:-0.128.0}"
+OTELCOL_VERSION="${OTELCOL_VERSION:-0.161.0}"
 OTELCOL_BIN="${OTELCOL_BIN:-/tmp/otelcol-contrib}"
 CONFIG="tests/snapshots/collector/otelcol-agent.yaml.snap"
 # --public variant (#107): adds the bearertokenauth extension + receiver auth for an
@@ -19,7 +19,7 @@ PUBLIC_CONFIG="tests/snapshots/collector/otelcol-agent-public.yaml.snap"
 # Ordering guard: `otelcol validate` builds the component graph and checks
 # schema/config-reference/OTTL-syntax errors, but it does NOT enforce that
 # memory_limiter is the first processor in a pipeline (verified empirically
-# against 0.128.0 — a reordered config validates cleanly). CLAUDE.md makes
+# against 0.128.0 and re-verified against 0.161.0 — a reordered config validates cleanly). CLAUDE.md makes
 # that ordering a hard constraint, so enforce it here with a plain python3
 # regex scan (no YAML lib, no jq — repo convention).
 # ---------------------------------------------------------------------------
@@ -55,7 +55,7 @@ PY
 
 # ---------------------------------------------------------------------------
 # Auth-wiring guard: `otelcol validate` checks each component's own config
-# (mutation-tested empirically against 0.128.0 — a dangling `authenticator:
+# (mutation-tested empirically against 0.128.0, re-verified against 0.161.0 — a dangling `authenticator:
 # nosuchauth` reference, or an extension declared but left out of
 # `service.extensions`, BOTH pass `validate` cleanly and only fail at real
 # startup with "authenticator not found"). See .claude/reviews/pr-111-critique.md
@@ -155,18 +155,16 @@ if ! binary_version_ok; then
   key="${os}_${arch}"
 
   # Pinned SHA256 checksums for otelcol-contrib_${OTELCOL_VERSION}_<os>_<arch>.tar.gz.
-  # The release's own checksums.txt asset
-  # (opentelemetry-collector-releases_otelcol-contrib_checksums.txt) is incomplete for
-  # this version -- it contains only windows_* entries, an artifact of the release
-  # pipeline's per-OS-runner matrix upload overwriting the file -- so these were
-  # computed locally after downloading each tarball directly over HTTPS from the
-  # canonical GitHub release URL, and cross-checked with both `shasum -a 256` and
-  # python3's hashlib. Source release:
-  # https://github.com/open-telemetry/opentelemetry-collector-releases/releases/tag/v0.128.0
+  # This release publishes one `<tarball>.sha256` file per asset (there is no combined
+  # checksums.txt). Each hash below was computed locally after downloading the tarball over
+  # HTTPS from the canonical GitHub release URL, cross-checked with both `sha256sum` and
+  # python3's hashlib, and matched against that asset's published `.sha256` file. Source
+  # release:
+  # https://github.com/open-telemetry/opentelemetry-collector-releases/releases/tag/v0.161.0
   case "$key" in
-    linux_amd64)  expected_sha="09b1332e29968bacdb7ce564073302ef9567c71919842544b4382f0f15456fd6" ;;
-    darwin_arm64) expected_sha="6a5e030ccd6152facb1570a5bb5f794473fac39c6afaa48492f426276c291376" ;;
-    darwin_amd64) expected_sha="a1e8cef1a5770b9c7f5a41cff24945faa53bfccbae38512b62a1af119887d7d4" ;;
+    linux_amd64)  expected_sha="778c689efa681ff6e4722ce9f66b9b7f57c3ba009ab2e2b43dc2e0315862c731" ;;
+    darwin_arm64) expected_sha="ccc0cf5de5242adcaedc7b5aebed43a1dc56aa2dc7de6ebc495d5db60512d34c" ;;
+    darwin_amd64) expected_sha="357fc0a7a77f5d42cab2f46af6be301062a7824b82454cc264cb8661fa9a8734" ;;
     *) expected_sha="" ;;
   esac
 

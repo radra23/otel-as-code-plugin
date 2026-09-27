@@ -6,6 +6,24 @@ version: 0.1.0
 
 # OpenTelemetry Collector Topology
 
+## Component names: keep the pre-rename spellings (deliberate)
+
+Collector core v0.144.0 renamed the `otlp` exporter to `otlp_grpc` and `otlphttp` to `otlp_http`.
+contrib has made similar renames: `k8sattributes` → `k8s_attributes`, `resourcedetection` →
+`resource_detection`, `hostmetrics` → `host_metrics`, `filelog` → `file_log`,
+`prometheusremotewrite` → `prometheus_remote_write`, `deltatocumulative` → `delta_to_cumulative`.
+In each case the old name was kept as a deprecated alias.
+
+Generated configs use the **old** names on purpose. They work on every Collector version; the new
+names fail on any Collector older than the rename. The cost is a startup warning on newer
+Collectors, e.g. `"otlp" alias is deprecated; use "otlp_grpc" instead`, once per pipeline. That
+warning is expected, not a bug: don't "fix" it by switching names in one place. The receiver is
+still called `otlp`; only exporters and the contrib components above were renamed.
+
+Revisit when upstream schedules removal of an alias, since a removed alias makes generated configs
+fail to start. The `drift-check` job reports the latest Collector release, and the pinned test
+version (`tests/collector-validate.sh`) is where to confirm the aliases still load.
+
 ## Two modes: agent and gateway
 
 ### Agent mode

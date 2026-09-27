@@ -7,6 +7,7 @@ reports what is behind:
   - Node OTel SDK packages   (agents/instrumentation-gen.md pins vs the npm registry)
   - Python OTel SDK packages (agents/instrumentation-gen.md pins vs PyPI)
   - Terraform providers       (snapshot required_providers major vs the Terraform registry)
+  - OTel Collector (contrib)  (tests/collector-validate.sh pin vs the collector-releases GitHub release)
   - Semconv GUIDANCE          (the OLD->NEW table vs the upstream attribute registry at the pin)
 
 Informational: always exits 0. Drift is reported as `::warning::` lines plus a markdown table
@@ -45,6 +46,10 @@ def latest_pypi(pkg):
 
 def latest_tf(source):  # e.g. "grafana/grafana"
     return fetch_json(f"https://registry.terraform.io/v1/providers/{source}")["version"]
+
+
+def latest_collector():
+    return fetch_json("https://api.github.com/repos/open-telemetry/opentelemetry-collector-releases/releases/latest")["tag_name"].lstrip("v")
 
 
 def latest_semconv():
@@ -211,6 +216,21 @@ def tf_pins():
     return pins
 
 
+def collector_pins():
+    """Every place the Collector version is pinned, keyed by file. The script default is the
+    one the drift row reports; the test suite asserts the others agree with it."""
+    return {
+        "tests/collector-validate.sh": re.search(r'OTELCOL_VERSION:-([0-9.]+)', _read("tests/collector-validate.sh")),
+        ".github/workflows/ci.yml": re.search(r'OTELCOL_VERSION:\s*"([0-9.]+)"', _read(".github/workflows/ci.yml")),
+        "tests/e2e/docker-compose.yml": re.search(r'otel/opentelemetry-collector-contrib:([0-9.]+)', _read("tests/e2e/docker-compose.yml")),
+    }
+
+
+def collector_pin():
+    m = collector_pins()["tests/collector-validate.sh"]
+    return m.group(1) if m else None
+
+
 def semconv_pin():
     m = re.search(r"SEMCONV_VERSION:\s*([0-9.]+)", _read("skills/semconv-discipline/SKILL.md"))
     return m.group(1) if m else None
@@ -241,6 +261,8 @@ def main():
     for source, pinned in tf_pins():
         latest, err = safe(latest_tf, source)
         add(f"tf {source}", pinned, latest, err, cmp=behind_major)
+    latest, err = safe(latest_collector)
+    add("otelcol-contrib (Collector)", collector_pin(), latest, err)
 
     table = "\n".join(
         ["| Component | Pinned | Latest | Status |", "|---|---|---|---|"]

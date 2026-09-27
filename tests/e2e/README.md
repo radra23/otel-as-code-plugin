@@ -118,7 +118,7 @@ exporter defaults to TLS regardless of an `http://` endpoint scheme, so
 | Component | Version |
 |---|---|
 | `jaegertracing/all-in-one` | `1.60` |
-| `otel/opentelemetry-collector-contrib` | `0.128.0` |
+| `otel/opentelemetry-collector-contrib` | `0.161.0` |
 | `node` (base image) | `20-bookworm-slim` |
 | `python` (base image) | `3.12-slim-bookworm` |
 | `eclipse-temurin` (base image) | `21-jdk-jammy` |

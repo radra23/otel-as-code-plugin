@@ -17,7 +17,7 @@ services:
     # retry_on_failure enabled, so it tolerates jaeger not being immediately ready.
 
   collector:
-    image: otel/opentelemetry-collector-contrib:0.128.0
+    image: otel/opentelemetry-collector-contrib:0.161.0
     # Golden config + an E2E-only overlay (deep-merged) that also writes received logs to a file
     # so assert-logs.sh can prove the Python --experimental logs path. See collector-logs-overlay.yaml.
     command:

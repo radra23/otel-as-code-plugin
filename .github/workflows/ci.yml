@@ -151,7 +151,7 @@ jobs:
       - name: Collector config validate (#3)
         run: bash tests/collector-validate.sh
         env:
-          OTELCOL_VERSION: "0.128.0"
+          OTELCOL_VERSION: "0.161.0"
 
       - name: Trace-flow smoke test (#1)
         run: bash tests/e2e/run.sh

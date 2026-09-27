@@ -628,5 +628,12 @@ check "#148 mean latency uses rate() of _sum and _count, not raw counters" \
 check "#147 goldens do not use notification_policy" \
   '! grep -rq "grafana_notification_policy" tests/snapshots/'
 
+# --- Collector component names: the deprecated-alias choice is deliberate -----------------------
+TOPO="skills/collector-topology/SKILL.md"
+check "collector skill records that old component names are kept on purpose" \
+  'grep -q "^## Component names: keep the pre-rename spellings (deliberate)" "$TOPO"'
+check "goldens use the otlp exporter alias, matching that decision" \
+  'grep -q "exporters: \[otlp\]" tests/snapshots/collector/otelcol-agent.yaml.snap && ! grep -rq "otlp_grpc" tests/snapshots/collector/'
+
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

@@ -34,6 +34,13 @@ check("python pins parsed (opentelemetry-sdk)", "opentelemetry-sdk" in pp)
 tf = dict(d.tf_pins())
 check("tf provider pins parsed (all 4 vendors)", len(tf) == 4 and "grafana/grafana" in tf)
 check("semconv pin parsed (1.44.0)", d.semconv_pin() == "1.44.0")
+cp = d.collector_pins()
+check("collector pin parsed from every pinned location", all(cp.values()))
+vals = {f: m.group(1) for f, m in cp.items() if m}
+check(f"collector pin agrees across {', '.join(sorted(vals))}", len(set(vals.values())) == 1)
+if len(set(vals.values())) > 1:
+    print("  disagreeing pins:", vals)
+check("collector_pin() reports the script default", d.collector_pin() == vals.get("tests/collector-validate.sh"))
 
 check("behind: 1.27.0 < 1.37.0", d.behind("1.27.0", "1.37.0"))
 check("not behind: 2.8.0 == 2.8.0", not d.behind("2.8.0", "2.8.0"))
