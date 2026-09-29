@@ -1,31 +1,23 @@
-## What this changes
+## Summary
 
-<!-- One or two sentences. If it fixes an issue, "Fixes #123" here. -->
+<!-- What this changes and why. "Closes #123" if it closes an issue. -->
 
-## Why
+## What changed
 
-<!-- The reasoning a reviewer cannot infer from the diff. -->
+<!-- Optional. The reasoning a reviewer cannot infer from the diff; skip it if the summary already carries that. -->
 
-## Checklist
-
-- [ ] `claude plugin validate . --strict` passes.
-- [ ] Tests for anything I touched run clean locally (`bash tests/hooks/*.test.sh`, and the relevant `tests/` scripts).
-- [ ] I did not hardcode a value that has a single source of truth: `SEMCONV_VERSION` lives in `skills/semconv-discipline/SKILL.md`, the vendor list in `backends.txt`, the generated-path set in `hooks/otel-paths.sh`.
-
-### If this changes generated output
-
-- [ ] Terraform snapshots regenerated and reviewed (`tests/snapshots/<vendor>/main.tf.snap`, see `tests/snapshots/README.md`).
-- [ ] Bootstrap pins still pass `tests/snapshots/instrument/pins.test.sh`.
-- [ ] I checked the change against the semantic conventions rather than against what looked reasonable, and linked the spec section if it is not obvious.
-
-### If this renames or moves a command, skill, agent, or hook
-
-- [ ] The Codex bridge still resolves (`.agents/skills/`, `.codex/hooks.json`, `hooks/codex/`).
-
-## How you can verify it
+## Test plan
 
 <!--
-The single most useful thing in a PR here. A reviewer should be able to reproduce your result
-without guessing. For example: "ran /otel-instrument against fixtures/python-greenfield,
-the generated tracing.py now emits service.namespace; before/after diff below."
+The most useful section here: what you ran, and what it proved. A reviewer should be able to
+reproduce it without guessing — "ran /otel-instrument against fixtures/python-greenfield, the
+generated tracing.py now emits service.namespace".
+
+CI already asserts --strict, the test suites, the Terraform snapshots, the bootstrap pins, the
+Codex bridge and the plugin.json version bump, so spend this section on what CI cannot see:
+the thing you reproduced by hand, the teeth-check that proves a new test actually fails when
+the rule it guards is removed.
 -->
+
+- [ ] Vendor, SDK and semantic-convention facts were verified against the source, not recalled — linked where it isn't obvious.
+- [ ] Nothing hardcoded that has a single source of truth (`SEMCONV_VERSION`, `backends.txt`, `hooks/otel-paths.sh`).
