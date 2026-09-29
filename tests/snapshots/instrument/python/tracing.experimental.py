@@ -38,7 +38,7 @@ from opentelemetry.sdk._logs.export import (
 from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
 
 # `deployment.environment.name` has no constant on the legacy ResourceAttributes class in
-# opentelemetry-semantic-conventions 0.65b0 — only the deprecated `DEPLOYMENT_ENVIRONMENT` —
+# opentelemetry-semantic-conventions 0.66b0 — only the deprecated `DEPLOYMENT_ENVIRONMENT` —
 # so the key is written as a literal. Checked against the installed package; re-check rather
 # than assume if you bump the dependency.
 _DEPLOYMENT_ENVIRONMENT_NAME = "deployment.environment.name"

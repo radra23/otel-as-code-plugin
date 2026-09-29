@@ -31,6 +31,13 @@ if missing:
     print("  not found by node_pins():", ", ".join(sorted(missing)))
 pp = dict(d.python_pins())
 check("python pins parsed (opentelemetry-sdk)", "opentelemetry-sdk" in pp)
+# Same idea as the node check above: the golden requirements.txt must pin exactly what the
+# generator pins. Before this, a bump that updated one and missed the other went unnoticed.
+import re as _re
+golden_py = dict(_re.findall(r"^(opentelemetry-[^>=\s]+)>=(\S+)$", open("tests/snapshots/instrument/python/requirements.txt").read(), _re.M))
+check(f"python golden requirements match the generator pins ({len(golden_py)})", golden_py and golden_py == pp)
+if golden_py != pp:
+    print("  generator:", pp); print("  golden:   ", golden_py)
 tf = dict(d.tf_pins())
 check("tf provider pins parsed (all 4 vendors)", len(tf) == 4 and "grafana/grafana" in tf)
 check("semconv pin parsed (1.44.0)", d.semconv_pin() == "1.44.0")

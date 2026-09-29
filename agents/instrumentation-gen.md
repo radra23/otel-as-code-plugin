@@ -474,7 +474,7 @@ from opentelemetry.sdk.resources import Resource
 from opentelemetry.semconv.resource import ResourceAttributes
 
 # `deployment.environment.name` has no constant on the legacy ResourceAttributes class in
-# opentelemetry-semantic-conventions 0.65b0 — only the deprecated `DEPLOYMENT_ENVIRONMENT` —
+# opentelemetry-semantic-conventions 0.66b0 — only the deprecated `DEPLOYMENT_ENVIRONMENT` —
 # so the key is written as a literal. Checked against the installed package; re-check rather
 # than assume if you bump the dependency.
 _DEPLOYMENT_ENVIRONMENT_NAME = "deployment.environment.name"
@@ -634,10 +634,10 @@ No new dependency is needed: `LoggingHandler` / `LoggerProvider` ship in `opente
 
 Add to `[project].dependencies`:
 ```toml
-"opentelemetry-sdk>=1.44.0",
-"opentelemetry-exporter-otlp-proto-grpc>=1.44.0",
-"opentelemetry-instrumentation-fastapi>=0.65b0",
-"opentelemetry-semantic-conventions>=0.65b0",
+"opentelemetry-sdk>=1.45.0",
+"opentelemetry-exporter-otlp-proto-grpc>=1.45.0",
+"opentelemetry-instrumentation-fastapi>=0.66b0",
+"opentelemetry-semantic-conventions>=0.66b0",
 ```
 
 (Replace `fastapi` with the detected framework from context JSON. For Flask: use `opentelemetry-instrumentation-flask` and `FlaskInstrumentor().instrument_app(app)`. For Django: use `opentelemetry-instrumentation-django` and `DjangoInstrumentor().instrument()` at module load time. For unknown frameworks: install `opentelemetry-instrumentation` and call the framework-specific instrumentor if available, or skip auto-instrumentation and note this in the summary.)
