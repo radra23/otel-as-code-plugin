@@ -53,10 +53,15 @@ only other way to discover it is to try it.
 |---------|--------|------------------------------------------------------|
 | Traces  | Stable | `@opentelemetry/sdk-trace-node`                      |
 | Metrics | Stable | `@opentelemetry/sdk-metrics`                         |
-| Logs    | Stable | `@opentelemetry/sdk-logs` + `@opentelemetry/winston-transport` |
+| Logs    | Development | `@opentelemetry/sdk-logs` + `@opentelemetry/winston-transport` — gated behind `--experimental` |
 | Auto    | Stable | `@opentelemetry/auto-instrumentations-node`          |
 
-Node.js bootstrap: use `@opentelemetry/sdk-node` (bundles traces + metrics + logs).
+**Logs are Development, not Stable.** The opentelemetry-js README's feature-status table and
+opentelemetry.io both list the JS Logs API and SDK as Development. `sdk-node` bundles the logs
+pipeline and turns it on from `OTEL_LOGS_EXPORTER` alone, so the generated bootstrap must default
+that variable to `none` unless `--experimental` is set (Feature Gating Rule 4).
+
+Node.js bootstrap: use `@opentelemetry/sdk-node` (bundles traces + metrics, and logs under `--experimental`).
 OTLP exporter: `@opentelemetry/exporter-trace-otlp-grpc` (prefer gRPC over HTTP).
 Semconv constants: `@opentelemetry/semantic-conventions` — use named exports
 (`ATTR_SERVICE_NAME`, `ATTR_HTTP_REQUEST_METHOD`, etc.) not raw strings.

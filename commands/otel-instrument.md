@@ -23,7 +23,7 @@ Generate OTel SDK bootstrap and OTLP wiring for one service.
   shape, e.g. `http.target` splitting into `url.path` + `url.query`) is reported back as skipped,
   naming why, rather than guessed at. Pair with `--dry-run` to review exactly what a `--fix` would
   change before it's written.
-- `--experimental` — unlock pre-Stable signals (e.g. logs for Python). Passed to
+- `--experimental` — unlock pre-Stable signals (e.g. logs for Python and Node.js). Passed to
   both `language-maturity` and `semconv-discipline` skills.
 - `--force` — overwrite existing generated artifacts. Required if the write-guard hook blocks
   a re-generation. **`--force` is a full regeneration and discards hand edits** — read the
@@ -321,6 +321,10 @@ context to make this concrete rather than generic:
   OTEL_LOGS_EXPORTER    = otlp
   DEPLOYMENT_ENV        # this target's environment, e.g. production
   ```
+  Include `OTEL_LOGS_EXPORTER` only when the logs signal was generated. Node.js and Python logs are
+  Development-level and generated only under `--experimental`; without the flag, drop that line
+  from every rendering below. For Node.js it is not harmless: NodeSDK turns the logs pipeline on
+  from this variable alone, so writing it into deployment config re-enables the gated signal.
 
   **If a collector this service points at requires auth:** check for `otelcol-agent.yaml` /
   `otelcol-gateway.yaml` in the repo (root or service root) — if one exists and contains

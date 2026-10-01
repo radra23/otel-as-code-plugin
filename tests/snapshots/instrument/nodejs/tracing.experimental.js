@@ -30,10 +30,9 @@ const hasEndpoint = Boolean(
     process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT
 );
 const SIGNAL_EXPORTERS = ['OTEL_TRACES_EXPORTER', 'OTEL_METRICS_EXPORTER', 'OTEL_LOGS_EXPORTER'];
-// Logs are Development-level in OpenTelemetry JS, so they stay off by default, even with an
-// endpoint configured. NodeSDK wires logs from OTEL_LOGS_EXPORTER alone, so setting it yourself
-// opts in; re-running /otel-instrument --experimental flips this default.
-const LOGS_ON_BY_DEFAULT = false;
+// Experimental — requires --experimental. Logs are Development-level in OpenTelemetry JS:
+// they export by default like traces and metrics, but the API may change.
+const LOGS_ON_BY_DEFAULT = true;
 for (const key of SIGNAL_EXPORTERS) {
   if (process.env[key]) continue;
   const on = hasEndpoint && (key !== 'OTEL_LOGS_EXPORTER' || LOGS_ON_BY_DEFAULT);
