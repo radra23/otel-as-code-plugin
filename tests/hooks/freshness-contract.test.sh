@@ -16,7 +16,7 @@ INIT="commands/otel-init.md"
 
 # The /otel-init Step 1 freshness regex, kept identical to commands/otel-init.md. If the doc's
 # regex legitimately changes, update this line too — that update IS the point of check 0.
-REGEX='(^|/)(package\.json|pnpm-workspace\.yaml|pyproject\.toml|requirements\.txt|go\.mod|go\.work|Cargo\.toml|pom\.xml|build\.gradle(\.kts)?|settings\.gradle(\.kts)?|global\.json|Directory\.Packages\.props|[^/]+\.(csproj|fsproj|sln)|Dockerfile|host\.json|serverless\.yml|CODEOWNERS)$'
+REGEX='(^|/)(package\.json|pnpm-workspace\.yaml|pyproject\.toml|requirements\.txt|go\.mod|go\.work|Cargo\.toml|Gemfile|composer\.json|pom\.xml|build\.gradle(\.kts)?|settings\.gradle(\.kts)?|global\.json|Directory\.Packages\.props|[^/]+\.(csproj|fsproj|sln)|Dockerfile|host\.json|serverless\.yml|CODEOWNERS)$'
 
 # check 0: otel-init.md carries EXACTLY the regex this test mirrors. This compared only a
 # prefix before, so appending a new alternative to the doc — the way every new manifest type
@@ -115,6 +115,28 @@ then
   echo "PASS: scanner prose basename list and the Step 1 regex name the same files"; pass=$((pass+1))
 else
   echo "FAIL: scanner prose basename list and the Step 1 regex disagree"; fail=$((fail+1))
+fi
+
+# check 6: every fixture holding a language manifest from the scanner's `runtime` evidence table
+# (agents/repo-context-scanner.md) has at least one identity input. The regex once omitted Gemfile
+# and composer.json, so every Ruby (and PHP) service without a Dockerfile was "uncovered" under the
+# #150 rule and re-scanned on every command: the cache could never hit. Fixtures with no manifest
+# (java-greenfield is a bare App.java the e2e compiles directly) aren't detected as services at
+# all, so they have nothing to cover; keycloak-deployment must stay uncovered (check 4).
+MANIFEST='(^|/)(package\.json|pyproject\.toml|requirements\.txt|setup\.py|pom\.xml|build\.gradle(\.kts)?|[^/]+\.(csproj|fsproj)|go\.mod|Gemfile|composer\.json|Cargo\.toml)$'
+uncovered=""
+for d in fixtures/*/; do
+  name=$(basename "$d")
+  files=$(cd "$d" && find . -type f | sed 's|^\./||')
+  echo "$files" | grep -qE "$MANIFEST" || continue
+  if ! echo "$files" | grep -qE "$REGEX"; then
+    uncovered="$uncovered $name"
+  fi
+done
+if [ -z "$uncovered" ]; then
+  echo "PASS: every fixture with a language manifest has an identity input"; pass=$((pass+1))
+else
+  echo "FAIL: fixtures with no identity input (cache would always read stale):$uncovered"; fail=$((fail+1))
 fi
 
 echo ""
