@@ -175,9 +175,18 @@ Never block an entire SDK generation request because one signal is Development-l
 
 | Language | Traces  | Metrics | Logs        |
 |----------|---------|---------|-------------|
-| PHP      | Stable  | Beta    | Development |
+| PHP      | Stable  | Stable  | Stable      |
 | Rust     | Beta    | Stable  | Stable      |
-| Swift    | Beta    | Development | Development |
+| Swift    | Stable  | Development | Development |
+
+**PHP** (verified against opentelemetry.io's status data; the opentelemetry-php README publishes no
+status table of its own). Traces, Metrics and Logs are all Stable, so PHP logs need no
+`--experimental`. Design: #117.
+
+**Swift** (verified against opentelemetry.io and the opentelemetry-swift README). Traces are Stable.
+Metrics are Development: the README says they implement an outdated spec and will change. The README
+calls Logs "beta quality" while opentelemetry.io lists them as Development, so the row uses the
+stricter of the two and Swift logs stay behind `--experimental` until the sources agree.
 
 **Rust** (verified against the opentelemetry-rust 0.33.0 status table). The Metrics and Logs API/SDK
 are Stable. Logs flow through `opentelemetry-appender-tracing` (Stable), because Rust has no
