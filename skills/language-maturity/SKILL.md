@@ -171,8 +171,14 @@ Never block an entire SDK generation request because one signal is Development-l
 | Language | Traces  | Metrics | Logs        |
 |----------|---------|---------|-------------|
 | PHP      | Stable  | Beta    | Development |
-| Rust     | Beta    | Beta    | Development |
+| Rust     | Beta    | Stable  | Stable      |
 | Swift    | Beta    | Development | Development |
+
+**Rust** (verified against the opentelemetry-rust 0.33.0 status table). The Metrics and Logs API/SDK
+are Stable. Logs flow through `opentelemetry-appender-tracing` (Stable), because Rust has no
+user-facing OTel logging API and `tracing` is the logging API. The OTLP exporter crate is still RC
+for both signals. Traces (API, SDK and OTLP exporter) are Beta. Under the gating rules above, Rust
+logs therefore need no `--experimental`. Design: #118.
 
 Browser/RUM is not on this list: it is a scope decision, not a maturity one (the web SDK's
 traces are Stable). See "Browser / RUM" above.
