@@ -55,6 +55,8 @@ jobs:
 
       - name: Run Go instrument-wiring contract (command recognizes go, generator defines it)
         run: bash tests/hooks/go-instrument-wiring.test.sh
+      - name: Run Node.js logs gating test (Development-level logs stay off by default)
+        run: bash tests/hooks/node-logs-gating.test.sh
 
       - name: Run Ruby framework-detection contract (Rails vs non-Rails placement)
         run: bash tests/hooks/ruby-framework-detection.test.sh

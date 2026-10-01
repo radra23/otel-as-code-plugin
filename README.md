@@ -124,8 +124,8 @@ to keep the auth, or `--confirm-remove-auth` to intentionally downgrade.
 
 ## What gets generated
 
-**SDK bootstrap** (`tracing.js` or `tracing.py`): traces + metrics + logs, with the exporter for
-each signal selected by the spec's own `OTEL_TRACES_EXPORTER` / `OTEL_METRICS_EXPORTER` /
+**SDK bootstrap** (`tracing.js` or `tracing.py`): traces + metrics, plus logs under `--experimental`
+(both SDKs' logs are still Development-level), with the exporter for each signal selected by the spec's own `OTEL_TRACES_EXPORTER` / `OTEL_METRICS_EXPORTER` /
 `OTEL_LOGS_EXPORTER` variables (`otlp` | `console` | `none`). Drop-in for your service entry
 point.
 
@@ -162,7 +162,7 @@ git can't un-ignore a file inside an excluded directory.
 
 ## Supported languages
 
-Node.js (all signals: Stable) and Python (traces + metrics: Stable; logs: Development, opt-in via
+Node.js and Python (traces + metrics: Stable; logs: Development, opt-in via
 `--experimental`) via a generated
 SDK bootstrap (`tracing.js` / `tracing.py`). **Java** (all signals: Stable) via the zero-code
 OpenTelemetry Java **agent** — the generator emits an `otel-java.env` + a pinned agent download and

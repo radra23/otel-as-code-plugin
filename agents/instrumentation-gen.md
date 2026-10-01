@@ -119,7 +119,8 @@ you are about to emit (traces, metrics, logs). Then gate output by maturity leve
 - **Development** → do **not** emit unless `experimental` is `true`. When blocked, omit the
   signal and add one line to the returned summary:
   `⚠ <signal> for <language> is Development-level; re-run /otel-instrument --experimental to include it.`
-  In MVP this applies to Python **logs** (`opentelemetry.sdk._logs`) — see the Python logs block below.
+  In MVP this applies to Python **logs** (`opentelemetry.sdk._logs`) and Node.js **logs** (off by
+  default via `LOGS_ON_BY_DEFAULT`) — see the Python logs block and the Node.js bootstrap notes.
 
 When `experimental` is `true`:
 - Unlock Development-level signals (emit them with the Beta comment instead of blocking).
@@ -276,8 +277,14 @@ const hasEndpoint = Boolean(
     process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT
 );
 const SIGNAL_EXPORTERS = ['OTEL_TRACES_EXPORTER', 'OTEL_METRICS_EXPORTER', 'OTEL_LOGS_EXPORTER'];
+// Logs are Development-level in OpenTelemetry JS, so they stay off by default, even with an
+// endpoint configured. NodeSDK wires logs from OTEL_LOGS_EXPORTER alone, so setting it yourself
+// opts in; re-running /otel-instrument --experimental flips this default.
+const LOGS_ON_BY_DEFAULT = false;
 for (const key of SIGNAL_EXPORTERS) {
-  if (!process.env[key]) process.env[key] = hasEndpoint ? 'otlp' : 'none';
+  if (process.env[key]) continue;
+  const on = hasEndpoint && (key !== 'OTEL_LOGS_EXPORTER' || LOGS_ON_BY_DEFAULT);
+  process.env[key] = on ? 'otlp' : 'none';
 }
 // This plugin standardizes on OTLP/gRPC (4317); the SDK's OTLP default is http/protobuf (4318),
 // so leaving the protocol unset while pointing at :4317 is connection-refused.
@@ -342,6 +349,23 @@ if it was not provided, leave the placeholder and say so rather than guessing.
 
 Do NOT pass `traceExporter`, `metricReader`, or `metricReaders` to `NodeSDK`. Any of them
 overrides the env-var selection above and re-breaks the `console` and `none` paths.
+
+**Logs are Development-level in OpenTelemetry JS** (see `language-maturity`), so the template above
+keeps them off: `LOGS_ON_BY_DEFAULT = false` makes `OTEL_LOGS_EXPORTER` default to `none` even when
+an endpoint is configured. This is not cosmetic. NodeSDK builds the logs pipeline from that one
+variable, and the auto-instrumentations bridge winston/pino/bunyan into it, so an `otlp` default
+would ship a Development-level signal with no flag. When `experimental` is `true`, replace that
+comment and line with:
+
+```javascript
+// Experimental — requires --experimental. Logs are Development-level in OpenTelemetry JS:
+// they export by default like traces and metrics, but the API may change.
+const LOGS_ON_BY_DEFAULT = true;
+```
+
+Golden snapshots: `tests/snapshots/instrument/nodejs/tracing.js` (default) and
+`tracing.experimental.js`; they differ only in that block. Without the flag, add the blocked-signal
+line to the summary, the same as Python logs.
 (`metricReader` is additionally deprecated in favour of `metricReaders`.)
 
 ### Update `package.json` — add required OTel dependencies
