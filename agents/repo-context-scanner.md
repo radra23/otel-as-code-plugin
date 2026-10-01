@@ -337,7 +337,7 @@ found none.
    - `identityInputs`: the repo-relative paths that define service identity, and EXACTLY the set
      the `/otel-init` Step 1 freshness check rediscovers — every tracked-or-untracked file whose
      basename is one of `package.json`, `pnpm-workspace.yaml`, `pyproject.toml`,
-     `requirements.txt`, `go.mod`, `go.work`, `Cargo.toml`, `pom.xml`,
+     `requirements.txt`, `go.mod`, `go.work`, `Cargo.toml`, `Gemfile`, `composer.json`, `pom.xml`,
      `build.gradle`/`build.gradle.kts`, `settings.gradle`/`settings.gradle.kts`, `global.json`,
      `Directory.Packages.props`, any `*.csproj`/`*.fsproj`/`*.sln`, `Dockerfile`, `host.json`,
      `serverless.yml`, `CODEOWNERS`. Nothing else — **NOT** bare service root directories, and
