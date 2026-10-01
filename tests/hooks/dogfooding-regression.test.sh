@@ -635,5 +635,12 @@ check "collector skill records that old component names are kept on purpose" \
 check "goldens use the otlp exporter alias, matching that decision" \
   'grep -q "exporters: \[otlp\]" tests/snapshots/collector/otelcol-agent.yaml.snap && ! grep -rq "otlp_grpc" tests/snapshots/collector/'
 
+# --- #118: Rust maturity row matches upstream opentelemetry-rust 0.33 --------------------------
+MATURITY="skills/language-maturity/SKILL.md"
+check "#118 Rust maturity row is Traces Beta, Metrics Stable, Logs Stable" \
+  'grep -qE "^\| Rust +\| Beta +\| Stable +\| Stable +\|" "$MATURITY"'
+check "#118 Rust logs are no longer gated as Development" \
+  '! grep -qE "^\| Rust .*Development" "$MATURITY"'
+
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
