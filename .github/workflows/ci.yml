@@ -259,6 +259,16 @@ jobs:
           grep -q "functions.cloudEvent(" fixtures/nodejs-gcp-functions/index.js
           ! grep -rq opentelemetry fixtures/nodejs-gcp-functions
 
+      # #122c — Nuxt. The ESM build output is the load-bearing fact behind the caveat in
+      # instrumentation-gen's Nuxt note, so the fixture has to keep stating it.
+      - name: Check nuxt-app fixture (#122c — ESM Nitro output, partial preload coverage)
+        run: |
+          grep -q '"nuxt"' fixtures/nuxt-app/package.json
+          test -f fixtures/nuxt-app/nuxt.config.ts
+          grep -q '\.output/server/index\.mjs' fixtures/nuxt-app/package.json
+          grep -rq "from 'undici'" fixtures/nuxt-app/server
+          ! grep -rqi opentelemetry fixtures/nuxt-app
+
       # #122b — non-npm monorepo layouts. Each member lives where the packages/* and apps/*
       # globs cannot see it, which is the point: resolution has to come from the repo's own
       # declaration (pnpm-workspace.yaml, go.work, the parent POM's <modules>).

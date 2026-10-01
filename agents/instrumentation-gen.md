@@ -236,9 +236,11 @@ each language's summary below:
 **Framework check first.** If `service.framework` is `nextjs`, do NOT use the generic bootstrap
 below — a `-r ./tracing.js` preload does not work for Next.js (the framework separates the
 Node.js and Edge runtimes and bundles/tree-shakes the app, so an early top-level require either
-runs in the wrong runtime or is dropped). Use the **Next.js** section instead. `nuxt` is detected
-but has no framework-specific path yet — see the note in that section. For a plain Node server
-(`express`, `fastify`, `koa`, `nestjs`, or `other`), continue here.
+runs in the wrong runtime or is dropped). Use the **Next.js** section instead.
+If it is `nuxt`, continue here — the generic bootstrap DOES apply, but only alongside the
+mandatory caveat in the Nuxt note below, which states which half of the instrumentation it
+reaches. For a plain Node server (`express`, `fastify`, `koa`, `nestjs`, or `other`), continue
+here with no caveat.
 
 Write two files:
 
@@ -464,10 +466,29 @@ headline warning in the summary; do not remove, rewrite, or "fix" someone else's
 is about surfacing a fact the user has no other way to see, same spirit as the `deploymentEnvConfigured`
 check above.
 
-**Nuxt** is detected as `framework: nuxt`, but a Nuxt-specific path is not implemented yet. Emit
-the generic Node bootstrap only with an explicit caveat in the summary that Nuxt (Nitro) likely
-needs its own server-plugin hook and the output is unverified for it — never present it as
-complete.
+**Nuxt** is detected as `framework: nuxt`. Emit the generic Node bootstrap, with the caveat below
+in the summary — never present it as complete.
+
+What a `-r ./tracing.js` preload reaches in a Nitro production build, checked by building an app
+and running the built server against nuxt 4.5.2 / nitropack 2.13.4 / OTel JS 0.222.0.
+Re-check on a bump rather than assuming it still holds:
+
+| | reached from a CJS preload? |
+| --- | --- |
+| SDK startup | yes — `--require` runs ahead of an ESM entry point |
+| SERVER spans for incoming requests | yes — Nitro's server is `node:http`, and a builtin stays patchable through the require hook even where the app imports it as ESM |
+| third-party libraries the server code imports | **no** — `.output/` is ESM (`"type": "module"`), so `require-in-the-middle` never sees those imports |
+
+So the output is partial, not empty: incoming requests are traced, outbound calls through an
+imported client are not. Nitro externalises runtime dependencies rather than inlining them — a
+`server/api` route's `import { request } from 'undici'` stays a bare import, with `undici` under
+`.output/server/node_modules` and listed in `.output/server/package.json` — so the module boundary
+does exist. Reaching it needs `import-in-the-middle`, i.e. `@opentelemetry/instrumentation/hook.mjs`
+registered explicitly via `--import` or `--experimental-loader`.
+
+State that as the gap: **ESM loader registration**, not a missing Nitro server plugin. A server
+plugin would move provider setup inside the app and would not patch one additional module, so
+naming it sends the user to the wrong layer.
 
 ## Python Bootstrap
 

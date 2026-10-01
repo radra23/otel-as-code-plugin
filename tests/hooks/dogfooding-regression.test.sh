@@ -641,6 +641,42 @@ check "#118 Rust maturity row is Traces Beta, Metrics Stable, Logs Stable" \
   'grep -qE "^\| Rust +\| Beta +\| Stable +\| Stable +\|" "$MATURITY"'
 check "#118 Rust logs are no longer gated as Development" \
   '! grep -qE "^\| Rust .*Development" "$MATURITY"'
+# --- #122c: Nuxt -------------------------------------------------------------------------------
+# nuxt sits in the same "do not collapse to other" rule as nextjs and rails, both of which had a
+# fixture; nuxt had none, so nothing exercised its guidance. Building a real Nitro app showed the
+# guidance's CONCLUSION was right (emit the generic bootstrap + caveat) but its stated REASON was
+# wrong: it blamed a missing Nitro server plugin. The actual gap is ESM loader registration, and a
+# server plugin would not patch one extra module. These checks pin the fixture AND the correction,
+# so a later edit cannot restore the wrong reason or drop the half that does work.
+NUXTFIX="fixtures/nuxt-app"
+nuxt_note() { sed -n "/^\*\*Nuxt\*\* is detected/,/^## Python Bootstrap/p" "$IGEN"; }
+
+check "#122c scanner detects nuxt explicitly, never collapsed to other" \
+  'grep -q "nuxt" "$SCANNER" && grep -qiE "collapse any of these three to" "$SCANNER"'
+check "#122c nuxt fixture carries the dependency signal (repro intact)" \
+  'grep -q "\"nuxt\"" "$NUXTFIX/package.json"'
+check "#122c nuxt fixture carries the config-file signal" \
+  'test -f "$NUXTFIX/nuxt.config.ts"'
+check "#122c nuxt fixture has a server route importing a third-party client (the unpatched case)" \
+  'grep -rq "from .undici." "$NUXTFIX/server"'
+check "#122c nuxt fixture starts from the ESM build output (the load-bearing fact)" \
+  'grep -q "\.output/server/index\.mjs" "$NUXTFIX/package.json"'
+check "#122c nuxt fixture stays greenfield (no OTel dep)" \
+  '! grep -rqi opentelemetry "$NUXTFIX"'
+
+# The correction itself.
+check "#122c nuxt is NOT excluded from the generic bootstrap the way nextjs is" \
+  'grep -qiE "If it is .nuxt., continue here" "$IGEN"'
+check "#122c note says the result is partial, not empty (SERVER spans do work)" \
+  'nuxt_note | grep -qiE "partial, not empty|incoming requests are traced"'
+check "#122c note names the ESM reason require-in-the-middle cannot see those imports" \
+  'nuxt_note | grep -qiE "require-in-the-middle never sees|type.: .module."'
+check "#122c note names the actual fix (import-in-the-middle / hook.mjs loader)" \
+  'nuxt_note | grep -qiE "import-in-the-middle|hook\.mjs"'
+check "#122c note explicitly rejects a server plugin as the gap" \
+  'nuxt_note | grep -qiE "not a missing Nitro server plugin|wrong layer"'
+check "#122c note stamps the versions it was checked against, with a re-check instruction" \
+  'nuxt_note | grep -qiE "nitropack 2\.13\.4" && nuxt_note | grep -qiE "Re-check on a bump"'
 
 # --- PHP / Swift maturity rows match upstream ---------------------------------------------------
 check "PHP maturity row is Stable on all three signals" \
