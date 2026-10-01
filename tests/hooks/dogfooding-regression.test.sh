@@ -642,5 +642,11 @@ check "#118 Rust maturity row is Traces Beta, Metrics Stable, Logs Stable" \
 check "#118 Rust logs are no longer gated as Development" \
   '! grep -qE "^\| Rust .*Development" "$MATURITY"'
 
+# --- PHP / Swift maturity rows match upstream ---------------------------------------------------
+check "PHP maturity row is Stable on all three signals" \
+  'grep -qE "^\| PHP +\| Stable +\| Stable +\| Stable +\|" "$MATURITY"'
+check "Swift maturity row is Traces Stable, Metrics and Logs Development" \
+  'grep -qE "^\| Swift +\| Stable +\| Development +\| Development +\|" "$MATURITY"'
+
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
