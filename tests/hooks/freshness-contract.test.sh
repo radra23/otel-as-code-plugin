@@ -16,7 +16,7 @@ INIT="commands/otel-init.md"
 
 # The /otel-init Step 1 freshness regex, kept identical to commands/otel-init.md. If the doc's
 # regex legitimately changes, update this line too — that update IS the point of check 0.
-REGEX='(^|/)(package\.json|pnpm-workspace\.yaml|pyproject\.toml|requirements\.txt|go\.mod|go\.work|Cargo\.toml|Gemfile|composer\.json|pom\.xml|build\.gradle(\.kts)?|settings\.gradle(\.kts)?|global\.json|Directory\.Packages\.props|[^/]+\.(csproj|fsproj|sln)|Dockerfile|host\.json|serverless\.yml|CODEOWNERS)$'
+REGEX='(^|/)(package\.json|pnpm-workspace\.yaml|pyproject\.toml|requirements\.txt|setup\.py|go\.mod|go\.work|Cargo\.toml|Gemfile|composer\.json|pom\.xml|build\.gradle(\.kts)?|settings\.gradle(\.kts)?|global\.json|Directory\.Packages\.props|[^/]+\.(csproj|fsproj|sln)|Dockerfile|host\.json|serverless\.yml|CODEOWNERS)$'
 
 # check 0: otel-init.md carries EXACTLY the regex this test mirrors. This compared only a
 # prefix before, so appending a new alternative to the doc — the way every new manifest type
@@ -118,8 +118,8 @@ else
 fi
 
 # check 6: every fixture holding a language manifest from the scanner's `runtime` evidence table
-# (agents/repo-context-scanner.md) has at least one identity input. The regex once omitted Gemfile
-# and composer.json, so every Ruby (and PHP) service without a Dockerfile was "uncovered" under the
+# (agents/repo-context-scanner.md) has at least one identity input. The regex once omitted Gemfile,
+# composer.json and setup.py, so every Ruby, PHP or setup.py-only Python service without a Dockerfile was "uncovered" under the
 # #150 rule and re-scanned on every command: the cache could never hit. Fixtures with no manifest
 # (java-greenfield is a bare App.java the e2e compiles directly) aren't detected as services at
 # all, so they have nothing to cover; keycloak-deployment must stay uncovered (check 4).
