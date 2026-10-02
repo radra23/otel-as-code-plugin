@@ -212,6 +212,17 @@ jobs:
           test -f fixtures/python-greenfield/Dockerfile
           ! grep -q "opentelemetry" fixtures/python-greenfield/pyproject.toml
 
+      # A Python service declared only by setup.py: no pyproject.toml, requirements.txt or Dockerfile.
+      # freshness-contract check 6 needs setup.py in the identity regex for this to be covered.
+      - name: Check python-setuppy-app fixture
+        run: |
+          test -f fixtures/python-setuppy-app/setup.py
+          test -f fixtures/python-setuppy-app/orders_api/app.py
+          ! test -f fixtures/python-setuppy-app/pyproject.toml
+          ! test -f fixtures/python-setuppy-app/requirements.txt
+          ! test -f fixtures/python-setuppy-app/Dockerfile
+          ! grep -rq opentelemetry fixtures/python-setuppy-app
+
       - name: Check nextjs-greenfield fixture
         run: |
           test -f fixtures/nextjs-greenfield/package.json
