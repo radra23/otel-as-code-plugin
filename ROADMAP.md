@@ -8,7 +8,7 @@
 > of the same shape, and every concrete line item that isn't done yet has a linked tracking issue —
 > comment there rather than only in this file if you want to weigh in.
 
-Current release: **0.8.12**. Node.js, Python, Java, .NET, Go, and Ruby instrumentation, Terraform
+Current release: **0.8.13**. Node.js, Python, Java, .NET, Go, and Ruby instrumentation, Terraform
 for Grafana, Datadog, New Relic, and Dash0, semconv pinned at 1.44.0. Since 0.2.0 the command set
 has grown past generation: `/otel-uninstrument` rolls instrumentation back behind an ownership
 marker, `/otel-remediate` proposes a deployment-config diff for services that have no application
@@ -55,9 +55,12 @@ just a larger surface to be wrong on. So the near-term work is depth.
   real Nitro app showed the guidance's conclusion (emit the generic bootstrap behind a caveat)
   was right while its stated reason was wrong — it blamed a missing Nitro server plugin, when
   the actual gap is ESM loader registration. The preload does emit SERVER spans; what it misses
-  is third-party libraries the server imports. Still uncovered: `php`/`rust` (in the language
-  enum, refused by codegen, no fixture pinning the refusal) and `django`/`flask` (Django's
-  module-load-time placement differs from Flask's and nothing exercises either). Ongoing:
+  is third-party libraries the server imports. Django and Flask fixtures followed and found the
+  same pattern: running a real Django project showed `DjangoInstrumentor().instrument()` has one
+  valid position (after `DJANGO_SETTINGS_MODULE`, before `get_wsgi_application()`). The old
+  "at module load time" instruction could land before it and break every request. Still
+  uncovered: `php`/`rust` (in the language enum, refused by codegen, no fixture pinning the
+  refusal). Ongoing:
   [#122](https://github.com/radra23/otel-as-code-plugin/issues/122).
 - **Keep the pins honest — and the guidance with them.** The weekly drift-check CI job reports
   staleness automatically and opens/closes a tracking issue on its own; acting on what it reports

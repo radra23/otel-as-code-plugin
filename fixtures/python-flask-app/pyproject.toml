@@ -1,0 +1,8 @@
+[project]
+name = "orders-service"
+version = "0.9.0"
+requires-python = ">=3.10"
+dependencies = [
+    "flask>=3.0",
+    "gunicorn>=23.0",
+]
