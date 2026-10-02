@@ -80,9 +80,12 @@ is not Node at all.
 3. Validate the chosen service before generating. If it has `generatorSupported: false`, refuse:
    ```
    ⚠ <name> cannot be instrumented by this command: <instrumentableReason>
-     Generating a Node SDK bootstrap for a browser bundle produces code that cannot run and
-     that breaks the build. Nothing was written.
+     Nothing was written.
    ```
+   The reason carries the explanation, so print it as given and add nothing generic. Only for
+   `runtime: browser`, add: "Generating a Node SDK bootstrap for a browser bundle produces code
+   that cannot run and that breaks the build." A PHP, Rust, CLI or console-project refusal
+   must not be told it is a browser bundle.
    Exit. Emitting wrong code is worse than emitting none — do not fall back to a near-match.
 4. Derive `language` from the selected service. If it is not `nodejs`, `python`, `java`,
    `dotnet`, `go`, or `ruby`:

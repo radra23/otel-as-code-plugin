@@ -55,6 +55,8 @@ jobs:
 
       - name: Run Go instrument-wiring contract (command recognizes go, generator defines it)
         run: bash tests/hooks/go-instrument-wiring.test.sh
+      - name: Run PHP/Rust refusal test (detected, in scope, refused with a reason)
+        run: bash tests/hooks/php-rust-refusal.test.sh
       - name: Run Node.js logs gating test (Development-level logs stay off by default)
         run: bash tests/hooks/node-logs-gating.test.sh
 
@@ -297,6 +299,19 @@ jobs:
           ! grep -rqE '^app = Flask' fixtures/python-flask-app
           grep -q 'orders:create_app()' fixtures/python-flask-app/Dockerfile
           ! grep -rqi opentelemetry fixtures/python-flask-app
+
+      - name: Check php-laravel-app fixture (#122e — refused until #117 ships a generator)
+        run: |
+          grep -q '"laravel/framework"' fixtures/php-laravel-app/composer.json
+          test -f fixtures/php-laravel-app/artisan
+          test -f fixtures/php-laravel-app/routes/web.php
+          ! grep -rqiE 'opentelemetry|open-telemetry' fixtures/php-laravel-app
+
+      - name: Check rust-axum-app fixture (#122e — refused until #118 ships a generator)
+        run: |
+          grep -qE '^axum = "0\.8"' fixtures/rust-axum-app/Cargo.toml
+          grep -q 'axum::serve' fixtures/rust-axum-app/src/main.rs
+          ! grep -rqi opentelemetry fixtures/rust-axum-app
 
       # #122b — non-npm monorepo layouts. Each member lives where the packages/* and apps/*
       # globs cannot see it, which is the point: resolution has to come from the repo's own
