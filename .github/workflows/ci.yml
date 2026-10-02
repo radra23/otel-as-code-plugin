@@ -280,6 +280,24 @@ jobs:
           grep -rq "from 'undici'" fixtures/nuxt-app/server
           ! grep -rqi opentelemetry fixtures/nuxt-app
 
+      - name: Check python-django-app fixture (#122d — gunicorn imports wsgi.py, not manage.py)
+        run: |
+          grep -q '"django' fixtures/python-django-app/pyproject.toml
+          test -f fixtures/python-django-app/manage.py
+          # the stock startproject order the placement rule is written against
+          grep -q 'DJANGO_SETTINGS_MODULE' fixtures/python-django-app/shop/wsgi.py
+          grep -q 'get_wsgi_application()' fixtures/python-django-app/shop/wsgi.py
+          grep -q 'shop.wsgi:application' fixtures/python-django-app/Dockerfile
+          ! grep -rqi opentelemetry fixtures/python-django-app
+
+      - name: Check python-flask-app fixture (#122d — application factory, no module-level app)
+        run: |
+          grep -q '"flask' fixtures/python-flask-app/pyproject.toml
+          grep -q 'def create_app' fixtures/python-flask-app/orders/__init__.py
+          ! grep -rqE '^app = Flask' fixtures/python-flask-app
+          grep -q 'orders:create_app()' fixtures/python-flask-app/Dockerfile
+          ! grep -rqi opentelemetry fixtures/python-flask-app
+
       # #122b — non-npm monorepo layouts. Each member lives where the packages/* and apps/*
       # globs cannot see it, which is the point: resolution has to come from the repo's own
       # declaration (pnpm-workspace.yaml, go.work, the parent POM's <modules>).

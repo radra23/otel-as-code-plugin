@@ -685,9 +685,68 @@ Add to `[project].dependencies`:
 "opentelemetry-semantic-conventions>=0.66b0",
 ```
 
-(Replace `fastapi` with the detected framework from context JSON. For Flask: use `opentelemetry-instrumentation-flask` and `FlaskInstrumentor().instrument_app(app)`. For Django: use `opentelemetry-instrumentation-django` and `DjangoInstrumentor().instrument()` at module load time. For unknown frameworks: install `opentelemetry-instrumentation` and call the framework-specific instrumentor if available, or skip auto-instrumentation and note this in the summary.)
+(Replace `fastapi` with the detected framework from context JSON: `opentelemetry-instrumentation-flask`
+for Flask, `opentelemetry-instrumentation-django` for Django. For unknown frameworks: install
+`opentelemetry-instrumentation` and call the framework-specific instrumentor if available, or skip
+auto-instrumentation and note this in the summary. Where the instrumentor is called matters for
+both, as the next two subsections show.)
 
-Add to the service entry file (use `service.runnableEntry` from the context JSON — typically `app.py` for FastAPI) at the top:
+#### Flask: instrument the app object, wherever it is created
+
+Use `FlaskInstrumentor().instrument_app(app)` on the `Flask` instance. With an application factory
+(`def create_app(): app = Flask(__name__) ... return app`, served as `gunicorn "pkg:create_app()"`
+or through a `wsgi.py` that calls it), there is no module-level `app` to wrap: put the call inside
+the factory, just before `return app`. Do not swap in the global `FlaskInstrumentor().instrument()`
+to avoid finding the factory. It patches the `Flask` class, so an app created before the call is
+never instrumented. Nothing errors, and no spans appear.
+
+#### Django: after the settings module is set, before the WSGI/ASGI app is built
+
+`DjangoInstrumentor().instrument()` works by inserting its middleware into `settings.MIDDLEWARE`.
+That gives it exactly one valid position. Put it **after** `os.environ.setdefault("DJANGO_SETTINGS_MODULE", ...)`
+and **before** `get_wsgi_application()` / `get_asgi_application()` (or `execute_from_command_line`
+in `manage.py`). Both wrong positions fail silently or worse:
+
+| Called | Result |
+|---|---|
+| before `DJANGO_SETTINGS_MODULE` is set (e.g. at import time in `tracing.py`, imported first) | the instrumentor calls `settings.configure()` with **empty** settings; every request then fails (`ROOT_URLCONF` missing). Worse than no instrumentation |
+| after `get_wsgi_application()` | the middleware chain is already built; requests succeed and **no spans** are emitted |
+| between the two | a SERVER span per request, named by `http.route` |
+
+Verified against Django 5.2.17 / `opentelemetry-instrumentation-django` 0.66b0 by running a real
+project through each position; re-check when bumping either pin.
+
+So for Django, do not use a module-load call in `tracing.py`. Write the call into the entry
+files, and the production one is `<project>/wsgi.py` (or `asgi.py`): that is what gunicorn and
+uvicorn import, and `manage.py` only serves `runserver`. Wire `wsgi.py`/`asgi.py` always, and
+`manage.py` too if the service is run with `runserver` anywhere. Replace `instrument_fastapi`
+in `tracing.py` with the matching helper (Flask: call `instrument_flask(app)` inside the factory, or
+right after a module-level `app = Flask(__name__)`):
+
+```python
+def instrument_flask(app):
+    """Call this on the Flask instance; inside create_app() when there is a factory."""
+    from opentelemetry.instrumentation.flask import FlaskInstrumentor
+    FlaskInstrumentor().instrument_app(app)
+    return app
+
+
+def instrument_django():
+    """Call after DJANGO_SETTINGS_MODULE is set, before get_wsgi_application()."""
+    from opentelemetry.instrumentation.django import DjangoInstrumentor
+    DjangoInstrumentor().instrument()
+```
+
+The Django entry file then reads:
+
+```python
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "<project>.settings")
+from tracing import instrument_django
+instrument_django()
+application = get_wsgi_application()
+```
+
+For FastAPI and Flask, add to the service entry file (use `service.runnableEntry` from the context JSON — typically `app.py` for FastAPI) at the top (Django uses the entry-file shape above instead):
 ```python
 from tracing import instrument_fastapi, shutdown
 import atexit

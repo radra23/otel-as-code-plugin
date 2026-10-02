@@ -684,5 +684,38 @@ check "PHP maturity row is Stable on all three signals" \
 check "Swift maturity row is Traces Stable, Metrics and Logs Development" \
   'grep -qE "^\| Swift +\| Stable +\| Development +\| Development +\|" "$MATURITY"'
 
+# --- #122d: Django and Flask fixtures, and where their instrumentors may be called ---------------
+# The guidance said Django needs DjangoInstrumentor().instrument() "at module load time". Running
+# a real project through each position (Django 5.2.17, instrumentation 0.66b0) showed that call
+# has exactly one valid spot: after DJANGO_SETTINGS_MODULE is set, before get_wsgi_application().
+# Before it, the instrumentor calls settings.configure() with empty settings and every request
+# fails; after it, requests succeed with no spans. Flask's instrument_app() was right, but the
+# guidance said nothing about application factories, the shape with no module-level app.
+DJFIX="fixtures/python-django-app"
+FLFIX="fixtures/python-flask-app"
+py_fw() { sed -n "/^#### Flask: instrument the app object/,/^For FastAPI and Flask, add to the service entry file/p" "$IGEN"; }
+check "#122d django fixture: production entry is shop/wsgi.py via gunicorn (repro intact)" \
+  'grep -q "shop.wsgi:application" "$DJFIX/Dockerfile" && test -f "$DJFIX/manage.py"'
+check "#122d django fixture: wsgi.py sets the settings module before building the app" \
+  'awk "/DJANGO_SETTINGS_MODULE/{s=NR} /= get_wsgi_application/{a=NR} END{exit !(s && a && s<a)}" "$DJFIX/shop/wsgi.py"'
+check "#122d flask fixture: application factory with no module-level app (repro intact)" \
+  'grep -q "def create_app" "$FLFIX/orders/__init__.py" && ! grep -rqE "^app = Flask" "$FLFIX"'
+check "#122d both fixtures stay greenfield (no OTel)" \
+  '! grep -rqi opentelemetry "$DJFIX" "$FLFIX"'
+check "#122d the vague 'at module load time' Django instruction is gone" \
+  '! grep -q "DjangoInstrumentor().instrument()\` at module load time" "$IGEN"'
+check "#122d Django placement: after DJANGO_SETTINGS_MODULE, before get_wsgi_application" \
+  'py_fw | grep -q "after\*\* \`os.environ.setdefault(\"DJANGO_SETTINGS_MODULE\"" && py_fw | grep -q "before\*\* \`get_wsgi_application()\`"'
+check "#122d Django: both wrong positions and their effects are stated" \
+  'py_fw | grep -q "settings.configure()\` with \*\*empty\*\* settings" && py_fw | grep -q "\*\*no spans\*\* are emitted"'
+check "#122d Django: wsgi.py/asgi.py named as the production entry, not only manage.py" \
+  'py_fw | grep -q "Wire \`wsgi.py\`/\`asgi.py\` always"'
+check "#122d Django: verified versions stamped with a re-check instruction" \
+  'py_fw | grep -q "Django 5.2.17" && py_fw | grep -q "re-check when bumping"'
+check "#122d Flask: factory placement, and the global instrument() no-op, are stated" \
+  'py_fw | grep -q "just before \`return app\`" && py_fw | grep -q "an app created before the call is"'
+check "#122d tracing.py helpers defined for both frameworks" \
+  'py_fw | grep -q "def instrument_flask(app):" && py_fw | grep -q "def instrument_django():"'
+
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
