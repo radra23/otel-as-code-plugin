@@ -41,6 +41,8 @@ the conflict-resolution protocol in Step 4 — never resolve it in this step.
   - `dotnet`: `*.csproj`'s `<Version>`
   - `ruby`: `*.gemspec`'s `spec.version` (a bare `Gemfile` rarely carries a version)
   - `java`: `pom.xml`'s `<version>`
+  - `rust`: `Cargo.toml`'s `[package].version` (`version.workspace = true` → the workspace
+    root's `[workspace.package].version`)
   - `go`: no manifest source. `go.mod` has no package-version field — Go module versions come
     from VCS tags, not the manifest — so omit `service.version` for `go` rather than guessing.
     Do NOT fall back to `languageVersion`; that is the Go toolchain version, a different thing.

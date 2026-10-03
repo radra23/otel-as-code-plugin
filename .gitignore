@@ -32,3 +32,6 @@ drift-report.md
 
 # E2E harness throwaway app copies (tests/e2e/run.sh seeds/removes this on every run)
 tests/e2e/.work/
+
+# Rust golden crate build output (cargo check in CI)
+tests/snapshots/instrument/rust/target/

@@ -105,6 +105,12 @@ the list to the target language:
   `dotnet remove package` for the four OTel packages (`OpenTelemetry.Extensions.Hosting`,
   `OpenTelemetry.Instrumentation.AspNetCore`, `OpenTelemetry.Instrumentation.Http`,
   `OpenTelemetry.Exporter.OpenTelemetryProtocol`).
+- **Rust** — `src/telemetry.rs` is deleted above; by hand: remove the lines between
+  `# otel-as-code: begin` and `# otel-as-code: end` in `Cargo.toml` (markers included; a
+  `tracing` line the app already had stays outside the block), and from `src/main.rs` the
+  `mod telemetry;` line, `let _otel = telemetry::init();`, and the
+  `opentelemetry_instrumentation_tower` `.layer(...)` call. `cargo check` confirms nothing else
+  referenced them.
 
 ## Step 5: Confirm and delete
 

@@ -637,10 +637,12 @@ check "goldens use the otlp exporter alias, matching that decision" \
 
 # --- #118: Rust maturity row matches upstream opentelemetry-rust 0.33 --------------------------
 MATURITY="skills/language-maturity/SKILL.md"
-check "#118 Rust maturity row is Traces Beta, Metrics Stable, Logs Stable" \
-  'grep -qE "^\| Rust +\| Beta +\| Stable +\| Stable +\|" "$MATURITY"'
+# Since the generator shipped, Rust has its own signal table in the supported section.
+rust_table() { sed -n "/^### Rust$/,/^## /p" "$MATURITY"; }
+check "#118 Rust maturity is Traces Beta, Metrics Stable, Logs Stable" \
+  'rust_table | grep -qE "^\| Traces +\| Beta " && rust_table | grep -qE "^\| Metrics +\| Stable " && rust_table | grep -qE "^\| Logs +\| Stable "'
 check "#118 Rust logs are no longer gated as Development" \
-  '! grep -qE "^\| Rust .*Development" "$MATURITY"'
+  '! rust_table | grep -qE "^\| Logs .*Development" && ! grep -qE "^\| Rust .*Development" "$MATURITY"'
 # --- #122c: Nuxt -------------------------------------------------------------------------------
 # nuxt sits in the same "do not collapse to other" rule as nextjs and rails, both of which had a
 # fixture; nuxt had none, so nothing exercised its guidance. Building a real Nitro app showed the
@@ -652,7 +654,7 @@ NUXTFIX="fixtures/nuxt-app"
 nuxt_note() { sed -n "/^\*\*Nuxt\*\* is detected/,/^## Python Bootstrap/p" "$IGEN"; }
 
 check "#122c scanner detects nuxt explicitly, never collapsed to other" \
-  'grep -q "nuxt" "$SCANNER" && grep -qiE "collapse any of these three to" "$SCANNER"'
+  'grep -q "nuxt" "$SCANNER" && grep -qiE "collapse any of these [a-z]+ to" "$SCANNER"'
 check "#122c nuxt fixture carries the dependency signal (repro intact)" \
   'grep -q "\"nuxt\"" "$NUXTFIX/package.json"'
 check "#122c nuxt fixture carries the config-file signal" \
