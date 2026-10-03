@@ -136,7 +136,45 @@ variable "grafana_service_account_token" {
 1. `grafana_folder` — create a folder to scope all generated resources
 2. `grafana_dashboard` — uses `config_json` with a JSON-encoded dashboard model
 3. `grafana_rule_group` — unified alerting (NOT the deprecated `grafana_alert_notification`)
-4. `grafana_slo` — Grafana Cloud SLOs (requires `grafana_slo` resource, available on Cloud plans)
+4. `grafana_slo` — Grafana Cloud SLOs (requires `grafana_slo` resource, available on Cloud plans).
+   **It has required blocks, and omitting one fails `terraform validate`** (#165): at least one
+   `destination_datasource` (without it: `Insufficient destination_datasource blocks … At least 1
+   "destination_datasource" blocks are required`), plus `query` and `objectives`. Follow the shape
+   in "SLO resource" below.
+
+### SLO resource
+Shares the `prometheus_datasource_uid` variable with the dashboard panels and alert rules, so there
+is one place to point all of them at the Prometheus/Mimir datasource:
+```hcl
+variable "prometheus_datasource_uid" {
+  description = "UID of the Prometheus/Mimir datasource backing these queries"
+  type        = string
+  default     = "grafanacloud-prom"
+}
+
+resource "grafana_slo" "otel" {
+  name        = "${var.service_name} availability"
+  description = "99.9% of requests to ${var.service_name} are non-5xx over 30d."
+
+  query {                       # required
+    type = "freeform"
+    freeform {
+      query = "<PromQL ratio: good / total, filtered by job — see the gotcha below>"
+    }
+  }
+
+  objectives {                  # required
+    value  = 0.999
+    window = "30d"
+  }
+
+  destination_datasource {      # required: at least one
+    uid = var.prometheus_datasource_uid
+  }
+}
+```
+`tests/snapshots/grafana/main.tf.snap` is this shape and is `terraform validate`d in CI; keep the
+two in step.
 
 ### Key gotchas
 - `grafana_folder.uid` is auto-generated on create; reference it via `grafana_folder.<resource_label>.uid` (e.g. `grafana_folder.otel_folder.uid`)
