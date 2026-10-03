@@ -34,6 +34,16 @@ processors:
           - delete_key(attributes, "session.id") where IsString(attributes["session.id"])
           - delete_key(attributes, "request.id") where IsString(attributes["request.id"])
           - delete_key(attributes, "order.id")   where IsString(attributes["order.id"])
+    # Same drop-list on metric data points: a metric dimension is the worst place for an
+    # identifier (one retained series per value; sampling cannot help). Dropping it merges
+    # the series that differed only by that key, which is the intended outcome.
+    metric_statements:
+      - context: datapoint
+        statements:
+          - delete_key(attributes, "user.id")    where IsString(attributes["user.id"])
+          - delete_key(attributes, "session.id") where IsString(attributes["session.id"])
+          - delete_key(attributes, "request.id") where IsString(attributes["request.id"])
+          - delete_key(attributes, "order.id")   where IsString(attributes["order.id"])
   batch:
     timeout: 1s
     send_batch_size: 1024
@@ -75,7 +85,7 @@ service:
       exporters: [otlp]
     metrics:
       receivers: [otlp]
-      processors: [memory_limiter, batch]
+      processors: [memory_limiter, transform, batch]
       exporters: [otlp]
     logs:
       receivers: [otlp]

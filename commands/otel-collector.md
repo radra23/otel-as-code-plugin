@@ -124,7 +124,8 @@ For `agent` mode:
   `collector-topology` template, add one `delete_key` for each attribute name in
   `context.services[i].derived.highCardinalityAttributes`, unioned across all services in the
   cache and de-duplicated. That field is a typed list of attribute keys the scanner/auditor found
-  to be high-cardinality — read it directly. Do NOT filter `conformanceIssues` on a
+  to be high-cardinality — read it directly, and add each one to BOTH the `trace_statements` and
+  the `metric_statements` lists (they must stay identical; #172). Do NOT filter `conformanceIssues` on a
   `severity: "cardinality"` value: no producer emits that severity (they emit info/warning/error),
   and `conformanceIssues` lives under `derived`, not `existingOtel` — so the old filter matched
   nothing and only the template's four generic identifiers were ever protected (#37).
