@@ -16,7 +16,7 @@ cleanup() {
   # metrics/logs pipelines (Jaeger's OTLP receiver only accepts traces) — see the
   # "Expected collector errors" section in README.md before treating those as the failure.
   echo "--- collector + app logs (tail, timestamped) ---"
-  docker compose logs --timestamps --tail=60 jaeger collector node-app python-app java-app nextjs-app dotnet-app go-app ruby-app 2>/dev/null || true
+  docker compose logs --timestamps --tail=60 jaeger collector node-app python-app java-app nextjs-app dotnet-app go-app ruby-app rust-app 2>/dev/null || true
   echo "--- jaeger /api/services (what actually landed) ---"
   curl -fsS "http://localhost:16686/api/services" 2>/dev/null && echo || echo "(jaeger /api/services unreachable)"
   docker compose down -v --remove-orphans 2>/dev/null || true
@@ -28,7 +28,7 @@ cleanup() {
 trap cleanup EXIT
 
 # 1. seed throwaway app copies (fixtures stay pristine)
-rm -rf "$WORK"; mkdir -p "$WORK/nodejs" "$WORK/python" "$WORK/java" "$WORK/nextjs" "$WORK/dotnet" "$WORK/go" "$WORK/ruby"
+rm -rf "$WORK"; mkdir -p "$WORK/nodejs" "$WORK/python" "$WORK/java" "$WORK/nextjs" "$WORK/dotnet" "$WORK/go" "$WORK/ruby" "$WORK/rust"
 # The collector's file exporter (logs-overlay) writes logs.json here. World-writable so the
 # collector container's non-root user can write regardless of the host UID that created it.
 mkdir -p "$WORK/collector-out"; chmod 777 "$WORK/collector-out"
@@ -90,6 +90,13 @@ cp -R ../../fixtures/ruby-greenfield/. "$WORK/ruby/"
 cp ../snapshots/instrument/ruby/tracing.rb "$WORK/ruby/tracing.rb"
 cp ../snapshots/instrument/ruby/Gemfile "$WORK/ruby/Gemfile"   # instrumented manifest
 
+# Rust: the golden crate IS the instrumented fixture (pristine axum app + generated telemetry.rs +
+# the marked Cargo.toml block + the three printed main.rs lines), so seed the whole golden
+# directory, Cargo.lock included, minus any local build output.
+mkdir -p "$WORK/rust/src"
+cp ../snapshots/instrument/rust/Cargo.toml ../snapshots/instrument/rust/Cargo.lock "$WORK/rust/"
+cp ../snapshots/instrument/rust/src/*.rs "$WORK/rust/src/"
+
 # 2. up + wait for jaeger health
 docker compose up -d
 echo "waiting for stack..."
@@ -101,15 +108,16 @@ done
 
 # 3. drive load from the host against both apps (both ports are published — see
 #    docker-compose.yml). Each wait is bounded so CI can't hang.
-wait_ready() { # base_url [timeout_s]
+wait_ready() { # base_url [timeout_s] [health_path]
   local base="$1"
+  local health_path="${3:-/health}"
   # Default 150s: the python-app runs `pip install` (grpcio + otlp proto exporter) inline
   # before serving, which on a cold CI runner can approach 90s alone — 90s was too
   # tight and risked spurious red on the first live run. The Next.js app does npm install +
   # next build inline, which is heavier, so it passes a larger timeout (2nd arg).
   local APP_READY_TIMEOUT_S="${2:-150}"
   local deadline=$(( $(date +%s) + APP_READY_TIMEOUT_S ))
-  until curl -fsS "$base/health" >/dev/null 2>&1; do
+  until curl -fsS "$base$health_path" >/dev/null 2>&1; do
     [ "$(date +%s)" -lt "$deadline" ] || { echo "FAIL: $base did not become ready within timeout" >&2; exit 1; }
     sleep 2
   done
@@ -173,6 +181,16 @@ for i in 1 2 3 4 5; do
   curl -fsS "http://localhost:8083/notify" >/dev/null || true
 done
 
+# Rust app (cargo run compiles the crate inline: a cold build fetches and compiles ~300 crates, so
+# allow the most time of any leg). Hitting /products/{id} makes opentelemetry-instrumentation-tower
+# emit a server span named after the route, exported over OTLP/HTTP (:4318). The fixture's liveness
+# route is /healthz, not /health.
+wait_ready "http://localhost:8084" 600 /healthz
+for i in 1 2 3 4 5; do
+  curl -fsS "http://localhost:8084/healthz" >/dev/null || true
+  curl -fsS "http://localhost:8084/products/42" >/dev/null || true
+done
+
 # 4. assert (Jaeger reachable on host 16686)
 JA="http://localhost:16686"
 # Check BOTH services in one run (don't fail-fast on the first) so a single CI run reports
@@ -203,6 +221,14 @@ POLL_TIMEOUT=60 bash assert-traces.sh --jaeger "$JA" --service search-api \
 # service.name from OTEL_SERVICE_NAME.
 POLL_TIMEOUT=60 bash assert-traces.sh --jaeger "$JA" --service notifications-api \
   --expect service.name=notifications-api,service.version=1.1.0,service.namespace=storefront,deployment.environment.name=e2e || rc=1
+
+# Rust SDK wiring (golden telemetry.rs). service.version and service.namespace are the golden's
+# defaults; service.name comes from OTEL_SERVICE_NAME and deployment.environment.name from
+# DEPLOYMENT_ENV. --expect-span proves the tower layer's `axum` feature is on: without it the
+# server span exists but carries no http.route.
+POLL_TIMEOUT=90 bash assert-traces.sh --jaeger "$JA" --service products-api \
+  --expect service.name=products-api,service.version=0.4.0,service.namespace=storefront,deployment.environment.name=e2e \
+  --expect-span 'http.route=/products/{id}' || rc=1
 
 # Logs (#12, --experimental): the Python app logs `reserved sku=...` on /inventory/reserve, the
 # --experimental bootstrap bridges it to OTLP, and the collector's file exporter writes it to

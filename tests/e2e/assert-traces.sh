@@ -5,17 +5,18 @@
 # response for offline unit testing. JSON parsed with python3 (repo convention).
 set -euo pipefail
 
-JAEGER=""; SERVICE=""; EXPECT=""; TRACES_JSON=""
+JAEGER=""; SERVICE=""; EXPECT=""; TRACES_JSON=""; SPAN_EXPECT=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --jaeger) JAEGER="$2"; shift 2;;
     --service) SERVICE="$2"; shift 2;;
     --expect) EXPECT="$2"; shift 2;;
     --traces-json) TRACES_JSON="$2"; shift 2;;
+    --expect-span) SPAN_EXPECT="$2"; shift 2;;
     *) echo "unknown arg: $1" >&2; exit 2;;
   esac
 done
-[ -n "$SERVICE" ] && [ -n "$EXPECT" ] || { echo "usage: --service <name> --expect k=v,... (--jaeger <url> | --traces-json <file>)" >&2; exit 2; }
+[ -n "$SERVICE" ] && [ -n "$EXPECT" ] || { echo "usage: --service <name> --expect k=v,... (--jaeger <url> | --traces-json <file>) [--expect-span k=v,...]" >&2; exit 2; }
 
 # NOTE: the python source is captured into a variable via `$(cat <<'PY' ... PY)`
 # rather than run directly as `python3 - <<'PY'` — the latter feeds the heredoc as
@@ -48,12 +49,28 @@ if not matched:
 for k, v in expect.items():
     if tags.get(k) != v:
         print(f"FAIL: {service} expected {k}={v}, got {tags.get(k)!r} (tags present: {sorted(tags)})"); sys.exit(1)
-print(f"OK: {service} has {', '.join(f'{k}={v}' for k,v in expect.items())}")
+# Optional span-level check (--expect-span): some span of this service, in any returned trace,
+# must carry every key=value. Resource attrs alone cannot tell a route-named server span from an
+# anonymous one, which is the failure a missing instrumentation feature produces.
+span_expect = dict(kv.split("=", 1) for kv in os.environ.get("SPAN_EXPECT", "").split(",") if kv)
+if span_expect:
+    hit = False
+    for tr in traces:
+        pids = {pid for pid, proc in (tr.get("processes") or {}).items() if proc.get("serviceName") == service}
+        for sp in tr.get("spans") or []:
+            if sp.get("processID") in pids:
+                st = {t["key"]: str(t.get("value")) for t in sp.get("tags") or []}
+                if all(st.get(k) == v for k, v in span_expect.items()):
+                    hit = True
+    if not hit:
+        print(f"FAIL: {service} has no span with {', '.join(f'{k}={v}' for k,v in span_expect.items())}"); sys.exit(1)
+print(f"OK: {service} has {', '.join(f'{k}={v}' for k,v in expect.items())}"
+      + (f" and a span with {', '.join(f'{k}={v}' for k,v in span_expect.items())}" if span_expect else ""))
 PY
 )
 
 check() {  # stdin: /api/traces JSON. Args: service, expect. Exit 0 ok / 1 mismatch.
-  SERVICE="$1" EXPECT="$2" python3 -c "$PY_CHECK_SRC"
+  SERVICE="$1" EXPECT="$2" SPAN_EXPECT="$SPAN_EXPECT" python3 -c "$PY_CHECK_SRC"
 }
 
 if [ -n "$TRACES_JSON" ]; then

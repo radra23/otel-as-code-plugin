@@ -89,6 +89,19 @@ every push/PR. #4 stays local-only.
    collector and both apps, runs `docker compose down -v --remove-orphans`, and
    removes `tests/e2e/.work/` — regardless of whether the assertions passed.
 
+## The Rust leg
+
+`rust-app` (products-api, publishes `8084:8080`) runs the **golden crate** from
+`tests/snapshots/instrument/rust/` (Cargo.lock included) with `cargo run --locked` on
+`rust:1.88`, exporting OTLP/HTTP to the collector's `4318`. It is the slowest leg: a cold
+build compiles a few hundred crates, so its readiness wait is 600 s and the job timeout
+allows for it. Its fixture's liveness route is `/healthz`, not `/health`.
+
+Besides the usual resource attributes, it passes `--expect-span 'http.route=/products/{id}'`
+to `assert-traces.sh`. That is deliberate: the tower crate's `axum` feature is off by
+default, and without it the server span still exports with the right resource but carries
+no route. Only a span-level assertion catches that.
+
 ## Expected collector errors (not a failure)
 
 During a `run.sh` run the golden collector config routes **all three** pipelines
