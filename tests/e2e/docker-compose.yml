@@ -193,3 +193,27 @@ services:
     # collector.
     command: ["sh", "-c", "bundle install && ruby app.rb"]
     depends_on: [collector]
+
+  rust-app:
+    # SDK image because the container compiles the source inline, like the Go and Ruby legs.
+    # 1.88 is the floor the golden crate's locked dependency tree needs (reqwest -> url -> icu);
+    # the rust-golden CI job checks the same crate on 1.88 and stable.
+    image: rust:1.88-bookworm
+    working_dir: /app
+    environment:
+      # The golden telemetry.rs reads service.name from OTEL_SERVICE_NAME. Use a name DISTINCT
+      # from every other service (the golden's own default, search-api, is the Go leg's name).
+      OTEL_SERVICE_NAME: "products-api"
+      DEPLOYMENT_ENV: "e2e"
+      # Rust exports OTLP/HTTP protobuf, so point at the collector's HTTP port (4318), like the
+      # Ruby and Next.js legs and unlike the gRPC 4317 the rest use.
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4318"
+    ports:
+      - "8084:8080"   # load is driven from the host (see run.sh)
+    volumes:
+      - ./.work/rust:/app
+    # The golden crate: the pristine axum fixture plus the generated src/telemetry.rs, the marked
+    # Cargo.toml block and the three printed main.rs lines, with its Cargo.lock. --locked makes
+    # the run reproduce the dependency tree the rust-golden job compiles.
+    command: ["sh", "-c", "cargo run --locked"]
+    depends_on: [collector]

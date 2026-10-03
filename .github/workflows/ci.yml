@@ -171,8 +171,9 @@ jobs:
     # the Java agent download + a .NET `dotnet restore`/build); a healthy run is ~4-8 min. 25 caps
     # a genuine hang — run.sh's internal waits bound a healthy run well under this, and without a
     # job cap a stuck container would run to the 6-hour default (as a run on PR #76 was heading
-    # toward). Bumped 20→25 when the .NET app was added (a fifth inline restore+build).
-    timeout-minutes: 25
+    # toward). Bumped 20→25 when the .NET app was added (a fifth inline restore+build), and 25→35
+    # when the Rust app was added: a cold `cargo run` compiles a few hundred crates.
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
 

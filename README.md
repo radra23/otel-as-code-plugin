@@ -28,14 +28,14 @@ Terraform for four backends (Grafana, Datadog, New Relic, Dash0).
 
 Generated output is validated for **syntax and schema** — every backend module is
 `terraform validate`d in CI, and the OTel SDK/semconv pins are checked against current
-releases weekly (see the drift check). The Node.js, Python, Java, .NET, Go, and Ruby
+releases weekly (see the drift check). The Node.js, Python, Java, .NET, Go, Ruby, and Rust
 instrumentation is additionally **proven end-to-end in CI**: the generated SDK bootstrap (for
 Java, the OpenTelemetry Java agent; for .NET, the generated `OpenTelemetry.cs` wired into a real
 ASP.NET Core app; for Go, the generated `tracing.go` wired into a real `net/http` server; for
 Ruby, the generated `tracing.rb` wired into a real Sinatra app) exports through the generated
 Collector config into a running trace store, asserted on every push (see
-[`tests/e2e/`](tests/e2e/)). Rust is newer: its golden crate is compiled in CI, and the output
-was run once against a local Collector by hand, but there is no CI end-to-end run for it yet.
+[`tests/e2e/`](tests/e2e/)). For Rust, the generated `telemetry.rs` wired into a real axum app is run the same way, and the
+server span is checked for `http.route`.
 The **Terraform is not yet proven against live vendor backends** — before trusting it, run
 `terraform plan` / `apply` against your own account. Treat backend modules as a reviewed
 starting point, not turnkey infrastructure. An opt-in CI job
