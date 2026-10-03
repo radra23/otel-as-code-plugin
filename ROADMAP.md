@@ -87,8 +87,8 @@ just a larger surface to be wrong on. So the near-term work is depth.
 ## Later: toward v1 — [milestone](https://github.com/radra23/otel-as-code-plugin/milestone/3)
 
 - **PHP, and the rest of Rust.** Rust phase 1 shipped in 0.8.15: axum 0.8, with the golden crate
-  compiled in CI. Still to come for Rust are an end-to-end CI run, actix-web, semconv-lint
-  support for Rust attribute setters, and a drift-check row for the crate group
+  compiled in CI, and the weekly drift check watches its crate pins. Still to come for Rust are an
+  end-to-end CI run, actix-web, and semconv-lint support for Rust attribute setters
   ([#118](https://github.com/radra23/otel-as-code-plugin/issues/118)). PHP is at the design
   stage ([#117](https://github.com/radra23/otel-as-code-plugin/issues/117)).
 - **Cardinality and cost budgets as generated policy**, not just as guardrail comments — a

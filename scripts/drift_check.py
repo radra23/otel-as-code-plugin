@@ -44,6 +44,10 @@ def latest_pypi(pkg):
     return fetch_json(f"https://pypi.org/pypi/{pkg}/json")["info"]["version"]
 
 
+def latest_crate(name):
+    return fetch_json(f"https://crates.io/api/v1/crates/{name}")["crate"]["max_stable_version"]
+
+
 def latest_tf(source):  # e.g. "grafana/grafana"
     return fetch_json(f"https://registry.terraform.io/v1/providers/{source}")["version"]
 
@@ -191,6 +195,17 @@ def behind_major(pinned, latest):
     return bool(p) and bool(l) and l[0] > p[0]
 
 
+def behind_compatible(pinned, latest):
+    """A release exists outside what Cargo's default (caret) requirement accepts: pins like
+    `0.33` take every 0.33.x, so only a newer 0.x minor (or a newer major from 1.0 on) is drift."""
+    p, l = ver_tuple(pinned), ver_tuple(latest)
+    if not p or not l:
+        return False
+    n = 2 if p[0] == 0 and len(p) > 1 else 1
+    p, l = _pad(p, l)
+    return l[:n] > p[:n]
+
+
 # --- parse the plugin's pinned versions -------------------------------------
 def _read(path):
     return open(os.path.join(ROOT, path), encoding="utf-8").read()
@@ -202,6 +217,22 @@ def node_pins():
 
 def python_pins():
     return re.findall(r'"(opentelemetry-[^">=]+)>=([0-9][^"]*)"', _read("agents/instrumentation-gen.md"))
+
+
+def rust_pins():
+    """(crate, requirement) for each line of the marked Cargo.toml block in the Rust section of
+    instrumentation-gen.md, which is the one place the Rust pins are written down."""
+    text = _read("agents/instrumentation-gen.md")
+    m = re.search(r"# otel-as-code: begin[^\n]*\n(.*?)# otel-as-code: end", text, re.S)
+    if not m:
+        return []
+    pins = []
+    for line in m.group(1).splitlines():
+        line = line.split("#", 1)[0]
+        v = re.match(r'\s*([A-Za-z0-9_-]+)\s*=\s*(?:"([^"]+)"|\{[^}]*?version\s*=\s*"([^"]+)")', line)
+        if v:
+            pins.append((v.group(1), v.group(2) or v.group(3)))
+    return pins
 
 
 def tf_pins():
@@ -258,6 +289,9 @@ def main():
     for pkg, pinned in python_pins():
         latest, err = safe(latest_pypi, pkg)
         add(f"pypi {pkg}", pinned, latest, err)
+    for crate, pinned in rust_pins():
+        latest, err = safe(latest_crate, crate)
+        add(f"crates.io {crate}", pinned, latest, err, cmp=behind_compatible)
     for source, pinned in tf_pins():
         latest, err = safe(latest_tf, source)
         add(f"tf {source}", pinned, latest, err, cmp=behind_major)
@@ -286,8 +320,12 @@ def main():
 
     for w in warnings:
         print(f"::warning::otel-as-code drift — {w}")
+    rust_note = ("\n\n_The Rust crates move as a group: every `opentelemetry*` crate shares one minor and "
+                 "`tracing-opentelemetry` sits one minor ahead. Bump them together, once all have "
+                 "released, then regenerate `tests/snapshots/instrument/rust/Cargo.lock`._"
+                 if any(w.startswith("crates.io") for w in warnings) else "")
     summary = (f"**{len(warnings)} item(s) need attention.** Bump the pins, regenerate the "
-               f"affected snapshots, correct any guidance finding, and re-validate.") if warnings \
+               f"affected snapshots, correct any guidance finding, and re-validate.{rust_note}") if warnings \
         else "**All pinned versions are current and the semconv guidance matches the registry.**"
     body = ("## otel-as-code upstream drift\n\n" + table
             + "\n\n### Semconv guidance vs registry\n\n" + guidance_md
