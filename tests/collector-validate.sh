@@ -14,6 +14,7 @@ CONFIG="tests/snapshots/collector/otelcol-agent.yaml.snap"
 # internet-exposed collector. NOT used by the e2e harness (its apps send no auth header) — this
 # golden exists solely so the --public shape is proven against a real otelcol-contrib.
 PUBLIC_CONFIG="tests/snapshots/collector/otelcol-agent-public.yaml.snap"
+HEADERS_CONFIG="tests/snapshots/collector/otelcol-agent-headers.yaml.snap"
 
 # ---------------------------------------------------------------------------
 # Ordering guard: `otelcol validate` builds the component graph and checks
@@ -217,3 +218,16 @@ echo "OK: every authenticator reference is defined under extensions: and listed 
 OTEL_EXPORTER_OTLP_ENDPOINT="localhost:4317" COLLECTOR_AUTH_TOKEN="dummy" \
   "$OTELCOL_BIN" validate --config="$PUBLIC_CONFIG"
 echo "OK: $PUBLIC_CONFIG validates against otelcol-contrib ${actual_version}"
+
+# Exporter auth variant (#171): the headers: block /otel-collector --exporter-header emits must be
+# accepted by the real validator, with the env reference resolving. Also assert the golden never
+# carries a literal credential: every header value must be an ${env:...} reference.
+echo "Checking memory_limiter-first ordering in $HEADERS_CONFIG..."
+check_processor_ordering "$HEADERS_CONFIG"
+echo "Checking exporter header values are env references, not literals in $HEADERS_CONFIG..."
+if awk '/^    headers:/{f=1;next} f&&/^      [A-Za-z]/{print} f&&!/^      /{f=0}' "$HEADERS_CONFIG" | grep -v '\${env:' | grep -q .; then
+  echo "FAIL: $HEADERS_CONFIG has an exporter header whose value is not an \${env:...} reference" >&2; exit 1
+fi
+OTEL_EXPORTER_OTLP_ENDPOINT="localhost:4317" BACKEND_AUTH_TOKEN="dummy" BACKEND_DATASET="default" \
+  "$OTELCOL_BIN" validate --config="$HEADERS_CONFIG"
+echo "OK: $HEADERS_CONFIG validates against otelcol-contrib ${actual_version}"

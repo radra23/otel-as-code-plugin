@@ -57,6 +57,8 @@ jobs:
         run: bash tests/hooks/go-instrument-wiring.test.sh
       - name: Run PHP refusal test (detected, in scope, refused with a reason)
         run: bash tests/hooks/php-refusal.test.sh
+      - name: Run collector exporter-auth contract (--exporter-header; --force keeps exporter headers; #171)
+        run: bash tests/hooks/collector-exporter-auth.test.sh
       - name: Run force-scope contract (--force overwrites only marker-carrying files; #169)
         run: bash tests/hooks/force-scope.test.sh
       - name: Run Rust instrument-wiring contract (scanner gate, command, generator ↔ golden crate)

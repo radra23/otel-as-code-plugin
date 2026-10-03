@@ -1,6 +1,6 @@
 ---
 description: Generate an otelcol-contrib config (agent or gateway mode)
-argument-hint: "[agent|gateway] [--experimental] [--public] [--force] [--confirm-remove-auth] [--dry-run]"
+argument-hint: "[agent|gateway] [--experimental] [--public] [--exporter-header Name=${env:VAR}] [--force] [--confirm-remove-auth] [--confirm-remove-exporter-auth] [--dry-run]"
 ---
 
 # /otel-collector [mode] [--experimental] [--public]
@@ -18,9 +18,20 @@ Generate an otelcol-contrib config for this service's Collector setup.
   collector is a requirement for this to actually secure anything** — say so explicitly in Step 6.
   See the `collector-topology` skill's "Receiver auth" section for the exact shape and why this is
   opt-in rather than inferred.
+- `--exporter-header <Name=value>` — repeatable. Adds a header to the generated `otlp` exporter's
+  `headers:` block, for a Collector that exports straight to a backend or to an authenticated
+  gateway. **Every value must reference an environment variable (`${env:VAR}`), never a literal**:
+  refuse a value with no `${env:` in it and say why (a secret must not be committed, and even a
+  non-secret value such as a dataset name differs per environment). Example:
+  `--exporter-header 'Authorization=Bearer ${env:BACKEND_AUTH_TOKEN}'`. The plugin deliberately
+  does not pick header names per vendor — they are the vendor's OTLP-ingest contract, so take
+  them from the vendor's docs. Without this flag the exporter carries no credentials.
 - `--force` — overwrite an existing `otelcol-agent.yaml` / `otelcol-gateway.yaml`. Required if the
   write-guard hook blocks re-generation (it protects generated collector configs). If the existing
   file has receiver auth and `--public` is not also passed, `--force` alone is refused — see
+  `--confirm-remove-auth`. Exporter `headers:` / `auth:` already in the file are kept — see Step 3.
+- `--confirm-remove-exporter-auth` — required alongside `--force` to regenerate over exporter
+  auth the new config cannot carry (see Step 3). An explicit, typed opt-out, like
   `--confirm-remove-auth`.
 - `--confirm-remove-auth` — required alongside `--force` (and without `--public`) to regenerate an
   auth-having config into an unauthenticated one. An explicit, typed opt-out for a downgrade that
@@ -67,6 +78,24 @@ If the file already exists:
   and exit. Only proceed past this check if `--public` is set (auth stays) or the user passed
   `--confirm-remove-auth` alongside `--force` (an explicit, typed opt-out — never inferred, never
   silent).
+- **With `--force`, existing file has `headers:` or `auth:` under any `exporters.<name>`:** that
+  is the user's backend credential wiring (typically `Authorization: Bearer ${env:…}` or an API
+  key header), and the generator does not produce it, so a plain regeneration would delete it
+  with no warning and every export would then be rejected. Read it BEFORE generating and:
+  - **keep it** when the regenerated config has an exporter of the same name (the templates
+    define `otlp`): carry the `headers:` and `auth:` blocks over verbatim, then apply
+    `--exporter-header` entries on top (a flag entry replaces a kept header of the same name).
+    Say so: `↻ Kept exporter auth: exporters.otlp.headers (Authorization, Dash0-Dataset)`.
+  - **stop** when it sits on an exporter the new config does not have (e.g. `otlp/dash0`): there
+    is nowhere to put it. Print
+    ```
+    ⚠ <filename> has exporter auth on exporters.<name>, which this regeneration does not produce —
+      it would be REMOVED. Keep that exporter by editing the file by hand, or add
+      --confirm-remove-exporter-auth to intentionally drop it.
+    ```
+    and exit. Proceed only with the typed `--confirm-remove-exporter-auth`.
+  Never print a header VALUE that is not an `${env:…}` reference; if the existing file holds a
+  literal secret there, say "a literal credential" and recommend moving it to an env var.
 - **With `--force` otherwise:** print "↻ Overwriting `<filename>` (--force)." and authorize the
   write-guard by writing the absolute path of the file to the `.claude/.otel-force` sentinel. A
   slash-command flag cannot set an env var for the hook process, so the sentinel is how `--force`
@@ -119,6 +148,11 @@ Apply `--public` (both modes — they share the `receivers.otlp` block):
 - If `--public` is NOT set, emit no `extensions:` block at all — the flag is the only signal for
   this (see the skill for why it's never inferred from `host`/deployment fields instead).
 
+Apply exporter auth (both modes — they share the `exporters.otlp` block): add a `headers:` block
+under `exporters.otlp` holding any kept headers (Step 3) and `--exporter-header` entries, each
+value an `${env:VAR}` reference. Emit no `headers:` block when there are none. See the
+`collector-topology` skill's "Exporter auth" section.
+
 ## Step 5: Write the file and validate
 
 Write the YAML config file. If a `.claude/.otel-force` sentinel was created in Step 3, remove it
@@ -140,6 +174,16 @@ To run a local Collector:
     otel/opentelemetry-collector-contrib:latest
 
 Set in your app: OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+```
+
+If the generated exporter has no `headers:` or `auth:` block, append:
+```
+Note: the exporter sends no credentials. That is right for a hop to an unauthenticated
+collector on a private network; a backend or an authenticated gateway will reject every batch,
+and with retry and the queue on, the data sits there and is then dropped. Add the backend's
+header from an env var: re-run with --exporter-header 'Name=${env:VAR}' (header names are in
+the vendor's OTLP docs), or for an authenticated gateway use the client-side bearertokenauth
+shape shown below.
 ```
 
 If `--public` was **NOT** set, append one line — the flag exists precisely so this is a decision,

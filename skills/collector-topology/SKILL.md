@@ -242,6 +242,33 @@ exporters:
       queue_size: 1000
 ```
 
+## Exporter auth (the outbound hop)
+
+The `exporters.otlp` block above sends no credentials. That is correct when it forwards to an
+unauthenticated collector on a private network. Agent mode also "forwards to a gateway **or
+directly to a backend**", and every backend's OTLP ingest requires an auth header: without one,
+each batch is rejected, and because `retry_on_failure` and `sending_queue` are on, the data sits
+in the queue and is then dropped (#171). The failure is silent at generation time and only
+appears at export time; `otelcol-contrib validate` passes.
+
+Credentials go in `headers:` under the exporter, always as an environment reference, never a
+literal:
+```yaml
+exporters:
+  otlp:
+    endpoint: ${env:OTEL_EXPORTER_OTLP_ENDPOINT}
+    headers:
+      Authorization: "Bearer ${env:BACKEND_AUTH_TOKEN}"
+```
+`/otel-collector --exporter-header 'Name=${env:VAR}'` emits it. The header names are the
+backend's contract (the vendor's OTLP-ingest docs), so this plugin does not hard-code them per
+vendor; an authenticated gateway made by `--public` uses client-side `bearertokenauth` instead
+(see `/otel-collector`'s Step 6).
+
+**Regeneration must not drop it.** Exporter `headers:` / `auth:` are user-owned wiring the
+templates do not produce, so a `--force` regeneration keeps them on a same-named exporter and
+stops, like the receiver-auth guard, if they sit on an exporter the new config lacks.
+
 ## otelcol-contrib vs otelcol
 
 Always generate configs for `otelcol-contrib` (the distribution with all receivers,
