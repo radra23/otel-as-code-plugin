@@ -278,7 +278,7 @@ Rules:
 ## Grafana main.tf
 
 Generate using patterns from the `terraform-patterns` skill (grafana section).
-Include: provider block, grafana_folder, grafana_dashboard (request rate + error rate + p99 latency panels **plus one panel per confirmed `businessAttrs` entry** — see "Business-attribute panels" above), grafana_rule_group (error rate > 5% for 5m, p99 > 500ms for 5m), grafana_slo (availability SLO at 99.9% over 30d).
+Include: provider block, grafana_folder, grafana_dashboard (request rate + error rate + p99 latency panels **plus one panel per confirmed `businessAttrs` entry** — see "Business-attribute panels" above), grafana_rule_group (error rate > 5% for 5m, p99 > 500ms for 5m), grafana_slo (availability SLO at 99.9% over 30d, with its three required blocks: `query`, `objectives` and at least one `destination_datasource { uid = var.prometheus_datasource_uid }`; leaving the last out fails `terraform validate`, #165).
 
 ## Datadog main.tf
 
