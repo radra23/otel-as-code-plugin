@@ -46,8 +46,11 @@ alternatives alone silently miss a fully-instrumented .NET service and the comma
 Build the read list in this order. **`sdkPackages` is not part of it**: it holds npm/PyPI
 specifiers (`@opentelemetry/sdk-node@^0.221.0`), not paths, and there is nothing there to open.
 
-1. `context.services[i].existingOtel.bootstrapFiles` — the SDK bootstrap and any helper module
-   beside it. This is the field that answers the question, and it is populated by the scanner.
+1. `context.services[i].existingOtel.bootstrapFiles` — the files that construct or configure
+   the SDK. This is the field that answers the question, and it is populated by the scanner.
+   Add `existingOtel.apiCallSites`: hand-written files that use or extend OTel (API call sites,
+   custom processors, the data files behind them). They are not bootstrap, but an audit that
+   skips them misses real findings and miscounts who calls what.
 2. `context.services[i].existingOtel.wiredInto` plus the service's `runnableEntry` — an audit
    has to see whether the bootstrap is actually reached. A helper that no file imports is
    instrumentation that never runs, and that is invisible if you only read the bootstrap.

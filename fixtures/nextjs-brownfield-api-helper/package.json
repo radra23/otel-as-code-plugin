@@ -1,0 +1,17 @@
+{
+  "name": "portal-api",
+  "version": "3.2.0",
+  "private": true,
+  "scripts": {
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "@opentelemetry/api": "1.9.0",
+    "@opentelemetry/api-logs": "0.57.2",
+    "@opentelemetry/sdk-node": "0.57.2",
+    "next": "15.1.12",
+    "react": "19.0.0",
+    "react-dom": "19.0.0"
+  }
+}

@@ -338,12 +338,27 @@ found none.
      Sentry: `@sentry/node` / `@sentry/nextjs` / other `@sentry/*` Node SDKs are OTel-based from
      v8 onward. Other APM-vendor Node SDKs increasingly are too — if a dependency's own docs say
      it uses OpenTelemetry, list it. Set `hasTraces` accordingly and note it in `derived.notes`.
-   - `bootstrapFiles`: repo-relative paths of every file that configures OTel — the SDK
-     bootstrap and any helper module beside it. Glob the **whole service subtree**, not just its
-     root, for `tracing.*`, `telemetry.*`, `opentelemetry.*` (a TypeScript API commonly puts
-     them under `src/`), and add any other file that constructs a provider or registers
-     instrumentation. This list is what `/otel-evaluate` and `/otel-instrument` read to find the
-     real bootstrap; `sdkPackages` holds npm/PyPI specifiers and is NOT a list of paths.
+   - `bootstrapFiles`: repo-relative paths of the files that **construct or configure an SDK** —
+     the provider, `NodeSDK`, exporter setup, or the `AddOpenTelemetry()` / `SDK.configure`
+     registration. Glob the **whole service subtree**, not just its root, for `tracing.*`,
+     `telemetry.*`, `opentelemetry.*` (a TypeScript API commonly puts them under `src/`), and add
+     any other file that constructs a provider or registers instrumentation. A file belongs here
+     only if removing it would remove the SDK. `/otel-instrument` reads this list to find the
+     bootstrap that already exists, and `/otel-uninstrument` to find what it may delete, so a file
+     listed here is one a command may be about to rewrite or remove. `sdkPackages` holds npm/PyPI
+     specifiers and is NOT a list of paths.
+     **Keep these OUT of `bootstrapFiles`:** a framework hook that only imports the bootstrap
+     (`instrumentation.ts`, `instrumentation.js`; it belongs in `wiredInto`), a helper that only
+     *uses* the API (`trace.getTracer`, `metrics.getMeter`, `logs.getLogger`), a hand-written
+     processor, sampler or exporter class, and any data file that drives one. .NET configures the
+     SDK inline in the composition root, so a `Program.cs` that calls `AddOpenTelemetry()` is
+     listed only when no separate bootstrap file exists, and it is hand-written code either way.
+   - `apiCallSites`: repo-relative paths of the hand-written files that **use or extend OTel
+     without constructing the SDK** — API call sites, custom processors/samplers/exporters, and
+     the data files that drive them. `/otel-evaluate` reads them (an audit has to see them);
+     `/otel-instrument` never offers them for overwrite. Record the importers of each call-site
+     helper too, not just the first one found, so the auditor does not report a helper with
+     "one importer" when two files call it.
    - `wiredInto`: files that import or preload those bootstrap files (entry points,
      `node -r` flags in `scripts`, Dockerfile `CMD`). An OTel module nothing imports is
      instrumentation that never runs — a fact worth recording plainly.
@@ -433,6 +448,7 @@ Return ONLY the following JSON object. No explanation, no preamble, no markdown 
         "sdkPackages": [],
         "otelBasedSdks": [],
         "bootstrapFiles": [],
+        "apiCallSites": [],
         "wiredInto": [],
         "source": "scanned",
         "observedAt": "<ISO-8601>"

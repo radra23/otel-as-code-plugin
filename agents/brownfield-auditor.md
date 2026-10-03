@@ -14,7 +14,7 @@ You DO NOT write any files.
 
 1. `context` — the `.claude/otel-context.json` object
 2. A list of existing OTel-related source files to read — resolved from
-   `context.services[].existingOtel.bootstrapFiles` and `wiredInto`. (`sdkPackages` holds
+   `context.services[].existingOtel.bootstrapFiles`, `apiCallSites` and `wiredInto`. (`sdkPackages` holds
    npm/PyPI specifiers, not paths.)
 3. `cachedJudgements` — the `services[i].derived` blocks from the cache.
 4. `semconvVersion` — the pinned `SEMCONV_VERSION`, read from the `semconv-discipline` skill by
