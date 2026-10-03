@@ -197,8 +197,8 @@ auth explanation above) rather than leaving it as an unexplained value only the 
 
 ## Cardinality Guardrails (add to agent config)
 
-Always include a `transform` processor to drop high-cardinality span attributes
-that are common mistakes:
+Always include a `transform` processor to drop high-cardinality identifiers that are common
+mistakes. It runs on **spans and on metric data points**, with the same drop-list in both:
 
 ```yaml
 processors:
@@ -214,10 +214,37 @@ processors:
           - delete_key(attributes, "session.id")        where IsString(attributes["session.id"])
           - delete_key(attributes, "request.id")        where IsString(attributes["request.id"])
           - delete_key(attributes, "order.id")          where IsString(attributes["order.id"])
+    metric_statements:
+      - context: datapoint
+        statements:
+          # The SAME list. A metric dimension is the worst position for an identifier (one
+          # retained series per value; sampling cannot help), so this is the more valuable half.
+          # Dropping the key merges the series that differed only by it, which is the intended
+          # outcome: say so in the generated file so nobody is surprised.
+          - delete_key(attributes, "user.id")           where IsString(attributes["user.id"])
+          - delete_key(attributes, "session.id")        where IsString(attributes["session.id"])
+          - delete_key(attributes, "request.id")        where IsString(attributes["request.id"])
+          - delete_key(attributes, "order.id")          where IsString(attributes["order.id"])
+
+service:
+  pipelines:
+    traces:  { processors: [memory_limiter, transform, batch] }
+    metrics: { processors: [memory_limiter, transform, batch] }
+    logs:    { processors: [memory_limiter, batch] }
 ```
 
 When generating config, check the context JSON for any attributes marked high-cardinality
-by the `brownfield-auditor` and add matching `delete_key` statements.
+by the `brownfield-auditor` and add matching `delete_key` statements **to both lists**, so they
+cannot drift apart (#172; before this, repo-specific keys were only ever added for spans).
+
+**Logs are deliberately not guarded.** A log record is not a time series, and
+`semconv-discipline` ranks a log-record attribute as the prescribed home for a per-request
+identifier, so deleting `user.id` there would remove debugging data with no cardinality benefit.
+Add a `log_statements` list only if a specific backend turns log attributes into indexed labels,
+and then drop only the keys it indexes.
+
+This guardrail is a backstop, not the fix: the source of truth is still the instrumentation
+(`semconv-lint` catches the identifier in code). It only covers the keys on its list.
 
 ## Required exporter configuration
 

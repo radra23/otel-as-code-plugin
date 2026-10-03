@@ -174,8 +174,12 @@ position is the one the old one-line rule never mentioned. Tier findings by posi
 
 So the fix differs by position: for a **metric dimension** it is "remove the tag" (irreversible
 damage otherwise); for a **span attribute** it is "consider moving to a span event or log". Note
-the Collector `transform` `delete_key` guardrail operates on **spans only** — it cannot clean up
-an identifier that already reached a metric dimension, so that case must be caught in code.
+the Collector `transform` `delete_key` guardrail covers **spans and metric data points** with the
+same drop-list (#172), so a listed identifier is stripped from a metric dimension before it reaches
+the backend, at the cost of merging the series that differed only by it. It is a backstop for the
+keys on its list, not a substitute for fixing the code: an identifier it does not list still
+creates a series per value, and series already created in the backend persist. Log records are
+deliberately not guarded, since they are the prescribed home for a per-request identifier.
 
 The one-line form, kept because it is still true for the common case: high-cardinality
 identifiers do not belong as span attributes — use events or logs instead — but a metric
@@ -185,9 +189,8 @@ dimension is worse, not exempt.
 hook (at the source level across all six supported languages, matching both the dotted `user.id`
 form and the common camelCase/snake_case spellings — `userId` / `user_id` — as a span attribute,
 AND as a metric dimension, which the hook treats as `error` tier per the ranking above, not
-`warning`) and by the Collector `transform` drop-list in `collector-topology` (at the
-span-attribute level only — see the cardinality-position table above for why the Collector
-guardrail cannot reach a metric dimension). `semconv-lint` reads this exact list at runtime
+`warning`) and by the Collector `transform` drop-list in `collector-topology` (on span attributes
+and metric data points; not log records — see the cardinality-position table above). `semconv-lint` reads this exact list at runtime
 (`hooks/semconv-lint.sh` greps the line below) rather than hardcoding a second copy — keep it in
 sync with the Collector drop-list when adding an identifier, and do not reformat this line (the
 hook's extraction depends on its shape: backtick-wrapped dotted identifiers, comma-separated,
