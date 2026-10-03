@@ -38,6 +38,25 @@ golden_py = dict(_re.findall(r"^(opentelemetry-[^>=\s]+)>=(\S+)$", open("tests/s
 check(f"python golden requirements match the generator pins ({len(golden_py)})", golden_py and golden_py == pp)
 if golden_py != pp:
     print("  generator:", pp); print("  golden:   ", golden_py)
+rp = dict(d.rust_pins())
+check("rust pins parsed from the generator's marked block (tower with features, plain, table forms)",
+      rp.get("opentelemetry") == "0.33" and rp.get("opentelemetry-instrumentation-tower") == "0.19"
+      and rp.get("tracing-subscriber") == "0.3")
+# The golden crate's Cargo.toml must carry exactly the pinned set, so the drift row watches what
+# the golden compiles.
+golden_toml = open("tests/snapshots/instrument/rust/Cargo.toml").read()
+import tomllib
+golden_deps = tomllib.loads(golden_toml)["dependencies"]
+golden_rp = {k: (v if isinstance(v, str) else v["version"]) for k, v in golden_deps.items() if k in rp}
+check(f"rust pins match the golden crate's Cargo.toml ({len(rp)})", rp and golden_rp == rp)
+# The version-group invariant the generator documents: opentelemetry* share a minor and
+# tracing-opentelemetry is exactly one minor ahead. A bump that breaks it compiles into two copies
+# of the opentelemetry crate (verified: SdkTracer: Tracer is not satisfied).
+otel_minors = {d.ver_tuple(v)[1] for k, v in rp.items()
+               if k in ("opentelemetry", "opentelemetry_sdk", "opentelemetry-otlp", "opentelemetry-appender-tracing")}
+check("rust group: opentelemetry* crates share one minor", len(otel_minors) == 1)
+check("rust group: tracing-opentelemetry is one minor ahead",
+      len(otel_minors) == 1 and d.ver_tuple(rp.get("tracing-opentelemetry"))[1] == next(iter(otel_minors)) + 1)
 tf = dict(d.tf_pins())
 check("tf provider pins parsed (all 4 vendors)", len(tf) == 4 and "grafana/grafana" in tf)
 check("semconv pin parsed (1.44.0)", d.semconv_pin() == "1.44.0")
@@ -52,6 +71,10 @@ check("collector_pin() reports the script default", d.collector_pin() == vals.ge
 check("behind: 1.27.0 < 1.37.0", d.behind("1.27.0", "1.37.0"))
 check("not behind: 2.8.0 == 2.8.0", not d.behind("2.8.0", "2.8.0"))
 check("behind: ^0.219.0 < 0.230.0", d.behind("0.219.0", "0.230.0"))
+check("behind_compatible: 0.33 is not behind 0.33.9 (caret accepts patch releases)", not d.behind_compatible("0.33", "0.33.9"))
+check("behind_compatible: 0.33 is behind 0.34.0 (a new 0.x minor is a breaking release)", d.behind_compatible("0.33", "0.34.0"))
+check("behind_compatible: 1 is not behind 1.9.0, but is behind 2.0.0", not d.behind_compatible("1", "1.9.0") and d.behind_compatible("1", "2.0.0"))
+check("behind_compatible: 0.3 is not behind 0.3.23", not d.behind_compatible("0.3", "0.3.23"))
 check("behind_major: ~>3.0 < 4.0.0", d.behind_major("~> 3.0", "4.0.0"))
 check("not behind_major: ~>3.0 vs 3.30.0 (within constraint)", not d.behind_major("~> 3.0", "3.30.0"))
 
