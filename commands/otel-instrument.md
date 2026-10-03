@@ -49,6 +49,11 @@ Check `.claude/otel-context.json`. Apply the freshness rule from `/otel-init` St
   `Skill` tool and cannot read the guidance itself.
 - Do NOT print the /otel-init success message; just run the scan silently.
 
+If the scan or the cache has **no services**, apply `/otel-init` Step 2's "Empty scan" rule:
+print its message, write nothing (not the cache either), exit 0. Step 2's "No candidates" branch
+is for a repo that HAS services none of which can be instrumented, where each one carries a
+reason; it must not be reached with an empty list.
+
 ## Step 2: Select the target SERVICE
 
 Pick a service first; its language follows from it. Resolving a language alone settles nothing

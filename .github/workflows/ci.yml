@@ -57,6 +57,8 @@ jobs:
         run: bash tests/hooks/go-instrument-wiring.test.sh
       - name: Run PHP refusal test (detected, in scope, refused with a reason)
         run: bash tests/hooks/php-refusal.test.sh
+      - name: Run zero-services guard contract (every command answers an empty scan the same way; #164)
+        run: bash tests/hooks/zero-services-guard.test.sh
       - name: Run collector exporter-auth contract (--exporter-header; --force keeps exporter headers; #171)
         run: bash tests/hooks/collector-exporter-auth.test.sh
       - name: Run force-scope contract (--force overwrites only marker-carrying files; #169)
@@ -253,6 +255,14 @@ jobs:
           ! test -f fixtures/python-setuppy-app/requirements.txt
           ! test -f fixtures/python-setuppy-app/Dockerfile
           ! grep -rq opentelemetry fixtures/python-setuppy-app
+
+      - name: Check infra-only-repo fixture (#164 — a repo with no application service)
+        run: |
+          test -f fixtures/infra-only-repo/infra/main.tf
+          test -f fixtures/infra-only-repo/scripts/tool/run.py
+          [ "$(wc -l < fixtures/infra-only-repo/scripts/tool/requirements.txt)" -eq 1 ]
+          ! grep -qiE "flask|fastapi|django|uvicorn|serve_forever|app.run" fixtures/infra-only-repo/scripts/tool/run.py
+          ! grep -rqi opentelemetry fixtures/infra-only-repo
 
       - name: Check nextjs-brownfield-api-helper fixture (#169 — bootstrap vs hook vs API call site)
         run: |

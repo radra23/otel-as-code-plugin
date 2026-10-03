@@ -51,6 +51,12 @@ Check `.claude/otel-context.json`. Apply the freshness rule from `/otel-init` St
 what it returns — a refresh is a merge, never a replace (see the cache ownership contract in
 `agents/repo-context-scanner.md`).
 
+If the scan or the cache has **no services**, apply `/otel-init` Step 2's "Empty scan" rule
+before anything else in this step, including the confirmation prompt below: print its message,
+write nothing, exit 0. A module needs a real service identity to build selectors, folder and
+alert names from; with none, `terraform-gen` would keep a template placeholder or invent one,
+and the resulting dashboard and alerts match nothing (#164).
+
 If `context.confirmedAt` is null (business attrs not confirmed):
 - Print: "⚠ Business attributes have not been confirmed yet. Running /otel-business-attrs first
   will improve the generated dashboard queries and SLO targets."

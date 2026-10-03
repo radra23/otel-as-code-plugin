@@ -15,6 +15,11 @@ Check `.claude/otel-context.json`. Apply the freshness rule from `/otel-init` St
 what it returns — a refresh is a merge, never a replace (see the cache ownership contract in
 `agents/repo-context-scanner.md`).
 
+If the scan or the cache has **no services**, apply `/otel-init` Step 2's "Empty scan" rule:
+print its message, write nothing, exit 0. Do this before the check below: "every service reports
+no OTel" is vacuously true over an empty list, and it would send the user to `/otel-instrument`,
+which cannot do anything here either.
+
 Then decide whether there is anything to audit. If every service reports
 `existingOtel.hasTraces = false` AND `hasMetrics = false` AND `hasLogs = false`, **verify that
 on disk before believing it.** These flags are only as fresh as the last scan, and a cache that

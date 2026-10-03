@@ -26,6 +26,18 @@ to the target directory. You run `terraform fmt` and `terraform validate` after 
    line shown under "Required header in every main.tf" so anyone reading the module later can
    see the queries and SLO targets were not built from confirmed attributes.
 
+## Refuse a module with no real service
+
+A module is built from a service's identity (`name`, `version`, `namespace`): PromQL selectors,
+the dashboard uid, folder and rule-group names, and alert labels all come from it. If
+`context.services` is empty, or the service has no `name`, **write nothing and return the reason**
+("no service identity in the context: run /otel-init on an application repository"). Never keep a
+template placeholder such as `<SERVICE_NAME>` or `<SERVICE_VERSION>` as a variable default, and
+never invent an identity (`unknown-service`, `0.0.0`, one inferred from unrelated files). The
+result looks valid, but every selector matches nothing, so the dashboard is empty and an alert
+with `no_data_state = "OK"` reports a healthy service that does not exist (#164). The dispatching
+command applies the same rule first; this is the backstop for a stale cache or a direct call.
+
 ## kind parameter behavior
 
 When `kind` is not `all`, generate only the specified resource type:
