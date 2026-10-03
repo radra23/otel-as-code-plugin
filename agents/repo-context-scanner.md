@@ -243,6 +243,9 @@ found none.
      the No-candidates / multi-candidate UX distinguish a real target from an untargetable
      console/test project up front. `instrumentation-gen` keeps the identical refusal as a
      backstop for a stale cache or a forced `--service`.
+     For `php` and `rust` it is always `false`: the language is detected (`composer.json` /
+     `Cargo.toml`) and stays `inScope: true`, but no generator exists yet (#117 PHP, #118 Rust).
+     Set the reason so the refusal names the language and the issue, not a generic "unsupported".
      For `go` it is `true` **only when a `net/http` server is present AND no incompatible web
      framework is required** — the generator wraps `net/http`'s `Handler` interface directly
      (`otelhttp.NewHandler`) and has no per-framework middleware path yet. `gin`, `echo`, and
@@ -268,6 +271,7 @@ found none.
      `"generatorSupported:false — no ASP.NET Core / Generic Host builder found; .NET instrumentation requires an IServiceCollection to extend; inScope:true"` (a console / library / test `dotnet` project),
      or `"generatorSupported:false, inScope:false — runtime browser; browser/RUM is out of scope (ROADMAP: Not planned)"`,
      or `"generatorSupported:false — no net/http server evidence found (http.ListenAndServe / http.Server{} / http.Handle); go instrumentation targets net/http-compatible servers only; inScope:true (first-class OTel runtime)"` (a Go CLI/worker/library with no HTTP server),
+     or `"generatorSupported:false — no php generator yet (#117); inScope:true (first-class OTel runtime, audit with /otel-evaluate)"` (likewise `rust`, #118),
      or `"generatorSupported:false — github.com/gin-gonic/gin required; go instrumentation only covers net/http-compatible frameworks today (chi, gorilla/mux); inScope:true"` (naming whichever of gin/echo/fiber was actually found).
 
 4. Determine `host` — **how the process is started**, which decides whether an inbound HTTP

@@ -1,0 +1,9 @@
+[package]
+name = "search-api"
+version = "0.4.0"
+edition = "2021"
+
+[dependencies]
+axum = "0.8"
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
