@@ -88,10 +88,20 @@ Wait for the JSON response. Never write a scanner response whose user-owned fiel
 over a cache where they were not — if that happens the merge did not run; re-dispatch with
 `priorContext` rather than writing the result.
 
-If the subagent returns an empty `services` array:
+**Empty scan (the shared rule).** If the subagent returns an empty `services` array — or a
+cache you loaded already has `services: []`:
 - Print: "No services detected. Is this an application repository? Check the service
   detection rules in the otel-as-code docs."
-- Exit.
+- **Write nothing and exit 0.** In particular do NOT write the scan to `.claude/otel-context.json`:
+  the `.gitignore` update below lives in Step 4, which an empty scan never reaches, so a cache
+  written here is left as an untracked file in the user's repo.
+- `/otel-evaluate`, `/otel-instrument`, `/otel-collector` and `/otel-backend` apply this same rule
+  right after they load or refresh the context (#164), and it overrides their "write what it
+  returns" instruction for a scan with no services. They reference it rather than restate it,
+  because a repo with no application service has nothing to audit, instrument, collect from, or
+  build a dashboard for, and each of them used to fail differently: a vacuous "no instrumentation
+  detected" that points back at a command that cannot help, an empty candidate list with no
+  reason, and a module built for a placeholder service.
 
 ## Step 3: Present detected service boundaries
 

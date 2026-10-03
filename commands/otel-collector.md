@@ -58,6 +58,10 @@ Check `.claude/otel-context.json`. Apply the freshness rule from `/otel-init` St
 what it returns — a refresh is a merge, never a replace (see the cache ownership contract in
 `agents/repo-context-scanner.md`).
 
+If the scan or the cache has **no services**, apply `/otel-init` Step 2's "Empty scan" rule:
+print its message, write nothing, exit 0. A Collector config describes what receives telemetry
+from services; for a repo with none it would be a repo-root file that collects from nothing.
+
 ## Step 3: Determine output path
 
 Write to: `otelcol-agent.yaml` (mode=agent) or `otelcol-gateway.yaml` (mode=gateway)
