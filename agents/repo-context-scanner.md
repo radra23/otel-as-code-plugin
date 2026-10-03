@@ -162,15 +162,17 @@ found none.
      service reports, not two peer sources disagreeing.)
    - `language`: `nodejs`, `python`, `go`, `java`, `dotnet`, `ruby`, `php`, `rust`, `other`
    - `framework`: `express`, `fastapi`, `django`, `flask`, `gin`, `spring`, `rails`, `nextjs`,
-     `nuxt`, `other`, `unknown`. Detect the Node SSR meta-frameworks explicitly — `nextjs` from a
+     `nuxt`, `axum`, `other`, `unknown`. Detect the Node SSR meta-frameworks explicitly — `nextjs` from a
      `next` dependency together with an `instrumentation.{ts,js}` hook and/or a `next.config.*`
      file; `nuxt` from a `nuxt` dependency and/or `nuxt.config.*` — because they need a
      framework-specific instrumentation path, not the generic top-of-entry bootstrap (see the
      Next.js section in `agents/instrumentation-gen.md`). Detect `rails` explicitly too — a
      `Gemfile` requiring `rails` and/or a `config/application.rb` file present — because it needs
      a framework-specific bootstrap PLACEMENT (an auto-loaded initializer), not the generic
-     top-of-entry-point pattern (see the Ruby section in `agents/instrumentation-gen.md`). Do not
-     collapse any of these three to `other`.
+     top-of-entry-point pattern (see the Ruby section in `agents/instrumentation-gen.md`). Detect
+     `axum` from an `axum` entry in `Cargo.toml`'s `[dependencies]`, and record its version
+     requirement in `frameworkVersion` — the Rust generator's gate keys on it (step 3 below). Do
+     not collapse any of these four to `other`.
    - `frameworkVersion`: the framework's own version string (NOT `languageVersion`), when directly
      readable from a manifest — e.g. Next.js from the `next` dependency in `package.json`. Record
      the stated string as-is (`"^14.2.0"`, not a resolved `"14.2.0"`); do not attempt semver
@@ -243,9 +245,24 @@ found none.
      the No-candidates / multi-candidate UX distinguish a real target from an untargetable
      console/test project up front. `instrumentation-gen` keeps the identical refusal as a
      backstop for a stale cache or a forced `--service`.
-     For `php` and `rust` it is always `false`: the language is detected (`composer.json` /
-     `Cargo.toml`) and stays `inScope: true`, but no generator exists yet (#117 PHP, #118 Rust).
-     Set the reason so the refusal names the language and the issue, not a generic "unsupported".
+     For `php` it is always `false`: the language is detected (`composer.json`) and stays
+     `inScope: true`, but no generator exists yet (#117 PHP). Set the reason so the refusal names
+     the language and the issue, not a generic "unsupported".
+     For `rust` it is `true` **only for an axum 0.8 binary with no OTel already wired** — the
+     generator adds `opentelemetry-instrumentation-tower`'s layer to an axum `Router`, and has no
+     path for any other server. ALL of these must hold (read `Cargo.toml` and the resolved
+     `runnableEntry`, usually `src/main.rs`):
+       - `axum` in `[dependencies]` with a requirement that resolves to 0.8 (`"0.8"`, `"0.8.x"`,
+         `"^0.8"`, `{ version = "0.8…" }`); `0.7` and older use a different route syntax and an
+         incompatible tower-http line;
+       - a binary target: `src/main.rs` or a `[[bin]]` table. A crate with only `src/lib.rs` is a
+         library — set `inScope: false` too (instrument the application that depends on it);
+       - an `axum::serve` call (the HTTP server actually starts here);
+       - no `opentelemetry` crate already in `[dependencies]` (that is a brownfield service —
+         `/otel-evaluate` audits it; generating would install a second global provider).
+     Anything else stays `false` with a reason naming the shape that was found: `actix-web`
+     ("actix-web is planned, not yet supported"), `rocket` / `warp` / `poem` / `salvo`, axum
+     older than 0.8, or no HTTP server at all (a CLI or worker).
      For `go` it is `true` **only when a `net/http` server is present AND no incompatible web
      framework is required** — the generator wraps `net/http`'s `Handler` interface directly
      (`otelhttp.NewHandler`) and has no per-framework middleware path yet. `gin`, `echo`, and
@@ -263,7 +280,8 @@ found none.
      reason, also set `framework: gin` (an existing enum value); `echo`/`fiber` have no dedicated
      enum value yet, so leave `framework` as whatever the generic detection already assigns.
    - `inScope` — is this service a candidate for observability work at all? `false` ONLY for a
-     genuinely out-of-scope runtime (a `browser` bundle — per ROADMAP "Not planned"); `true`
+     genuinely out-of-scope runtime (a `browser` bundle — per ROADMAP "Not planned") or a Rust
+     library crate (it runs inside someone else's binary, which owns the providers); `true`
      otherwise, INCLUDING a runtime merely outside today's codegen (`php` — a first-class
      OTel runtime on the roadmap, and often already instrumented by hand). `/otel-evaluate` is
      read-only and language-agnostic and must never be filtered out by a missing generator.
@@ -271,7 +289,9 @@ found none.
      `"generatorSupported:false — no ASP.NET Core / Generic Host builder found; .NET instrumentation requires an IServiceCollection to extend; inScope:true"` (a console / library / test `dotnet` project),
      or `"generatorSupported:false, inScope:false — runtime browser; browser/RUM is out of scope (ROADMAP: Not planned)"`,
      or `"generatorSupported:false — no net/http server evidence found (http.ListenAndServe / http.Server{} / http.Handle); go instrumentation targets net/http-compatible servers only; inScope:true (first-class OTel runtime)"` (a Go CLI/worker/library with no HTTP server),
-     or `"generatorSupported:false — no php generator yet (#117); inScope:true (first-class OTel runtime, audit with /otel-evaluate)"` (likewise `rust`, #118),
+     or `"generatorSupported:false — no php generator yet (#117); inScope:true (first-class OTel runtime, audit with /otel-evaluate)"`,
+     or `"generatorSupported:false — actix-web found; rust instrumentation covers axum 0.8 only (actix-web is planned, not yet supported); inScope:true"` (naming whichever rust shape was actually found: `axum 0.7`, `rocket`, `no axum::serve call`, `opentelemetry already in Cargo.toml — audit with /otel-evaluate`),
+     or `"generatorSupported:false, inScope:false — rust library crate (src/lib.rs, no binary target); instrument the application that depends on it"`,
      or `"generatorSupported:false — github.com/gin-gonic/gin required; go instrumentation only covers net/http-compatible frameworks today (chi, gorilla/mux); inScope:true"` (naming whichever of gin/echo/fiber was actually found).
 
 4. Determine `host` — **how the process is started**, which decides whether an inbound HTTP
@@ -395,7 +415,7 @@ Return ONLY the following JSON object. No explanation, no preamble, no markdown 
       "instrumentableReason": null,
       "host": "<standalone|container|kubernetes|azure-functions|azure-app-service|aws-lambda|gcp-cloud-functions|static-hosting|unknown>",
       "hostSource": "<the specific evidence, e.g. file:host.json>",
-      "framework": "<express|fastapi|django|flask|gin|spring|rails|nextjs|nuxt|aspnetcore|minimal-api|blazor|other|unknown>",
+      "framework": "<express|fastapi|django|flask|gin|spring|rails|nextjs|nuxt|axum|aspnetcore|minimal-api|blazor|other|unknown>",
       "frameworkVersion": null,
       "runnableEntry": "<main entry file>",
       "hasDockerfile": true,

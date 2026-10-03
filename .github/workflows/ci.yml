@@ -55,8 +55,10 @@ jobs:
 
       - name: Run Go instrument-wiring contract (command recognizes go, generator defines it)
         run: bash tests/hooks/go-instrument-wiring.test.sh
-      - name: Run PHP/Rust refusal test (detected, in scope, refused with a reason)
-        run: bash tests/hooks/php-rust-refusal.test.sh
+      - name: Run PHP refusal test (detected, in scope, refused with a reason)
+        run: bash tests/hooks/php-refusal.test.sh
+      - name: Run Rust instrument-wiring contract (scanner gate, command, generator ↔ golden crate)
+        run: bash tests/hooks/rust-instrument-wiring.test.sh
       - name: Run Node.js logs gating test (Development-level logs stay off by default)
         run: bash tests/hooks/node-logs-gating.test.sh
 
@@ -139,6 +141,28 @@ jobs:
       # adapters run under. The underlying guard logic those adapters call (write-guard.sh) IS
       # exercised on Windows here; the Codex bridge is a separate integration and not the subject
       # of #55 (the Claude Code hooks shipping Windows regressions).
+
+  # The golden Rust crate (fixture + generated telemetry.rs + Cargo block + the printed main.rs
+  # lines) must compile. 1.88 is the floor today's locked dependency tree needs (reqwest -> url ->
+  # icu); stable catches breakage from newer compilers. --locked keeps it reproducible: bumping
+  # the pins means regenerating Cargo.lock on purpose.
+  rust-golden:
+    name: Rust golden crate (cargo check, ${{ matrix.toolchain }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: ['1.88', stable]
+    defaults:
+      run:
+        working-directory: tests/snapshots/instrument/rust
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: rustup toolchain install ${{ matrix.toolchain }} --profile minimal
+      - name: cargo check
+        run: cargo +${{ matrix.toolchain }} check --locked
 
   e2e:
     name: End-to-end trace flow (#1 + #3)
@@ -307,7 +331,7 @@ jobs:
           test -f fixtures/php-laravel-app/routes/web.php
           ! grep -rqiE 'opentelemetry|open-telemetry' fixtures/php-laravel-app
 
-      - name: Check rust-axum-app fixture (#122e — refused until #118 ships a generator)
+      - name: Check rust-axum-app fixture (#118 — axum 0.8 binary, generatorSupported true)
         run: |
           grep -qE '^axum = "0\.8"' fixtures/rust-axum-app/Cargo.toml
           grep -q 'axum::serve' fixtures/rust-axum-app/src/main.rs

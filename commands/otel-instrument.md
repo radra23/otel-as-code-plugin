@@ -8,7 +8,7 @@ argument-hint: "[language] [--service <id>] [--fix <ids>] [--experimental] [--fo
 Generate OTel SDK bootstrap and OTLP wiring for one service.
 
 ## Flags
-- `[language]` — optional; `nodejs`, `python`, `java`, `dotnet`, `go`, or `ruby`. If omitted, derived from the
+- `[language]` — optional; `nodejs`, `python`, `java`, `dotnet`, `go`, `ruby`, or `rust`. If omitted, derived from the
   selected service (Step 2). It narrows the candidate services; it does not pick one.
 - `--service <id>` — the service to instrument, by `id` from the context JSON. Skips the
   Step 2 prompt.
@@ -75,7 +75,7 @@ is not Node at all.
      ⚠ No service in this repo can be instrumented by /otel-instrument yet.
        portal-web (web/)  — runtime is browser; browser/RUM instrumentation is out of scope
                             for the MVP. Use an OTel browser SDK / RUM product directly.
-       cache (cache/)     — runtime rust is not supported yet (v1).
+       billing (billing/) — no php generator yet (#117).
      ```
 3. Validate the chosen service before generating. If it has `generatorSupported: false`, refuse:
    ```
@@ -88,9 +88,9 @@ is not Node at all.
    must not be told it is a browser bundle.
    Exit. Emitting wrong code is worse than emitting none — do not fall back to a near-match.
 4. Derive `language` from the selected service. If it is not `nodejs`, `python`, `java`,
-   `dotnet`, `go`, or `ruby`:
-   - Print: "⚠ <language> is not supported yet. Supported: nodejs, python, java, dotnet, go, ruby.
-     v1 will add: php, rust."
+   `dotnet`, `go`, `ruby`, or `rust`:
+   - Print: "⚠ <language> is not supported yet. Supported: nodejs, python, java, dotnet, go, ruby,
+     rust. v1 will add: php."
    - Exit.
 
 If `context.services` has no `runtime` field at all, the cache predates schema 2 — re-scan
@@ -259,6 +259,12 @@ subagent summary (`bundle install` → paste the require line AFTER your framewo
 exception is a failure to fix, not to paper over. (Runtime span emission is the e2e follow-up, as
 with every other language.)
 
+For **Rust** the equivalent check is `cargo check` — the generated `src/telemetry.rs`, the
+`Cargo.toml` block and the three pasted `main.rs` lines must compile together. Run it only if
+`cargo` is present (it fetches the crates itself); otherwise print the wiring steps from the
+subagent summary and note verification was deferred. A compile error is a failure to fix, not to
+paper over. (Runtime span emission is the e2e follow-up, as with Go.)
+
 Run the smoke only if the SDK dependencies are installed (`node_modules` / the venv present). If
 they are not, DO NOT fail — print the exact command for the user to run after `npm install` /
 `pip install`, and note verification was deferred.
@@ -291,9 +297,9 @@ over it. If verification was deferred (deps not installed), say so and give the 
 Print the subagent's summary, then this block. **Do not omit it and do not soften it.** The
 generated bootstrap reads `OTEL_EXPORTER_OTLP_ENDPOINT` and hard-codes nothing, which is
 correct — and it means the service exports nowhere until the deployment sets it. The generated
-Node.js/Python/Go code defaults every exporter to `none` (Go: no provider registered at all)
-when no endpoint is configured, so the failure mode is silence rather than a retry loop against
-`localhost:4317`; that is a safe default, not a working one. Ruby needs its own sentence here since its DEFAULT behavior (with no endpoint configured) is actually to retry against `localhost:4318` like .NET/Java — the generated `tracing.rb` avoids this with an explicit `OTEL_TRACES_EXPORTER` guard, so from the deployment's perspective Ruby behaves like Node/Python/Go (safe silence, not a reconnect loop), but only because the generated code contains that guard, not because the underlying SDK defaults to it. Also note: Ruby exports over OTLP/**HTTP** on `:4318`, not this plugin's usual gRPC `:4317` — setting the endpoint below must point at the HTTP port for Ruby specifically. (The .NET OTLP exporter and the
+Node.js/Python/Go/Rust code defaults every exporter to `none` (Go and Rust: no provider
+registered at all) when no endpoint is configured, so the failure mode is silence rather than a retry loop against
+`localhost:4317`; that is a safe default, not a working one. Ruby needs its own sentence here since its DEFAULT behavior (with no endpoint configured) is actually to retry against `localhost:4318` like .NET/Java — the generated `tracing.rb` avoids this with an explicit `OTEL_TRACES_EXPORTER` guard, so from the deployment's perspective Ruby behaves like Node/Python/Go (safe silence, not a reconnect loop), but only because the generated code contains that guard, not because the underlying SDK defaults to it. Also note: Ruby exports over OTLP/**HTTP** on `:4318`, not this plugin's usual gRPC `:4317` — setting the endpoint below must point at the HTTP port for Ruby specifically. Rust exports over OTLP/**HTTP** on `:4318` too (the generator's choice: the gRPC transport would add `tonic` and its build tree to every service). (The .NET OTLP exporter and the
 Java agent do the opposite — they default to `localhost:4317` and retry — so for those two,
 setting the endpoint below is not just recommended, it is what stops a reconnect loop in the
 deployed process.)
