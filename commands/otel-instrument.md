@@ -369,6 +369,15 @@ context to make this concrete rather than generic:
   OTEL_LOGS_EXPORTER    = otlp
   DEPLOYMENT_ENV        # this target's environment, e.g. production
   ```
+  For `framework: nextjs`, add one more, and say it is required, not optional (#173):
+  ```
+  NEXT_MANUAL_SIG_HANDLE = true   # Next otherwise exits on SIGTERM before OTel flushes its last batch
+  ```
+  It must reach the running process (Dockerfile `ENV`, platform env, the `env:` block); the
+  generated bootstrap cannot set it because Next reads it before `register()` runs. Name the
+  trade-off: Next then no longer drains the server before exit, and the generated handler
+  flushes and exits instead. The instrumentation-gen Next.js section has the evidence.
+
   Include `OTEL_LOGS_EXPORTER` only when the logs signal was generated. Node.js and Python logs are
   Development-level and generated only under `--experimental`; without the flag, drop that line
   from every rendering below. For Node.js it is not harmless: NodeSDK turns the logs pipeline on

@@ -53,6 +53,7 @@ PY
 # Next.js 15 auto-detects instrumentation.js; the container runs npm install + next build + start.
 cp -R ../../fixtures/nextjs-greenfield/. "$WORK/nextjs/"
 cp ../snapshots/instrument/nextjs/instrumentation.js "$WORK/nextjs/instrumentation.js"
+cp ../snapshots/instrument/nextjs/instrumentation.node.js "$WORK/nextjs/instrumentation.node.js"   # shutdown flush (#173)
 cp ../snapshots/instrument/nextjs/package.json "$WORK/nextjs/package.json"   # instrumented manifest
 
 # Java: pristine fixture (App.java) + golden agent config (otel-java.env) + the pinned OTel Java

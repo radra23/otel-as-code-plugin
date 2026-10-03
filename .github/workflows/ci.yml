@@ -63,6 +63,8 @@ jobs:
         run: bash tests/hooks/dotnet-generator.test.sh
       - name: Run Keycloak span-scrub contract (the credential scrub is a precondition of the tracing diff; #197)
         run: bash tests/hooks/keycloak-span-scrub.test.sh
+      - name: Run Next.js shutdown-flush contract (generator, Step 8, goldens; #173)
+        run: bash tests/hooks/nextjs-shutdown-flush.test.sh
       - name: Run zero-services guard contract (every command answers an empty scan the same way; #164)
         run: bash tests/hooks/zero-services-guard.test.sh
       - name: Run collector exporter-auth contract (--exporter-header; --force keeps exporter headers; #171)
@@ -180,6 +182,11 @@ jobs:
   # rule put it (must fail) and where the new rule puts it (must build).
   dotnet-placement:
     name: .NET OpenTelemetry.cs placement (#182)
+  # #173: a real `next start` is built from the golden hook and sent SIGTERM half a second after the
+  # last request; the spans must still reach a slow OTLP sink. Separate from the compose e2e because
+  # it needs to signal the process and read what a backend received after it exited.
+  nextjs-sigterm-flush:
+    name: Next.js SIGTERM flush (#173)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -188,6 +195,10 @@ jobs:
         with:
           dotnet-version: '8.0.x'
       - run: bash tests/e2e/dotnet-placement.sh
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: bash tests/e2e/nextjs-sigterm-flush.sh
 
   e2e:
     name: End-to-end trace flow (#1 + #3)

@@ -100,6 +100,10 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4318"
       OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf"
       NEXT_TELEMETRY_DISABLED: "1"
+      # The deployment setting the generator tells users to add (#173): without it Next's own
+      # SIGTERM cleanup exits before the generated instrumentation.node.js can flush.
+      # tests/e2e/nextjs-sigterm-flush.sh is the test that proves the effect.
+      NEXT_MANUAL_SIG_HANDLE: "true"
       PORT: "3000"
     ports:
       - "3001:3000"   # load is driven from the host (see run.sh)
