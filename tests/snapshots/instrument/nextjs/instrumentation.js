@@ -7,6 +7,9 @@
 // only — point OTEL_EXPORTER_OTLP_ENDPOINT at the collector's HTTP port (4318), not gRPC 4317.
 import { registerOTel } from "@vercel/otel";
 
-export function register() {
+export async function register() {
   registerOTel({ serviceName: process.env.OTEL_SERVICE_NAME || "web-frontend" });
+  if (process.env.NEXT_RUNTIME === "nodejs") {
+    await import("./instrumentation.node.js"); // signal handlers: Node-only, never bundled for Edge
+  }
 }
