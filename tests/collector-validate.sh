@@ -15,6 +15,7 @@ CONFIG="tests/snapshots/collector/otelcol-agent.yaml.snap"
 # golden exists solely so the --public shape is proven against a real otelcol-contrib.
 PUBLIC_CONFIG="tests/snapshots/collector/otelcol-agent-public.yaml.snap"
 HEADERS_CONFIG="tests/snapshots/collector/otelcol-agent-headers.yaml.snap"
+SCRUB_CONFIG="tests/snapshots/collector/otelcol-agent-keycloak-scrub.yaml.snap"
 
 # ---------------------------------------------------------------------------
 # Ordering guard: `otelcol validate` builds the component graph and checks
@@ -231,3 +232,13 @@ fi
 OTEL_EXPORTER_OTLP_ENDPOINT="localhost:4317" BACKEND_AUTH_TOKEN="dummy" BACKEND_DATASET="default" \
   "$OTELCOL_BIN" validate --config="$HEADERS_CONFIG"
 echo "OK: $HEADERS_CONFIG validates against otelcol-contrib ${actual_version}"
+
+# Keycloak span scrub (#197): the processor /otel-remediate proposes must be accepted by the real
+# validator, sit in the traces pipeline, and keep memory_limiter first.
+echo "Checking memory_limiter-first ordering in $SCRUB_CONFIG..."
+check_processor_ordering "$SCRUB_CONFIG"
+echo "Checking the scrub is wired into the traces pipeline in $SCRUB_CONFIG..."
+awk '/^    traces:/{f=1;next} f&&/processors:/{print;exit}' "$SCRUB_CONFIG" | grep -qF "transform/keycloak-scrub" \
+  || { echo "FAIL: $SCRUB_CONFIG defines transform/keycloak-scrub but does not run it in the traces pipeline" >&2; exit 1; }
+OTEL_EXPORTER_OTLP_ENDPOINT="localhost:4317" "$OTELCOL_BIN" validate --config="$SCRUB_CONFIG"
+echo "OK: $SCRUB_CONFIG validates against otelcol-contrib ${actual_version}"

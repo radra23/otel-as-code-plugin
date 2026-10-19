@@ -54,6 +54,14 @@ uses for `endpointConfigured`:
   from "missing" — don't conflate the two in the diff.
 - **Absent** — propose adding it, per Step 3.
 
+Also find out whether a **span scrub already exists** (the skill's "Tracing exports credentials"
+section). `Glob` for `otelcol-*.yaml` / `otelcol*.yml` in the repo and `Grep` them for `url.query`:
+- a `delete_key` or `replace_pattern` on `url.query` and `url.full` that covers this service → say
+  where it is and that it covers it;
+- a Collector config with no such statement → say so, naming the file; the scrub below is missing;
+- no Collector config in the repo → say the receiving Collector is not visible here and the user
+  must confirm the scrub on it. Never report "scrubbed" for a Collector you cannot see.
+
 Do not propose a variable the skill's table marks as conditional-on-context without checking that
 context first (e.g. `KC_TELEMETRY_RESOURCE_ATTRIBUTES` — check whether the Keycloak Operator is
 in play before calling it missing; the skill names this exact trap).
@@ -96,6 +104,22 @@ Detected: quay.io/keycloak/keycloak:26.7.0 in k8s/keycloak-deployment.yaml
 +        - name: KC_LOG_CONSOLE_OUTPUT
 +          value: "json"
 
+### Before applying: scrub credentials from this service's spans (required)
+
+Keycloak's spans export `url.query` with action-token keys (`key=`) and OAuth codes (`code=`,
+`session_state=`). Add this to the receiving Collector's `traces` pipeline BEFORE enabling tracing;
+if that Collector is owned elsewhere, do not apply the diff above until it is.
+
+<the `transform/keycloak-scrub` processor from the skill, with <service.name> filled in with the
+`KC_TELEMETRY_SERVICE_NAME` value in the diff — or the value already configured — and where to put
+it in the pipeline>
+
+Scrub status: <found in <file> / missing from <file> / receiving Collector not visible in this repo>
+
+### Decide (not in the diff)
+- Span volume: about 1,500 spans in two minutes on an idle dev instance at the default sampler
+  ratio of 1.0. `KC_TRACING_SAMPLER_RATIO` (or tail sampling at a gateway) is your call.
+
 ### Already configured
 - KC_METRICS_ENABLED=true — no change needed
 
@@ -109,4 +133,6 @@ own change-management flow for this manifest.
 
 If NOTHING is missing (every relevant variable already set correctly), say that plainly as the
 headline — "Keycloak tracing/logging is already fully configured; nothing to propose" — not a
-diff with zero hunks.
+diff with zero hunks. **Except when `KC_TRACING_ENABLED` is already `true`**: then the scrub
+section above is still required and goes FIRST, headed `⚠ Tracing is already on: confirm the
+Collector scrubs url.query`, because the exposure is live. "Nothing to propose" must never hide it.
