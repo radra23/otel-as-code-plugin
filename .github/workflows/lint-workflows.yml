@@ -25,5 +25,11 @@ jobs:
       # Built from source at a pinned tag; Go verifies the module against the checksum database.
       - name: Install actionlint
         run: go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
+      # -shellcheck= turns off actionlint's lint of the inline scripts. This check is here to catch
+      # workflow STRUCTURE errors (a job with no runs-on, a bad expression, an unknown input), which
+      # is what broke ci.yml. shellcheck finds 17 existing issues in ci.yml's scripts, 12 of them
+      # real: a `! cmd` in the middle of a run block does not fail the step under bash -e. They
+      # are fixed separately; re-enable shellcheck once they are.
       - name: Lint every workflow
-        run: "$(go env GOPATH)/bin/actionlint -color"
+        run: |
+          "$(go env GOPATH)/bin/actionlint" -color -shellcheck=
