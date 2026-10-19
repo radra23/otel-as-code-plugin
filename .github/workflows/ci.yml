@@ -182,6 +182,15 @@ jobs:
   # rule put it (must fail) and where the new rule puts it (must build).
   dotnet-placement:
     name: .NET OpenTelemetry.cs placement (#182)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - run: bash tests/e2e/dotnet-placement.sh
+
   # #173: a real `next start` is built from the golden hook and sent SIGTERM half a second after the
   # last request; the spans must still reach a slow OTLP sink. Separate from the compose e2e because
   # it needs to signal the process and read what a backend received after it exited.
@@ -191,10 +200,6 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '8.0.x'
-      - run: bash tests/e2e/dotnet-placement.sh
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
