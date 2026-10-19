@@ -1031,7 +1031,17 @@ needed, the entry file:
   instrumentation targets ASP.NET Core / Generic Host apps; a plain console app has no
   IServiceCollection to extend (v1 will add a zero-code agent path)." Do not emit a broken file.
 
-### `OpenTelemetry.cs` (service root)
+### `OpenTelemetry.cs` (in the project that owns `runnableEntry`)
+
+**Where it goes decides whether it compiles (#182).** An SDK-style project compiles only the
+`*.cs` files under its own directory. The scanner's `rootDir` is often the *solution* folder
+(`global.json`, `*.sln`, `nuget.config`) with the project below it (`src/<Project>/<Project>.csproj`,
+`Program.cs` beside it), and a file written to `rootDir` is then outside every project: never
+compiled, so the pasted line fails with "`AddOtelObservability` does not exist". `rootDir`
+decides identity, not compile membership. Write the file into the directory of the `.csproj` that
+owns `runnableEntry`: start at the directory of `runnableEntry` (`Program.cs`) and walk up to the
+first directory that contains a `*.csproj`. If that project already has an `Observability/` folder
+whose namespace `Program.cs` imports, put it there. State the resolved path in the summary.
 
 Write it PascalCase as `OpenTelemetry.cs` — that exact name is the guarded artifact registered in
 `hooks/otel-paths.sh` (a lowercase `opentelemetry.cs` would ship unguarded). Structure:
@@ -1042,21 +1052,31 @@ Write it PascalCase as `OpenTelemetry.cs` — that exact name is the guarded art
   `public static IServiceCollection AddOtelObservability(this IServiceCollection services, IConfiguration configuration)`.
 - Resource: `.AddService(serviceName, serviceVersion)` from context; add `service.namespace` and
   `deployment.environment.name` via `.AddAttributes(...)`. `service.name` is overridable via the
-  `OTEL_SERVICE_NAME` config key; `deployment.environment.name` reads `DEPLOYMENT_ENV` at runtime
-  and falls back to the confirmed environment (or `development`) — same promotion model as the
-  other languages.
-- Tracing: `.AddAspNetCoreInstrumentation().AddHttpClientInstrumentation().AddOtlpExporter()`.
-- Metrics: `.AddAspNetCoreInstrumentation().AddHttpClientInstrumentation().AddOtlpExporter()`.
-- The OTLP exporter reads `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_PROTOCOL` from the
-  environment; with none set it defaults to `http://localhost:4317`. Do NOT hard-code the endpoint
-  — state in a comment that the deployment must set it (Step 8), consistent with the "exports
-  nowhere until configured" rule for every language.
+  `OTEL_SERVICE_NAME` config key. `deployment.environment.name` is read at runtime so one build
+  promotes across environments: `DEPLOYMENT_ENV` first, then the environment the host already runs
+  under (`ASPNETCORE_ENVIRONMENT`, then `DOTNET_ENVIRONMENT`, lower-cased to match the other
+  languages' values), then the confirmed environment (or `development`) (#183). Every ASP.NET Core
+  deployment already sets the host variable, so without that step a service deployed with
+  `ASPNETCORE_ENVIRONMENT=Production` and no `DEPLOYMENT_ENV` labels production telemetry
+  `development`.
+- Tracing: `.AddAspNetCoreInstrumentation().AddHttpClientInstrumentation()`, with
+  `.AddOtlpExporter()` attached **only when an endpoint is configured**.
+- Metrics: the same, gated the same way.
+- **Gate the exporter, as every other language does (#183).** On its own the .NET OTLP exporter
+  targets `http://localhost:4317` and retries on every export cycle, which on a host with no
+  collector (a desktop installer, a developer machine) is a permanent retry loop. Attach it only
+  when `OTEL_EXPORTER_OTLP_ENDPOINT` or the signal's own `OTEL_EXPORTER_OTLP_{TRACES,METRICS}_ENDPOINT`
+  is set, and honour `OTEL_TRACES_EXPORTER=none` / `OTEL_METRICS_EXPORTER=none`; read them through
+  `IConfiguration`, which includes environment variables. Match the golden's shape rather than
+  improvising a variant. Do NOT hard-code the endpoint — the deployment sets it (Step 8).
 
 The exact golden output is `tests/snapshots/instrument/dotnet/OpenTelemetry.cs`; match its shape.
 
 ### Packages (print, do not edit the `.csproj`)
 
-Emit these `dotnet add package` commands (versions resolve at add time; the pins below are the
+Emit these `dotnet add package` commands, written as `dotnet add <path/to/Project.csproj> package
+<name>` whenever the project is not in the current directory (a solution-level layout). Versions
+resolve at add time; the pins below are the
 verified-current stable line — keep them in step with `tests/snapshots/instrument/dotnet/checkout-api.csproj`,
 which `pins.test.sh` diffs against this file):
 
@@ -1077,31 +1097,35 @@ cannot live inside the `IServiceCollection` extension. Keep the one-liner clean 
 optional two lines separately rather than folding them in:
 
 ```csharp
-// Optional — OTel logs (Stable). Add to Program.cs after AddOtelObservability:
-builder.Logging.AddOpenTelemetry(o => o.AddOtlpExporter());
+// Optional — OTel logs (Stable). Add to Program.cs after AddOtelObservability (needs
+// `using OpenTelemetry.Logs;`). Gated on the endpoint like the traces and metrics exporters, so an
+// unconfigured host does not retry localhost forever:
+if (!string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]))
+    builder.Logging.AddOpenTelemetry(o => o.AddOtlpExporter());
 ```
 
 ### After writing (.NET) — return this summary
 
 ```
 Generated:
-  OpenTelemetry.cs  (OpenTelemetry SDK wiring — traces + metrics)
+  <resolved path, e.g. src/Svc/OpenTelemetry.cs>  (OpenTelemetry SDK wiring — traces + metrics)
 
 Wire it up:
-  1. Add the packages:
-       dotnet add package OpenTelemetry.Extensions.Hosting
-       dotnet add package OpenTelemetry.Instrumentation.AspNetCore
-       dotnet add package OpenTelemetry.Instrumentation.Http
-       dotnet add package OpenTelemetry.Exporter.OpenTelemetryProtocol
+  1. Add the packages (to <path/to/Project.csproj>):
+       dotnet add <path/to/Project.csproj> package OpenTelemetry.Extensions.Hosting
+       dotnet add <path/to/Project.csproj> package OpenTelemetry.Instrumentation.AspNetCore
+       dotnet add <path/to/Project.csproj> package OpenTelemetry.Instrumentation.Http
+       dotnet add <path/to/Project.csproj> package OpenTelemetry.Exporter.OpenTelemetryProtocol
   2. Add ONE line to Program.cs, before builder.Build():
        builder.Services.AddOtelObservability(builder.Configuration);
   3. dotnet build   (verifies the wiring compiles)
 
 Still required:
-  - Deployment: the OTLP exporter defaults to http://localhost:4317 with nothing configured, so
-    the deployed service exports nowhere. Set OTEL_EXPORTER_OTLP_ENDPOINT in
+  - Deployment: the generated code attaches the OTLP exporter only when an endpoint is configured,
+    so the deployed service exports nowhere until you set OTEL_EXPORTER_OTLP_ENDPOINT in
     <the deployment config files from service.deployment.configFiles>.
-  - Deployment environment: deployment.environment.name reads DEPLOYMENT_ENV, defaulting to
+  - Deployment environment: deployment.environment.name reads DEPLOYMENT_ENV, then the host's
+    ASPNETCORE_ENVIRONMENT / DOTNET_ENVIRONMENT (lower-cased), defaulting to
     <the confirmed deploymentEnvironment, or "development">. <Per the "Deployment-environment
     provisioning check" section: if deploymentEnvConfigured is not true, replace this bullet with
     a ⚠ headline warning instead of listing it here.>
