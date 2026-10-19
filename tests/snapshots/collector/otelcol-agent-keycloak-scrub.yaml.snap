@@ -1,0 +1,75 @@
+# Golden agent Collector config WITH the Keycloak span scrub (#197), as proposed by /otel-remediate.
+# Same as otelcol-agent.yaml.snap plus processors.transform/keycloak-scrub in the traces pipeline.
+# Validated standalone by tests/collector-validate.sh (#3).
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 256
+  transform:
+    error_mode: ignore
+    trace_statements:
+      - context: span
+        statements:
+          - delete_key(attributes, "user.id")    where IsString(attributes["user.id"])
+          - delete_key(attributes, "session.id") where IsString(attributes["session.id"])
+          - delete_key(attributes, "request.id") where IsString(attributes["request.id"])
+          - delete_key(attributes, "order.id")   where IsString(attributes["order.id"])
+    # Same drop-list on metric data points: a metric dimension is the worst place for an
+    # identifier (one retained series per value; sampling cannot help). Dropping it merges
+    # the series that differed only by that key, which is the intended outcome.
+    metric_statements:
+      - context: datapoint
+        statements:
+          - delete_key(attributes, "user.id")    where IsString(attributes["user.id"])
+          - delete_key(attributes, "session.id") where IsString(attributes["session.id"])
+          - delete_key(attributes, "request.id") where IsString(attributes["request.id"])
+          - delete_key(attributes, "order.id")   where IsString(attributes["order.id"])
+  transform/keycloak-scrub:
+    error_mode: ignore
+    trace_statements:
+      - context: span
+        statements:
+          - delete_key(attributes, "url.query") where resource.attributes["service.name"] == "keycloak-auth"
+          - delete_key(attributes, "url.full")  where resource.attributes["service.name"] == "keycloak-auth"
+  batch:
+    timeout: 1s
+    send_batch_size: 1024
+
+exporters:
+  otlp:
+    endpoint: ${env:OTEL_EXPORTER_OTLP_ENDPOINT}
+    tls:
+      insecure: true   # local agent -> local sink; production terminates TLS (insecure: false)
+    timeout: 30s
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 300s
+    sending_queue:
+      enabled: true
+      num_consumers: 10
+      queue_size: 1000
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, transform, transform/keycloak-scrub, batch]
+      exporters: [otlp]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, transform, batch]
+      exporters: [otlp]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp]

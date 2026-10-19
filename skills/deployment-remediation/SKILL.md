@@ -56,7 +56,53 @@ standard port needs no endpoint override):
 | `KC_TRACING_ENDPOINT` | OTLP traces endpoint | Maps to `quarkus.otel.exporter.otlp.traces.endpoint`. Omit if the deployment already exports elsewhere and only the endpoint is unset — do not invent a value; ask/flag it as `<confirm your collector endpoint>` the same way `instrumentation-gen` never invents a Terraform-owned identifier. |
 | `KC_TELEMETRY_SERVICE_NAME` | The `service.name` resource attribute | **Use this, not `KC_TRACING_SERVICE_NAME`** — Keycloak's own docs mark `tracing-service-name` deprecated in favor of `telemetry-service-name`. Default is literally `keycloak`; every Keycloak deployment in a multi-service repo needs this set explicitly or every one of them reports the identical `service.name`. |
 | `KC_TELEMETRY_RESOURCE_ATTRIBUTES` | Extra resource attributes (`k8s.namespace.name`, etc.) | Same deprecation as above (was `tracing-resource-attributes`). The Keycloak Operator sets this automatically when present — if the target uses the Operator, do not propose it as missing without checking whether the Operator already injects it. |
-| `KC_TRACING_SAMPLER_TYPE` / `KC_TRACING_SAMPLER_RATIO` | Sampler type/ratio | Default sampler `traceidratio`, default ratio `1.0` (all traces sampled) — only propose overriding these if volume is a stated concern; do not propose a sampling change as if it were a gap. |
+| `KC_TRACING_SAMPLER_TYPE` / `KC_TRACING_SAMPLER_RATIO` | Sampler type/ratio | Default sampler `traceidratio`, default ratio `1.0` (all traces sampled). Do not put a sampling change in the diff as if it were a gap, but do not stay silent about volume either: raise it as a choice for the user (see "Tracing exports credentials" below). |
+
+### Tracing exports credentials: scrub before enabling (#197)
+
+**Keycloak's HTTP server spans record `url.query` verbatim, and Keycloak puts live credentials in
+query strings.** The semantic conventions make `url.query` `Conditionally Required` on HTTP server
+spans and only say that sensitive content "SHOULD be scrubbed when instrumentations can identify
+it" (checked against semantic-conventions v1.44.0, `docs/http/http-spans.md`); an instrumentation
+cannot identify an application's own credential keys, and Keycloak's are not on the spec's default
+redaction list. Reported and reproduced in #197 with `quay.io/keycloak/keycloak:26.7.0` exporting
+to `otelcol-contrib` 0.161.0:
+
+| Where | Query string carries | Holding it allows |
+|---|---|---|
+| `/realms/<r>/login-actions/action-token` | `key=<token>` | acting on the account: it is the reset-password / verify-email credential |
+| `/realms/<r>/protocol/openid-connect/auth` and redirects | `code=…`, `session_state=…`, `state=…` | replaying an OIDC authorization code |
+
+So applying `KC_TRACING_ENABLED=true` as proposed puts replayable credentials into the trace
+backend, readable by everyone with trace access. Treat the scrub as a **precondition of the diff,
+not an optional extra**:
+
+- It must be live on the **receiving Collector before tracing is switched on.** If that Collector
+  is owned elsewhere (another team, a managed gateway), the env-var diff must not be applied until
+  it is. Say this in the report; do not leave it implied.
+- The scrub, scoped to this service by its `service.name` so other services' query strings are
+  untouched (checked against `otelcol-contrib` 0.161.0: this service's spans lose both attributes,
+  other services' keep them):
+  ```yaml
+  processors:
+    transform/keycloak-scrub:
+      error_mode: ignore
+      trace_statements:
+        - context: span
+          statements:
+            - delete_key(attributes, "url.query") where resource.attributes["service.name"] == "<service.name>"
+            - delete_key(attributes, "url.full")  where resource.attributes["service.name"] == "<service.name>"
+  ```
+  Add `transform/keycloak-scrub` to the `traces` pipeline between `transform` and `batch`
+  (`memory_limiter` stays first). Prefer deleting over redacting by key (`key=`, `code=`,
+  `session_state=`): a deny-list of keys misses the next one Keycloak adds, and the path already
+  says what the request was.
+- **Already enabled?** Then the exposure is current, not hypothetical. Lead the report with it even
+  when nothing else needs proposing.
+- **Volume is a choice, not a silent default.** The reporter measured about 1,500 spans in two
+  minutes on an idle dev instance at the default ratio of `1.0`, most of them internal and
+  database spans. Offer `KC_TRACING_SAMPLER_RATIO` (or tail sampling at a gateway) as a decision
+  for the user, and do not add it to the diff.
 
 **Logging** — Keycloak's console handler logs unstructured plain text by default:
 
