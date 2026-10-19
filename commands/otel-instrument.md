@@ -88,9 +88,21 @@ is not Node at all.
      Nothing was written.
    ```
    The reason carries the explanation, so print it as given and add nothing generic. Only for
-   `runtime: browser`, add: "Generating a Node SDK bootstrap for a browser bundle produces code
-   that cannot run and that breaks the build." A PHP, Rust, CLI or console-project refusal
+   `runtime: browser`, add: "Generating a server-side SDK bootstrap for a browser bundle produces
+   code that cannot run and that breaks the build." The sentence is language-neutral on purpose: a
+   Blazor WebAssembly project is `language: dotnet`, `runtime: browser`, and nobody would generate
+   a Node bootstrap for it (#186). A PHP, CLI or console-project refusal
    must not be told it is a browser bundle.
+
+   **Then point to what does apply, for a service that is `inScope: true`** (a browser bundle,
+   `inScope: false`, gets no pointer):
+   - the service is one `/otel-remediate` supports (the upstream image in the
+     `deployment-remediation` skill's known-targets table, Keycloak in v1), i.e. a workload with no
+     application source: add
+     `→ This workload has no application source. /otel-remediate --service <id> proposes the deployment-config change instead.`
+   - any other `generatorSupported: false`, `inScope: true` service: add
+     `→ /otel-evaluate --service <id> audits what is already there.`
+   `/otel-evaluate` already routes the first case this way; a user is more likely to start here.
    Exit. Emitting wrong code is worse than emitting none — do not fall back to a near-match.
 4. Derive `language` from the selected service. If it is not `nodejs`, `python`, `java`,
    `dotnet`, `go`, `ruby`, or `rust`:
@@ -323,12 +335,13 @@ over it. If verification was deferred (deps not installed), say so and give the 
 Print the subagent's summary, then this block. **Do not omit it and do not soften it.** The
 generated bootstrap reads `OTEL_EXPORTER_OTLP_ENDPOINT` and hard-codes nothing, which is
 correct — and it means the service exports nowhere until the deployment sets it. The generated
-Node.js/Python/Go/Rust code defaults every exporter to `none` (Go and Rust: no provider
-registered at all) when no endpoint is configured, so the failure mode is silence rather than a retry loop against
-`localhost:4317`; that is a safe default, not a working one. Ruby needs its own sentence here since its DEFAULT behavior (with no endpoint configured) is actually to retry against `localhost:4318` like .NET/Java — the generated `tracing.rb` avoids this with an explicit `OTEL_TRACES_EXPORTER` guard, so from the deployment's perspective Ruby behaves like Node/Python/Go (safe silence, not a reconnect loop), but only because the generated code contains that guard, not because the underlying SDK defaults to it. Also note: Ruby exports over OTLP/**HTTP** on `:4318`, not this plugin's usual gRPC `:4317` — setting the endpoint below must point at the HTTP port for Ruby specifically. Rust exports over OTLP/**HTTP** on `:4318` too (the generator's choice: the gRPC transport would add `tonic` and its build tree to every service). (The .NET OTLP exporter and the
-Java agent do the opposite — they default to `localhost:4317` and retry — so for those two,
-setting the endpoint below is not just recommended, it is what stops a reconnect loop in the
-deployed process.)
+Node.js/Python/Go/Rust/.NET code defaults every exporter to `none` (Go and Rust: no provider
+registered at all; .NET: the exporter is not attached) when no endpoint is configured, so the failure mode is silence rather than a retry loop against
+`localhost:4317`; that is a safe default, not a working one. Ruby needs its own sentence here since its DEFAULT behavior (with no endpoint configured) is actually to retry against `localhost:4318` like Java — the generated `tracing.rb` avoids this with an explicit `OTEL_TRACES_EXPORTER` guard, so from the deployment's perspective Ruby behaves like Node/Python/Go (safe silence, not a reconnect loop), but only because the generated code contains that guard, not because the underlying SDK defaults to it. Also note: Ruby exports over OTLP/**HTTP** on `:4318`, not this plugin's usual gRPC `:4317` — setting the endpoint below must point at the HTTP port for Ruby specifically. Rust exports over OTLP/**HTTP** on `:4318` too (the generator's choice: the gRPC transport would add `tonic` and its build tree to every service). (The Java agent does the
+opposite — it defaults to `localhost:4317` and retries — so for it, setting the endpoint below is
+not just recommended, it is what stops a reconnect loop in the deployed process. The .NET OTLP
+exporter does the same on its own, but the generated `OpenTelemetry.cs` attaches it only once an
+endpoint is configured, so .NET behaves like Node/Python/Go: silence, not a retry loop.)
 
 Use `service.deployment.configFiles` and `service.deployment.endpointConfigured` from the
 context to make this concrete rather than generic:

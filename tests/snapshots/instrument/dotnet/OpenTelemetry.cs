@@ -15,15 +15,30 @@ public static class OtelObservability
     public static IServiceCollection AddOtelObservability(
         this IServiceCollection services, IConfiguration configuration)
     {
-        // service.name defaults to the confirmed value but is overridable via OTEL_SERVICE_NAME.
-        // deployment.environment.name reads DEPLOYMENT_ENV at runtime so one build promotes across
-        // environments; falls back to "development" when unset.
-        var serviceName = configuration["OTEL_SERVICE_NAME"] ?? "checkout-api";
-        var deploymentEnv = configuration["DEPLOYMENT_ENV"] ?? "development";
+        string? Set(string key) => string.IsNullOrWhiteSpace(configuration[key]) ? null : configuration[key];
 
-        // The OTLP exporter reads OTEL_EXPORTER_OTLP_ENDPOINT / _PROTOCOL from the environment.
-        // With no endpoint set it defaults to http://localhost:4317 — the deployment MUST set the
-        // endpoint (see /otel-instrument Step 8) or spans go nowhere.
+        // service.name defaults to the confirmed value but is overridable via OTEL_SERVICE_NAME.
+        // deployment.environment.name is read at runtime so one build promotes across environments:
+        // DEPLOYMENT_ENV wins, then the environment the host already runs under
+        // (ASPNETCORE_ENVIRONMENT / DOTNET_ENVIRONMENT, lower-cased to match the other languages),
+        // then the confirmed default. Without the host fallback a service deployed with
+        // ASPNETCORE_ENVIRONMENT=Production and no DEPLOYMENT_ENV would label production
+        // telemetry "development".
+        var serviceName = Set("OTEL_SERVICE_NAME") ?? "checkout-api";
+        var deploymentEnv = Set("DEPLOYMENT_ENV")
+            ?? Set("ASPNETCORE_ENVIRONMENT")?.ToLowerInvariant()
+            ?? Set("DOTNET_ENVIRONMENT")?.ToLowerInvariant()
+            ?? "development";
+
+        // Exports nowhere until an endpoint is configured, like the Node, Python, Go and Rust
+        // bootstraps. The OTLP exporter on its own targets http://localhost:4317 and retries on
+        // every export cycle, which on a host with no collector is a permanent retry loop. It is
+        // attached only when OTEL_EXPORTER_OTLP_ENDPOINT (or the per-signal endpoint) is set, and
+        // OTEL_TRACES_EXPORTER / OTEL_METRICS_EXPORTER=none still turns a signal off.
+        bool Exporting(string signalEndpoint, string exporterKey) =>
+            (Set("OTEL_EXPORTER_OTLP_ENDPOINT") is not null || Set(signalEndpoint) is not null)
+            && !string.Equals(Set(exporterKey), "none", StringComparison.OrdinalIgnoreCase);
+
         services.AddOpenTelemetry()
             .ConfigureResource(resource => resource
                 .AddService(serviceName: serviceName, serviceVersion: "1.4.2")
@@ -32,14 +47,18 @@ public static class OtelObservability
                     new("service.namespace", "checkout"),
                     new("deployment.environment.name", deploymentEnv),
                 }))
-            .WithTracing(tracing => tracing
-                .AddAspNetCoreInstrumentation()
-                .AddHttpClientInstrumentation()
-                .AddOtlpExporter())
-            .WithMetrics(metrics => metrics
-                .AddAspNetCoreInstrumentation()
-                .AddHttpClientInstrumentation()
-                .AddOtlpExporter());
+            .WithTracing(tracing =>
+            {
+                tracing.AddAspNetCoreInstrumentation().AddHttpClientInstrumentation();
+                if (Exporting("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "OTEL_TRACES_EXPORTER"))
+                    tracing.AddOtlpExporter();
+            })
+            .WithMetrics(metrics =>
+            {
+                metrics.AddAspNetCoreInstrumentation().AddHttpClientInstrumentation();
+                if (Exporting("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "OTEL_METRICS_EXPORTER"))
+                    metrics.AddOtlpExporter();
+            });
 
         return services;
     }
