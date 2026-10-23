@@ -1,0 +1,33 @@
+# .github/workflows/lint-workflows.yml
+# Lints the workflow files themselves with actionlint.
+#
+# Why this is a separate workflow: a workflow file that parses as YAML but breaks GitHub's schema
+# (a job with no `runs-on`, for instance) makes that WHOLE workflow fail with zero jobs, so
+# nothing inside it can report the problem. That happened to ci.yml after a hand-resolved merge
+# conflict, and main ran with no CI at all until it was noticed. This file is small and does not
+# depend on ci.yml, so it still runs, and goes red, when ci.yml is the thing that is broken.
+name: Lint workflows
+
+on:
+  pull_request:
+    paths: ['.github/workflows/**']
+  push:
+    branches: [main]
+    paths: ['.github/workflows/**']
+
+jobs:
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      # Built from source at a pinned tag; Go verifies the module against the checksum database.
+      - name: Install actionlint
+        run: go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
+      # actionlint also runs shellcheck over the inline scripts on this runner. That is on
+      # deliberately: it is what found that a bare `! cmd` in a run block does not fail the step
+      # under bash -e, which had left most of the fixture-structure assertions as silent no-ops.
+      - name: Lint every workflow
+        run: |
+          "$(go env GOPATH)/bin/actionlint" -color
