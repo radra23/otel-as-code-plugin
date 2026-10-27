@@ -1,4 +1,6 @@
 # .NET build artifacts — fixtures get compiled by the e2e harness or a local `dotnet build`.
 # Never commit them (the session that added dotnet-greenfield leaked an obj/ tree locally).
-*/bin/
-*/obj/
+# ** (not *) so a nested project layout (e.g. dotnet-nested/src/Svc/) is covered too, not just
+# a flat fixtures/<project>/ layout.
+**/bin/
+**/obj/
