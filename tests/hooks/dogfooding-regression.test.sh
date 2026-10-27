@@ -83,6 +83,14 @@
 #         (resolve if defined in-repo, else null + a notes entry — never false for an unresolved
 #         reference); and add a conformanceIssues warning when a service is instrumented but
 #         endpointConfigured resolves to a definite false.
+#   #214/#193 — /otel-evaluate Step 4 only ever wrote a REFUTED cached judgement back to the cache;
+#         a `new` finding the auditor reported (an unprefixed custom attribute the scanner's
+#         naming rule can't see; a cardinality risk from a value's origin rather than its name) was
+#         printed in the report and then dropped, leaving derived.conformanceIssues /
+#         highCardinalityAttributes exactly as thin as before the audit ran. Fix: apply all four
+#         auditor statuses (new/confirmed/refuted/corrected), scoped to CV/CR findings, deduped by
+#         (file, violation) / by key; new entries carry source:"auditor" so a reader can tell them
+#         apart from source:"scanner" ones; derivedAt is re-stamped with a real date -u run.
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 pass=0; fail=0
@@ -834,6 +842,30 @@ check "#213 fixture service-b is instrumented (has an OTel dependency)" \
   'grep -q "@opentelemetry/sdk-node" "$CMFX/service-b/package.json"'
 check "#213 fixture service-b has no OTLP endpoint anywhere — no env, no envFrom (the real gap)" \
   '! grep -qi "OTEL_EXPORTER_OTLP\|configMapRef\|secretRef" "$CMFX/service-b/k8s/deployment.yaml"'
+
+# --- #214/#193: /otel-evaluate must write back new/corrected findings, not only refutations ----
+EVAL_CMD="commands/otel-evaluate.md"
+AUDITOR="agents/brownfield-auditor.md"
+
+check "#214 Step 4 applies all four auditor statuses, not only refuted" \
+  'grep -qF "Apply all four" "$EVAL_CMD" \
+     && grep -q "\`new\`" "$EVAL_CMD" && grep -q "\`confirmed\`" "$EVAL_CMD" \
+     && grep -q "\`corrected\`" "$EVAL_CMD"'
+check "#214 a new CV finding is appended to conformanceIssues with source:auditor" \
+  'grep -qF "\"source\": \"auditor\"" "$EVAL_CMD"'
+check "#214 a new CR finding appends the bare attribute key to highCardinalityAttributes" \
+  'grep -qF "highCardinalityAttributes\` if not already present" "$EVAL_CMD"'
+check "#214 merged findings are deduped by (file, violation) / by key" \
+  'grep -qiE "Dedup .conformanceIssues. by" "$EVAL_CMD"'
+check "#214 derivedAt is re-stamped with a real date -u run, not left stale" \
+  'grep -qF "date -u +%Y-%m-%dT%H:%M:%SZ" "$EVAL_CMD" && grep -q "derivedAt" "$EVAL_CMD"'
+check "#214 scanner's own conformanceIssues entries carry source:scanner (mirrors nameSource etc.)" \
+  'grep -qF "\"source\": \"scanner\"" "$SCANNER"'
+check "#214 scanner documents that /otel-evaluate is the one setting source:auditor" \
+  'grep -qF "sets \`\"source\": \"auditor\"\`" "$SCANNER"'
+check "#214 auditor's own status vocabulary (what Step 4 reads) still names all four statuses" \
+  'grep -q "\`new\`" "$AUDITOR" && grep -q "\`confirmed\`" "$AUDITOR" \
+     && grep -q "\`refuted\`" "$AUDITOR" && grep -q "\`corrected\`" "$AUDITOR"'
 
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

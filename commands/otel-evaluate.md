@@ -91,9 +91,31 @@ Pass to `otel-as-code:brownfield-auditor`:
 
 Print the audit report returned by the subagent verbatim.
 
-If the auditor refuted a cached judgement, that correction matters as much as the new findings:
-update `services[i].derived` in the cache so the wrong entry does not outlive this run and get
-re-read as authoritative by the next command.
+**Write the audit's findings back into the cache — not only its refutations.** The auditor's
+report distinguishes `refuted` / `corrected` / `confirmed` / `new` (see
+`agents/brownfield-auditor.md`'s Output Format) for exactly this reason, but only `refuted` was
+ever applied here: a `new` finding — one the scanner's own heuristics never caught (an unprefixed
+custom attribute its naming rule can't see; a cardinality risk from where a value comes from
+rather than its name) — was reported and then dropped on the floor, leaving `services[i].derived`
+saying there was nothing even moments after the audit named it (#214, #193). Apply all four
+statuses, scoped to `CV` (semconv violation) and `CR` (cardinality risk) findings — the other
+categories (`SC`, `PI`, `CD`, `SH`, `WR`, `CF`, `MB`) have no `derived.*` field to land in yet:
+
+- `refuted` — remove the matching entry from `services[i].derived.conformanceIssues` (unchanged).
+- `new` — add it. A `CV` finding appends to `conformanceIssues`: `file`, `line`, `violation`,
+  `severity`, and `"source": "auditor"` (see the cache ownership contract in
+  `agents/repo-context-scanner.md` — this is how a reader tells it apart from a scanner-found
+  entry). A `CR` finding appends the bare attribute key (e.g. `user.id`, not the whole sentence)
+  to `highCardinalityAttributes` if not already present. Dedup `conformanceIssues` by
+  `(file, violation)` and `highCardinalityAttributes` by the key itself — never add the same
+  entry twice across a scanner-sourced and an auditor-sourced finding.
+- `corrected` — update the matching entry's `violation`/`line` in place; do not duplicate it.
+- `confirmed` — no write needed; the entry is already correct in the cache.
+
+Run `date -u +%Y-%m-%dT%H:%M:%SZ` and set that service's `derived.derivedAt` to it whenever you
+write anything above, so a later command can tell this judgement reflects THIS audit, not the
+last scan. Skip the cache write entirely if the auditor returned no `new`/`refuted`/`corrected`
+`CV`/`CR` findings — printing the report is enough when nothing changed.
 
 ## Step 5: Offer next steps (but do NOT apply them)
 

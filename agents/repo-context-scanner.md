@@ -89,7 +89,10 @@ command, and a wrong judgement is then read as authoritative forever:
   those facts (this attribute violates semconv; this coverage looks partial). Every `derived`
   block carries `guidanceVersion` (the `SEMCONV_VERSION` from the `semconv-discipline` skill)
   and `derivedAt`, so a later command can tell that a judgement predates the current guidance
-  and re-derive instead of inheriting it.
+  and re-derive instead of inheriting it. Each `conformanceIssues` entry you write carries
+  `"source": "scanner"` — `/otel-evaluate` sets `"source": "auditor"` on entries it merges in
+  from `brownfield-auditor`'s report (a finding your own heuristics never caught), so a later
+  reader can tell which pass actually found it (#214).
 
 Two rules for judgements:
 
@@ -521,7 +524,8 @@ Return ONLY the following JSON object. No explanation, no preamble, no markdown 
             "file": "src/tracing.ts",
             "line": 12,
             "violation": "service.name set as span attribute; must be resource attribute",
-            "severity": "error"
+            "severity": "error",
+            "source": "scanner"
           }
         ],
         "highCardinalityAttributes": ["user.id", "order.id"],
