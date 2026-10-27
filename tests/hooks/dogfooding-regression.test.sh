@@ -867,5 +867,13 @@ check "#214 auditor's own status vocabulary (what Step 4 reads) still names all 
   'grep -q "\`new\`" "$AUDITOR" && grep -q "\`confirmed\`" "$AUDITOR" \
      && grep -q "\`refuted\`" "$AUDITOR" && grep -q "\`corrected\`" "$AUDITOR"'
 
+# --- #190: deployment.environment missing from the semconv OLD->NEW table and the lint rule ----
+check "#190 semconv-discipline's deprecation table has a deployment.environment row" \
+  'grep -qF "\`deployment.environment\`" "$SEMCONV" && grep -qF "deployment.environment.name" "$SEMCONV"'
+check "#190 the row is classified mechanical (same-value rename, not a value-shape change)" \
+  'grep -A0 "deployment.environment\`.*deployment.environment.name" "$SEMCONV" | grep -q "mechanical"'
+check "#190 semconv-lint's severe set names deployment.environment alongside the other three" \
+  'grep -qF "deployment.environment" hooks/semconv-lint.sh'
+
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

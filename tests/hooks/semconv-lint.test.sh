@@ -77,9 +77,9 @@ fi
 rm -rf "$TMP"
 
 # --- Strict mode (OTEL_STRICT=1 env or .claude/.otel-strict sentinel) ---
-# Strict hard-blocks (exit 2) ONLY on severe violations (Rules 1-4: service.*-as-span +
-# deprecated http.method/http.url/http.status_code). Heuristic/judgment rules (5-7) stay
-# warn-only. Default (non-strict) behavior is unchanged: always exit 0.
+# Strict hard-blocks (exit 2) ONLY on severe violations (Rules 1-4 + 4b: service.*-as-span +
+# deprecated http.method/http.url/http.status_code/deployment.environment). Heuristic/judgment
+# rules (5-7) stay warn-only. Default (non-strict) behavior is unchanged: always exit 0.
 emit() { echo "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$1\"}}"; }
 check_rc() {  # name expected_rc actual_rc
   if [ "$2" -eq "$3" ]; then echo "PASS: $1"; PASS=$((PASS+1))
@@ -139,6 +139,40 @@ check_rc "stub interpreter + advisory -> exit 0 (skip)" 0 "$RC"
 rm -rf "$STUBDIR"
 
 rm -rf "$SEV" "$WRN" "$CLN"
+
+# --- #190: deprecated deployment.environment (Rule 4b) -------------------------------------------
+DEPDIR=$(mktemp -d)
+
+# Test: bare 'deployment.environment' as a Resource attribute is flagged.
+printf "%s\nconst r = new Resource({ 'deployment.environment': 'prod' });\n" "$OTEL_IMPORT" > "$DEPDIR/tracing.js"
+OUTPUT=$(run_lint "$DEPDIR/tracing.js")
+if echo "$OUTPUT" | grep -q "deployment.environment"; then
+  echo "PASS: #190 detects deprecated deployment.environment"
+  PASS=$((PASS+1))
+else
+  echo "FAIL: #190 did not detect deployment.environment deprecation"
+  echo "Output: $OUTPUT"
+  FAIL=$((FAIL+1))
+fi
+
+# Test: the NEW name 'deployment.environment.name' must NOT false-positive — it contains the OLD
+# name as a literal prefix, which is exactly why Rule 4b's match is quote-anchored on both sides.
+printf "%s\nconst r = new Resource({ 'deployment.environment.name': 'prod' });\n" "$OTEL_IMPORT" > "$DEPDIR/clean.js"
+OUTPUT=$(run_lint "$DEPDIR/clean.js")
+if ! echo "$OUTPUT" | grep -qi "deprecated\|warning"; then
+  echo "PASS: #190 no false positive on the correct deployment.environment.name"
+  PASS=$((PASS+1))
+else
+  echo "FAIL: #190 false positive on deployment.environment.name"
+  echo "Output: $OUTPUT"
+  FAIL=$((FAIL+1))
+fi
+
+# Test: strict mode hard-blocks on deployment.environment (it joined the severe set, Rule 4b).
+set +e; emit "$DEPDIR/tracing.js" | OTEL_STRICT=1 bash "$HOOK" >/dev/null 2>&1; RC=$?; set -e
+check_rc "#190 strict on + deployment.environment -> exit 2 (blocked)" 2 "$RC"
+
+rm -rf "$DEPDIR"
 
 # --- #138: content gate (basename gate is gone) --------------------------------------------------
 GATEDIR=$(mktemp -d)

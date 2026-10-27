@@ -105,6 +105,7 @@ package, so verify against the installed version rather than asserting.
 | OLD (deprecated)  | NEW (use this)                                                        | Fix |
 |-------------------|-----------------------------------------------------------------------|-----|
 | `peer.service`    | `server.address` (+ `server.port`) on the CLIENT span; identity comes from the callee's own `service.name` resource attribute | manual — not a rename: `peer.service` was a caller-assigned label, `server.address`/`server.port` describe the connection, and the callee's own identity now comes from ITS `service.name` resource attribute, not a value set here. |
+| `deployment.environment` | `deployment.environment.name` | mechanical — same-value rename, a RESOURCE attribute in both forms. The most common deprecated key in hand-written bootstraps: every resource block written before semconv 1.27 has it (#190). |
 
 ## Custom / Business Attribute Namespace Rule
 

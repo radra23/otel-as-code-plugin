@@ -87,7 +87,7 @@ WARNINGS=0
 SEVERE=0
 SEVERE_MSGS=""
 
-# severe: an unambiguous, deterministic violation with a known fix (Rules 1-4). Shown on
+# severe: an unambiguous, deterministic violation with a known fix (Rules 1-4, 4b). Shown on
 # stdout like any warning; additionally captured so strict mode can hard-block on it (exit 2,
 # details on stderr). warn-only rules (5-8) keep using plain echo + WARNINGS++ — Rule 8 included
 # despite being conceptually the worst-severity finding this hook can make, because its detection
@@ -142,6 +142,17 @@ fi
 if echo "$CONTENT" | grep -qE "['\"]http\.status_code['\"]"; then
   severe "⚠ otel-lint [$FILE_PATH]: 'http.status_code' is deprecated since semconv 1.23.
   → Replace with 'http.response.status_code'."
+fi
+
+# Rule 4b (severe, #190): deprecated deployment.environment. Bare-literal match, same reasoning as
+# Rules 2-4 — no legitimate use of the OLD name in any position. The quote-anchored boundary is
+# required here specifically: the NEW name `deployment.environment.name` contains the OLD name as
+# a literal prefix, so an unanchored match would false-flag every correct usage. Quoting on both
+# sides (as Rules 2-4 already do) means the match fails the moment `.name` follows, since the
+# closing quote can no longer be adjacent.
+if echo "$CONTENT" | grep -qE "['\"]deployment\.environment['\"]"; then
+  severe "⚠ otel-lint [$FILE_PATH]: 'deployment.environment' is deprecated since semconv 1.27.
+  → Replace with 'deployment.environment.name' (same value, Resource attribute in both forms)."
 fi
 
 # Rule 5: Custom attribute without namespace prefix.
@@ -212,7 +223,7 @@ done
 # real call-graph analysis — it cannot bind a `.Add()`/`.Record()` call to the SPECIFIC instrument
 # variable a constructor created, only to "some constructor exists somewhere in this file." A
 # confirmed false positive: a file with an unrelated counter AND an unrelated `cart.add({id: 1,
-# note: 'user.id'})` a few lines apart fires this rule on the cart call. Rules 1-4 are exact,
+# note: 'user.id'})` a few lines apart fires this rule on the cart call. Rules 1-4 and 4b are exact,
 # deterministic literal matches with no such gap, which is what earns them the strict-mode block;
 # this one doesn't clear that bar yet. Escalate to a human via /otel-evaluate's brownfield-auditor
 # for real call-graph judgment, same as the scope note below already directs for symbolic constants.
