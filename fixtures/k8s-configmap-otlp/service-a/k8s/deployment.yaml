@@ -1,0 +1,13 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orders-api
+spec:
+  template:
+    spec:
+      containers:
+        - name: orders-api
+          image: orders-api:latest
+          envFrom:
+            - configMapRef:
+                name: otel-config

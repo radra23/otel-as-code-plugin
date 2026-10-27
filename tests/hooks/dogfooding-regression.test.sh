@@ -73,6 +73,16 @@
 #         inventing a time. The two direct-write sites that are NOT the scanner (otel-init.md's
 #         otel-services.json, otel-instrument.md's post-write cache update) run `date` themselves,
 #         since the main agent has a clock the subagent does not.
+#   #213 — endpointConfigured only checked for the bare OTEL_EXPORTER_OTLP_ENDPOINT literal in the
+#         deployment config files themselves, so (a) an OTLP endpoint set via the three per-signal
+#         vars, or provisioned centrally through a k8s envFrom/valueFrom reference to a ConfigMap
+#         or Secret defined elsewhere in the repo (Terraform's kubernetes_config_map/secret is a
+#         common case), read as a false "not configured"; and (b) a service that really has no
+#         endpoint anywhere surfaced no finding at all, identical to "configured somewhere unread".
+#         Fix: count the per-signal vars; follow envFrom/valueFrom to the ConfigMap/Secret it names
+#         (resolve if defined in-repo, else null + a notes entry — never false for an unresolved
+#         reference); and add a conformanceIssues warning when a service is instrumented but
+#         endpointConfigured resolves to a definite false.
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 pass=0; fail=0
@@ -790,6 +800,40 @@ for f in $CMDS_DISPATCHING_SCANNER; do
   check "#202 $f passes scanTime when it dispatches the scanner" \
     'grep -q "\`scanTime\`" "'"$f"'"'
 done
+
+# --- #213: endpointConfigured must follow envFrom/valueFrom, and flag instrumented-but-silent ---
+CMFX="fixtures/k8s-configmap-otlp"
+
+check "#213 scanner counts the three per-signal OTLP endpoint vars, not just the bare one" \
+  'grep -q "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT" "$SCANNER" \
+     && grep -q "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT" "$SCANNER" \
+     && grep -q "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT" "$SCANNER"'
+check "#213 scanner is told to follow envFrom/valueFrom to the ConfigMap/Secret it names" \
+  'grep -qF "follow the reference" "$SCANNER" \
+     && grep -q "configMapRef" "$SCANNER" && grep -q "secretRef" "$SCANNER" \
+     && grep -q "configMapKeyRef" "$SCANNER" && grep -q "secretKeyRef" "$SCANNER"'
+check "#213 scanner resolves a Terraform-defined ConfigMap/Secret too, not just k8s YAML" \
+  'grep -q "kubernetes_config_map" "$SCANNER" && grep -q "kubernetes_secret" "$SCANNER"'
+check "#213 an unresolved ConfigMap/Secret reference sets null with a notes entry, never false" \
+  'grep -qiE "never .false." "$SCANNER" && grep -qF "not defined in this repo" "$SCANNER"'
+check "#213 scanner adds a conformanceIssues warning for instrumented-but-unconfigured" \
+  'grep -qF "hasTraces || hasMetrics || hasLogs" "$SCANNER" \
+     && grep -qiE "no configured destination|SDK.s default" "$SCANNER"'
+
+check "#213 fixture service-a's own deployment.yaml has NO direct OTEL_* literal (the trap)" \
+  '! grep -q "OTEL_EXPORTER_OTLP" "$CMFX/service-a/k8s/deployment.yaml"'
+check "#213 fixture service-a references the ConfigMap by name via envFrom.configMapRef" \
+  'grep -q "configMapRef" "$CMFX/service-a/k8s/deployment.yaml" \
+     && grep -A1 "configMapRef" "$CMFX/service-a/k8s/deployment.yaml" | grep -q "otel-config"'
+check "#213 the Terraform ConfigMap that resolves the reference carries all three per-signal vars" \
+  'grep -q "kubernetes_config_map" "$CMFX/infra/main.tf" \
+     && grep -q "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT" "$CMFX/infra/main.tf" \
+     && grep -q "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT" "$CMFX/infra/main.tf" \
+     && grep -q "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT" "$CMFX/infra/main.tf"'
+check "#213 fixture service-b is instrumented (has an OTel dependency)" \
+  'grep -q "@opentelemetry/sdk-node" "$CMFX/service-b/package.json"'
+check "#213 fixture service-b has no OTLP endpoint anywhere — no env, no envFrom (the real gap)" \
+  '! grep -qi "OTEL_EXPORTER_OTLP\|configMapRef\|secretRef" "$CMFX/service-b/k8s/deployment.yaml"'
 
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

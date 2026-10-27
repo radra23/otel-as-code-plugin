@@ -1,0 +1,13 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: billing-api
+spec:
+  template:
+    spec:
+      containers:
+        - name: billing-api
+          image: billing-api:latest
+          env:
+            - name: NODE_ENV
+              value: production

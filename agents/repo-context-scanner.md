@@ -340,9 +340,33 @@ found none.
 
    Also populate `deployment`: the config files that would carry the OTLP endpoint
    (`*.tf`, `*.bicep`, `k8s/*.yaml`, `docker-compose.yml`, `.env.example`, `Chart.yaml`), and
-   `endpointConfigured` — `true` only if you actually saw `OTEL_EXPORTER_OTLP_ENDPOINT` (or a
-   vendor equivalent) set in one of them, `false` if you read those files and it was absent,
-   `null` if there were no such files to read. Do not infer it.
+   `endpointConfigured` — `true` only if you actually saw `OTEL_EXPORTER_OTLP_ENDPOINT` OR any of
+   the three per-signal `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` / `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`
+   / `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` (or a vendor equivalent) set in one of them, `false` if you
+   read those files and it was absent, `null` if there were no such files to read. Do not infer it.
+
+   An env var set via a k8s Deployment/chart's `envFrom.configMapRef` / `secretRef`, or a
+   container's `env[].valueFrom.configMapKeyRef` / `secretKeyRef`, is NOT absent just because the
+   `Deployment`/`Chart.yaml` itself names no `OTEL_*` literal — **follow the reference**: find the
+   `ConfigMap`/`Secret` it names, either a k8s YAML `kind: ConfigMap`/`kind: Secret` or a
+   Terraform `kubernetes_config_map` / `kubernetes_secret` resource (common when OTLP endpoints
+   are provisioned centrally rather than per-chart), and read ITS `data` for the same variable
+   names. Two outcomes once you've followed it:
+     - the named ConfigMap/Secret IS defined somewhere in the repo → resolve `endpointConfigured`
+       from what its `data` actually contains, same three-state rule as above.
+     - it is referenced but defined nowhere you can read (provisioned by another team/pipeline,
+       or genuinely external) → `endpointConfigured: null`, with a `derived.notes` entry naming
+       which ConfigMap/Secret was unresolved (e.g. "endpoint may come from ConfigMap otel-config,
+       not defined in this repo") — never `false`. A `false` here reads as "checked and absent,"
+       which is a different, stronger claim than "the value lives somewhere this scan can't see."
+
+   When a service has `existingOtel.hasTraces || hasMetrics || hasLogs` true (it IS instrumented)
+   and `endpointConfigured` resolves to a definite `false` (not `null` — an unresolved reference
+   is not evidence of absence), add a `derived.conformanceIssues` entry: severity `"warning"`,
+   violation naming that the service exports telemetry with no configured destination (the SDK's
+   default — commonly `localhost:4317` — silently applies). Instrumented-with-nowhere-to-send-it
+   is a real finding every time; without this entry it surfaces only if `/otel-evaluate`'s audit
+   happens to re-derive it, instead of being visible straight from the cache.
 
    Alongside it, `deploymentEnvConfigured` — the same three-state rule, but for `DEPLOYMENT_ENV`:
    `true` only if you saw `DEPLOYMENT_ENV` actually set (not merely referenced) in one of the same
