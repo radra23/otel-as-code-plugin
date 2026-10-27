@@ -141,7 +141,10 @@ found none.
    - `*.csproj` / `*.fsproj` / `*.sln` / `global.json` / `Directory.Packages.props` (.NET) —
      a `.sln` enumerates its projects; resolve them from it rather than globbing, then apply the
      host-builder rule below to each (that is what excludes a test project).
-   - `Dockerfile` (and all `*/Dockerfile`)
+   - `Dockerfile` (and all `*/Dockerfile`) — AND its suffixed/prefixed forms: `Dockerfile.<suffix>`
+     (`Dockerfile.api`, `Dockerfile.keycloak`) or `<prefix>.Dockerfile` (`api.Dockerfile`), common
+     in a repo that keeps more than one image per component. A repo with only this form has
+     nothing matching the bare name, so missing it drops the service's only identity input (#181).
    - `docker-compose.yml` / `docker-compose.yaml`
    - `CODEOWNERS` / `.github/CODEOWNERS`
    - `.github/workflows/*.yml` — read any whose name matches deploy/release/cd/publish FIRST
@@ -434,7 +437,7 @@ found none.
      basename is one of `package.json`, `pnpm-workspace.yaml`, `pyproject.toml`,
      `requirements.txt`, `setup.py`, `go.mod`, `go.work`, `Cargo.toml`, `Gemfile`, `composer.json`, `pom.xml`,
      `build.gradle`/`build.gradle.kts`, `settings.gradle`/`settings.gradle.kts`, `global.json`,
-     `Directory.Packages.props`, any `*.csproj`/`*.fsproj`/`*.sln`, `Dockerfile`, `host.json`,
+     `Directory.Packages.props`, any `*.csproj`/`*.fsproj`/`*.sln`, any `Dockerfile`/`Dockerfile.*`/`*.Dockerfile`, `host.json`,
      `serverless.yml`, `CODEOWNERS`. Nothing else — **NOT** bare service root directories, and
      **NOT** files like `.env.example` or CI workflows even if you read them during detection.
      **Also exclude any of those matches that live under a vendored/dependency directory —

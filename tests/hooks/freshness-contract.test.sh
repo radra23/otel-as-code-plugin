@@ -16,7 +16,7 @@ INIT="commands/otel-init.md"
 
 # The /otel-init Step 1 freshness regex, kept identical to commands/otel-init.md. If the doc's
 # regex legitimately changes, update this line too — that update IS the point of check 0.
-REGEX='(^|/)(package\.json|pnpm-workspace\.yaml|pyproject\.toml|requirements\.txt|setup\.py|go\.mod|go\.work|Cargo\.toml|Gemfile|composer\.json|pom\.xml|build\.gradle(\.kts)?|settings\.gradle(\.kts)?|global\.json|Directory\.Packages\.props|[^/]+\.(csproj|fsproj|sln)|Dockerfile|host\.json|serverless\.yml|CODEOWNERS)$'
+REGEX='(^|/)(package\.json|pnpm-workspace\.yaml|pyproject\.toml|requirements\.txt|setup\.py|go\.mod|go\.work|Cargo\.toml|Gemfile|composer\.json|pom\.xml|build\.gradle(\.kts)?|settings\.gradle(\.kts)?|global\.json|Directory\.Packages\.props|[^/]+\.(csproj|fsproj|sln)|([^/]+\.)?Dockerfile(\.[^/]+)?|host\.json|serverless\.yml|CODEOWNERS)$'
 
 # check 0: otel-init.md carries EXACTLY the regex this test mirrors. This compared only a
 # prefix before, so appending a new alternative to the doc — the way every new manifest type

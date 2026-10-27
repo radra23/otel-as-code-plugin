@@ -897,5 +897,25 @@ check "#187 the pipeline keeps the real package.json" \
 check "#187 the pipeline drops the vendored node_modules package.json (the actual bug)" \
   '! echo "$PIPELINE_RESULT" | grep -q "node_modules"'
 
+# --- #181: suffixed/prefixed Dockerfiles must be identity inputs too ----------------------------
+DOCKERFX="fixtures/suffixed-dockerfile-service"
+
+check "#181 otel-init.md Step 1's regex accepts a suffixed/prefixed Dockerfile, not just the bare name" \
+  'grep -qF "([^/]+\.)?Dockerfile(\.[^/]+)?" "$INIT"'
+check "#181 scanner's read list names both the suffix and prefix forms" \
+  'grep -qF "Dockerfile.<suffix>" "$SCANNER" && grep -qF "<prefix>.Dockerfile" "$SCANNER"'
+check "#181 scanner's identityInputs basename list carries the same pattern tokens" \
+  'grep -qF "any \`Dockerfile\`/\`Dockerfile.*\`/\`*.Dockerfile\`" "$SCANNER"'
+check "#181 fixture carries a suffixed Dockerfile with no other manifest under its root (repro intact)" \
+  '[ -f "$DOCKERFX/platform/docker/Dockerfile.keycloak" ] \
+     && [ "$(find "$DOCKERFX/platform" -type f | grep -vE "k8s/deployment.yaml|docker/Dockerfile.keycloak" | wc -l)" -eq 0 ]'
+
+# Run the ACTUAL regex (same reasoning as #187) against the fixture: the suffixed Dockerfile must
+# be the service's identity input, proving the logic, not just that the pattern text exists.
+MANIFEST_MATCH='(^|/)(package\.json|pnpm-workspace\.yaml|pyproject\.toml|requirements\.txt|setup\.py|go\.mod|go\.work|Cargo\.toml|Gemfile|composer\.json|pom\.xml|build\.gradle(\.kts)?|settings\.gradle(\.kts)?|global\.json|Directory\.Packages\.props|[^/]+\.(csproj|fsproj|sln)|([^/]+\.)?Dockerfile(\.[^/]+)?|host\.json|serverless\.yml|CODEOWNERS)$'
+DOCKER_MATCH=$(find "$DOCKERFX" -type f | sed 's|^\./||' | grep -E "$MANIFEST_MATCH" || true)
+check "#181 the regex matches the suffixed Dockerfile as the service's identity input" \
+  'echo "$DOCKER_MATCH" | grep -q "Dockerfile.keycloak"'
+
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
