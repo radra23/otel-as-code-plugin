@@ -437,13 +437,19 @@ found none.
      `Directory.Packages.props`, any `*.csproj`/`*.fsproj`/`*.sln`, `Dockerfile`, `host.json`,
      `serverless.yml`, `CODEOWNERS`. Nothing else — **NOT** bare service root directories, and
      **NOT** files like `.env.example` or CI workflows even if you read them during detection.
-     `/otel-init` Step 1 recomputes this set with a fixed filename regex and compares it to what
-     you stored; any entry that regex cannot produce (a directory, a `.env` file) guarantees the
-     two sets differ on every comparison, so the cache is judged stale forever and never hits.
-     Keep this list in lockstep with that regex. Sort it. An empty list is valid: a GitOps or
-     config-only repo may have none of these files. Store `[]` and don't pad it with deployment
-     files. `/otel-init` Step 1 treats an in-scope service with no identity input under its
-     `rootDir` as always stale, so its `deployment.configFiles` get re-read on every run (#150).
+     **Also exclude any of those matches that live under a vendored/dependency directory —
+     `node_modules`, `vendor`, `.venv`/`venv`, `bin`, or `obj`** — a dependency's own
+     `package.json`, vendored for whatever reason, is not this repo's service identity, and
+     letting 300+ of them in means every dependency bump marks the cache stale for reasons that
+     have nothing to do with a service being added or removed (#187).
+     `/otel-init` Step 1 recomputes this set with a fixed filename regex (the same vendored-
+     directory exclusion applied first) and compares it to what you stored; any entry that regex
+     cannot produce (a directory, a `.env` file, anything under an excluded vendored directory)
+     guarantees the two sets differ on every comparison, so the cache is judged stale forever and
+     never hits. Keep this list in lockstep with that regex. Sort it. An empty list is valid: a
+     GitOps or config-only repo may have none of these files. Store `[]` and don't pad it with
+     deployment files. `/otel-init` Step 1 treats an in-scope service with no identity input under
+     its `rootDir` as always stale, so its `deployment.configFiles` get re-read on every run (#150).
    - `identityFingerprint`: a hash over those files' contents. Compute it with
      `git hash-object` over the listed paths and hash the result list, e.g.
      `git hash-object <paths...> | sha256sum | cut -c1-16`; for a non-git repo, `sha256sum` the

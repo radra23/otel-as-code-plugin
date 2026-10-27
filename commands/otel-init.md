@@ -25,18 +25,25 @@ Otherwise decide freshness from **service-identity inputs**, not from `HEAD`. A 
 touched only application code cannot change service identity, and re-scanning on every commit
 costs minutes per command for nothing.
 
-1. Rebuild the candidate identity-input list:
+1. Rebuild the candidate identity-input list. Exclude vendored/dependency directories FIRST — a
+   committed `node_modules` (common despite a `.gitignore` entry; `pnpm install` can put 300+
+   `package.json` files under it) or `vendor`/`.venv` puts hundreds of paths the scanner never
+   intended as identity inputs into this set, and every dependency bump then changes the
+   fingerprint and marks the cache stale for reasons that have nothing to do with service
+   identity (#187):
    ```
    { git ls-files; git ls-files --others --exclude-standard; } \
+     | grep -vE '(^|/)(node_modules|vendor|\.?venv|bin|obj)/' \
      | grep -E '(^|/)(package\.json|pnpm-workspace\.yaml|pyproject\.toml|requirements\.txt|setup\.py|go\.mod|go\.work|Cargo\.toml|Gemfile|composer\.json|pom\.xml|build\.gradle(\.kts)?|settings\.gradle(\.kts)?|global\.json|Directory\.Packages\.props|[^/]+\.(csproj|fsproj|sln)|Dockerfile|host\.json|serverless\.yml|CODEOWNERS)$' \
      | sort
    ```
    If this set differs from `freshness.identityInputs` in the cache, the cache is STALE
    (a service was added or removed). This regex and the scanner's `identityInputs` (see
    `agents/repo-context-scanner.md`) are ONE contract and must stay in lockstep: the scanner
-   must store exactly the paths this regex produces — no bare directories, no `.env`/CI files —
-   or the two sets differ on every run and the cache can never be judged current. Compare the
-   two as sorted sets, not by order.
+   must store exactly the paths this regex produces — no bare directories, no `.env`/CI files,
+   and nothing under a vendored directory the exclusion above drops — or the two sets differ on
+   every run and the cache can never be judged current. Compare the two as sorted sets, not by
+   order.
 2. Next, check that the fingerprint actually covers every service. The fingerprint only sees files
    matched by the regex above, so a service with none of them has nothing that can change it. A
    deployment-only workload (an upstream binary configured by a Kubernetes manifest, Helm

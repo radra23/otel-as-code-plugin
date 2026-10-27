@@ -875,5 +875,27 @@ check "#190 the row is classified mechanical (same-value rename, not a value-sha
 check "#190 semconv-lint's severe set names deployment.environment alongside the other three" \
   'grep -qF "deployment.environment" hooks/semconv-lint.sh'
 
+# --- #187: freshness check must exclude vendored directories, not just vendored basenames -------
+VENDORFX="fixtures/nodejs-vendored-deps"
+
+check "#187 otel-init.md Step 1's pipeline excludes vendored dirs before the manifest match" \
+  'grep -qF "node_modules|vendor" "$INIT" && grep -qF "grep -vE" "$INIT"'
+check "#187 scanner's identityInputs contract documents the identical exclusion" \
+  'grep -qF "exclude any of those matches that live under a vendored/dependency directory" "$SCANNER"'
+check "#187 fixture has a committed node_modules dependency package.json (the trap)" \
+  '[ -f "$VENDORFX/node_modules/some-dep/package.json" ]'
+
+# Run the ACTUAL two-stage pipeline (vendored exclusion, then manifest match) against the fixture
+# — not just a text pin — so a future edit that breaks the regex logic itself is caught, not only
+# an edit that deletes the text.
+VENDOR_EXCLUDE='(^|/)(node_modules|vendor|\.?venv|bin|obj)/'
+MANIFEST_MATCH='(^|/)(package\.json|pnpm-workspace\.yaml|pyproject\.toml|requirements\.txt|setup\.py|go\.mod|go\.work|Cargo\.toml|Gemfile|composer\.json|pom\.xml|build\.gradle(\.kts)?|settings\.gradle(\.kts)?|global\.json|Directory\.Packages\.props|[^/]+\.(csproj|fsproj|sln)|Dockerfile|host\.json|serverless\.yml|CODEOWNERS)$'
+PIPELINE_RESULT=$({ git ls-files -- "$VENDORFX"; git ls-files --others --exclude-standard -- "$VENDORFX"; } \
+  | grep -vE "$VENDOR_EXCLUDE" | grep -E "$MANIFEST_MATCH" | sort)
+check "#187 the pipeline keeps the real package.json" \
+  '[ "$PIPELINE_RESULT" = "'"$VENDORFX"'/package.json" ]'
+check "#187 the pipeline drops the vendored node_modules package.json (the actual bug)" \
+  '! echo "$PIPELINE_RESULT" | grep -q "node_modules"'
+
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
