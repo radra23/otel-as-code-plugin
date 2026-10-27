@@ -13,6 +13,13 @@ frameworks, existing OTel coverage, and team ownership. You do NOT write any fil
 ## Input
 
 - The repo root (required).
+- `scanTime` — the current UTC time, read by the dispatching command (e.g. the output of
+  `date -u +%Y-%m-%dT%H:%M:%SZ`) and passed in. You have no clock: stamp `scannedAt`, every fresh
+  `existingOtel.observedAt`, and every `derived.derivedAt` with this value VERBATIM. Never copy an
+  `<ISO-8601>` placeholder literally or invent a time of your own — every subagent that has done
+  so has produced midnight (`T00:00:00Z`), making two same-day scans indistinguishable and
+  breaking any comparison against a file's mtime or a later command's run (#202). If `scanTime`
+  was not provided, write `null` into these fields rather than guessing — do NOT invent one.
 - `semconvVersion` — the pinned `SEMCONV_VERSION`, read from the `semconv-discipline` skill by the
   dispatching command. Use it verbatim as `derived.guidanceVersion`; you have no `Skill` tool, so
   never restate the version from memory. If it was not provided, set `guidanceVersion` to `null`
@@ -426,7 +433,7 @@ Return ONLY the following JSON object. No explanation, no preamble, no markdown 
 ```json
 {
   "schemaVersion": "2",
-  "scannedAt": "<ISO-8601>",
+  "scannedAt": "<the scanTime input, verbatim — never a literal placeholder>",
   "pluginVersion": "0.1.0",
   "freshness": {
     "gitHash": "<output of: git rev-parse HEAD, or 'unknown' if not a git repo>",
@@ -474,7 +481,7 @@ Return ONLY the following JSON object. No explanation, no preamble, no markdown 
         "apiCallSites": [],
         "wiredInto": [],
         "source": "scanned",
-        "observedAt": "<ISO-8601>"
+        "observedAt": "<the scanTime input, verbatim — never a literal placeholder>"
       },
       "namespace": null,
       "namespaceSource": null,
@@ -484,7 +491,7 @@ Return ONLY the following JSON object. No explanation, no preamble, no markdown 
       "teamConfidence": 0.85,
       "derived": {
         "guidanceVersion": "<the semconvVersion passed in — never a remembered version; null if none supplied>",
-        "derivedAt": "<ISO-8601>",
+        "derivedAt": "<the scanTime input, verbatim — never a literal placeholder>",
         "conformanceIssues": [
           {
             "file": "src/tracing.ts",

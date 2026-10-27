@@ -66,6 +66,13 @@
 #         had been read. Fix: reading the entry point is now mandatory before the negative dotnet
 #         reason, and a new `hostConfidence` field is lowered (with a notes entry) whenever `host`
 #         rests on a filename pattern rather than content actually read.
+#   #202 — the scanner has no clock, so `scannedAt`/`observedAt`/`derivedAt` were filled in from the
+#         schema's `<ISO-8601>` example literal, producing midnight every time (two same-day scans
+#         indistinguishable). Fix: the dispatching command now computes `scanTime` (`date -u
+#         +%Y-%m-%dT%H:%M:%SZ`) and passes it in; the scanner copies it verbatim instead of
+#         inventing a time. The two direct-write sites that are NOT the scanner (otel-init.md's
+#         otel-services.json, otel-instrument.md's post-write cache update) run `date` themselves,
+#         since the main agent has a clock the subagent does not.
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 pass=0; fail=0
@@ -756,6 +763,33 @@ check "#203 static-site-workflow fixture carries a deploy workflow whose CONTENT
   'grep -q "deploy-pages" "$STATICFX/.github/workflows/deploy.yml"'
 check "#203 static-site-workflow fixture has no server-process evidence (pure static)" \
   '[ -f "$STATICFX/index.html" ] && [ ! -f "$STATICFX/package.json" ]'
+
+# --- #202: scanner timestamps must come from a real clock, never the schema's example literal ---
+CMDS_DISPATCHING_SCANNER="commands/otel-evaluate.md commands/otel-remediate.md commands/otel-collector.md
+commands/otel-backend.md commands/otel-business-attrs.md commands/otel-uninstrument.md"
+
+check "#202 scanner defines scanTime as a required input (mirrors semconvVersion)" \
+  'grep -q "\`scanTime\`" "$SCANNER"'
+check "#202 scanner is told to copy scanTime verbatim, never invent a time" \
+  'grep -qiE "never copy an|never invent one" "$SCANNER"'
+check "#202 no field in the scanner schema still assigns the bare <ISO-8601> literal" \
+  '! grep -qE "\": \"<ISO-8601>\"" "$SCANNER"'
+check "#202 scannedAt/observedAt/derivedAt all point at the scanTime input in the schema" \
+  '[ "$(grep -c "the scanTime input, verbatim" "$SCANNER")" -eq 3 ]'
+
+check "#202 otel-init.md Step 2 computes scanTime via date -u and passes it to the scanner" \
+  'grep -qF "date -u +%Y-%m-%dT%H:%M:%SZ" "$INIT" && grep -q "\`scanTime\`" "$INIT"'
+check "#202 otel-init.md Step 4 runs date itself for generatedAt (no literal left to copy)" \
+  '! grep -qE "\"generatedAt\": \"<ISO-8601>\"" "$INIT" && grep -A2 "otel-services.json" "$INIT" | grep -q "date -u"'
+check "#202 otel-instrument.md passes scanTime when it re-dispatches the scanner" \
+  'grep -q "\`scanTime\`" commands/otel-instrument.md'
+check "#202 otel-instrument.md Step 6 runs date itself for observedAt (no literal left to copy)" \
+  '! grep -qE "\"observedAt\": \"<ISO-8601>\"" commands/otel-instrument.md \
+     && grep -B2 "\"observedAt\":" commands/otel-instrument.md | grep -q "date -u"'
+for f in $CMDS_DISPATCHING_SCANNER; do
+  check "#202 $f passes scanTime when it dispatches the scanner" \
+    'grep -q "\`scanTime\`" "'"$f"'"'
+done
 
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

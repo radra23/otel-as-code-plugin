@@ -45,8 +45,8 @@ Check `.claude/otel-context.json`. Apply the freshness rule from `/otel-init` St
 - Run `/otel-init` logic inline — dispatch `otel-as-code:repo-context-scanner` **passing the
   existing cache as `priorContext`** so confirmed answers survive, and write what it returns.
   A refresh is a merge, never a replace (see `agents/repo-context-scanner.md`). Pass the same
-  `semconvVersion` + `semconvGuidancePath` inputs `/otel-init` Step 2 does — the scanner has no
-  `Skill` tool and cannot read the guidance itself.
+  `scanTime` + `semconvVersion` + `semconvGuidancePath` inputs `/otel-init` Step 2 does — the
+  scanner has no clock and no `Skill` tool, and cannot read the guidance or the time itself.
 - Do NOT print the /otel-init success message; just run the scan silently.
 
 If the scan or the cache has **no services**, apply `/otel-init` Step 2's "Empty scan" rule:
@@ -239,7 +239,9 @@ This is the only way to preview a `--force` regeneration before it discards hand
 ## Step 6: Record what was written back into the cache
 
 The subagent handles file writing. After it returns, **update
-`.claude/otel-context.json` for the target service** before printing anything:
+`.claude/otel-context.json` for the target service** before printing anything. Run
+`date -u +%Y-%m-%dT%H:%M:%SZ` and use its actual output for `observedAt` — do not copy the
+placeholder below literally, that produces midnight every time (#202):
 
 ```json
 "existingOtel": {
@@ -251,7 +253,7 @@ The subagent handles file writing. After it returns, **update
   "bootstrapFiles": ["api/src/tracing.ts", "api/src/telemetry.ts"],
   "wiredInto": ["api/package.json#scripts.start"],
   "source": "recorded-by-command",
-  "observedAt": "<ISO-8601>"
+  "observedAt": "<the real output of date -u +%Y-%m-%dT%H:%M:%SZ>"
 }
 ```
 

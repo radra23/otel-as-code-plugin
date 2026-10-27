@@ -19,7 +19,8 @@ services that command explicitly refuses (`generatorSupported: false`).
 
 Check `.claude/otel-context.json`. Apply the freshness rule from `/otel-init` Step 1
 (identity-input fingerprint, not `HEAD`). If stale or absent, dispatch
-`otel-as-code:repo-context-scanner` **passing the existing cache as `priorContext`** and write
+`otel-as-code:repo-context-scanner` **passing the existing cache as `priorContext` and `scanTime`
+(the output of `date -u +%Y-%m-%dT%H:%M:%SZ`)** and write
 what it returns — a refresh is a merge, never a replace (see `agents/repo-context-scanner.md`).
 
 ## Step 2: Select the target SERVICE

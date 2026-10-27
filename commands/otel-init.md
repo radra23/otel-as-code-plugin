@@ -70,8 +70,11 @@ costs minutes per command for nothing.
 
 Dispatch the `otel-as-code:repo-context-scanner` subagent with the repo root as context.
 
-The subagent has **no `Skill` tool**, so it cannot read `semconv-discipline` itself — pass it the
-guidance explicitly, or it records `guidanceVersion: null` and guesses the high-cardinality list:
+The subagent has **no clock and no `Skill` tool** — pass it both explicitly, or it invents a
+midnight timestamp and guesses the high-cardinality list:
+- `scanTime`: run `date -u +%Y-%m-%dT%H:%M:%SZ` and pass its output. Without this the subagent
+  stamps `scannedAt` and every `observedAt`/`derivedAt` from the schema's `<ISO-8601>` example,
+  which reads as the date at midnight — making two same-day scans indistinguishable (#202).
 - `semconvVersion`: the `SEMCONV_VERSION` value from the `semconv-discipline` skill (read it here
   first — you, the command, can).
 - `semconvGuidancePath`: `${CLAUDE_PLUGIN_ROOT}/skills/semconv-discipline/SKILL.md` (an absolute
@@ -139,11 +142,12 @@ If the user types 'n' or 'edit':
 
 ## Step 4: Write outputs
 
-Write `.claude/otel-services.json`:
+Write `.claude/otel-services.json`. Run `date -u +%Y-%m-%dT%H:%M:%SZ` and use its actual output for
+`generatedAt` — do not copy the placeholder below literally, that produces midnight every time:
 ```json
 {
   "schemaVersion": "1",
-  "generatedAt": "<ISO-8601>",
+  "generatedAt": "<the real output of date -u +%Y-%m-%dT%H:%M:%SZ>",
   "services": [ <confirmed service list> ]
 }
 ```
