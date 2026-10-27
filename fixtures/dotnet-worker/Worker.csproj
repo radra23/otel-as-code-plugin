@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>BillingWorker</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The Generic Host package reference lives on Infrastructure, not here: a csproj-only
+         check of THIS file finds no host-builder signal even though Program.cs below calls
+         Host.CreateDefaultBuilder. See fixtures/dotnet-worker/Infrastructure/Infrastructure.csproj -->
+    <ProjectReference Include="../Infrastructure/Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -34,7 +34,7 @@ the repo, and a fresh read is by definition more current:
 - `scannedAt`, `pluginVersion`, `freshness.*`
 - `services[].name`, `nameSource`, `nameConfidence`, `rootDir`, `language`, `languageVersion`,
   `runtime`, `runtimeSource`, `runtimeConfidence`, `generatorSupported`, `inScope`, `instrumentableReason`,
-  `host`, `hostSource`, `framework`, `runnableEntry`, `hasDockerfile`
+  `host`, `hostSource`, `hostConfidence`, `framework`, `runnableEntry`, `hasDockerfile`
 - `services[].deployment.*`
 - `services[].existingOtel.*` — except when the prior entry is marked
   `"source": "recorded-by-command"` and you found no OTel on disk for that service; in that
@@ -231,14 +231,25 @@ found none.
      project without one (a console app, a class library, a test project) has nothing to receive
      it. This is a THIRD precondition the other three languages don't have — their bootstraps
      import into whatever entry point exists; .NET's has no entry point to fall back on. Look for
-     host-builder evidence (ANY one suffices):
+     host-builder evidence (ANY one suffices for the positive case):
        - `Microsoft.NET.Sdk.Web` in the project's `<Project Sdk="…">` attribute, or
        - a `Microsoft.AspNetCore.App` `FrameworkReference`, or a `Microsoft.Extensions.Hosting`
          `PackageReference`, or
        - a `WebApplication.CreateBuilder` / `Host.CreateApplicationBuilder` /
          `Host.CreateDefaultBuilder` / `IHostBuilder` call in the entry point (read `Program.cs`
          or the resolved `runnableEntry`).
-     Absent all of these — or when the `.csproj` sets `IsTestProject` `true` — set
+     The first two are csproj-only checks, and can rule the positive case IN, but never rule it
+     OUT: the Hosting package reference can live on a referenced project instead of this one (a
+     vertical-slice `Host`/`Domain`/`Infrastructure` layout routinely puts it on `Infrastructure`,
+     reached only via a `ProjectReference`), so an absent csproj signal proves nothing about what
+     the entry point actually calls. **You MUST read the entry point before concluding the
+     negative** — `generatorSupported: false` for `dotnet` may never be emitted on an unread
+     `Program.cs` / `runnableEntry`; the host-builder call is the one signal no csproj-level
+     absence can substitute for. If the entry point genuinely cannot be read (missing, or no
+     `runnableEntry` resolved at all), do not assert "no ASP.NET Core / Generic Host builder
+     found" about code you never opened — say in `derived.notes` that the check was not completed
+     and name that in `instrumentableReason` instead. Only once the entry point IS read and none
+     of the three signals hold — or the `.csproj` sets `IsTestProject` `true` — set
      `generatorSupported: false` with the reason below. `false` for every other runtime too. This
      flag drives `/otel-instrument`'s candidate list, and the host-builder fact is knowable from
      the `.csproj`/entry point at scan time, so deciding it HERE (not at generation) is what lets
@@ -308,6 +319,17 @@ found none.
    | `standalone`         | a plain process entry point                                           |
    | `static-hosting`     | Azure Static Web Apps (`azurerm_static_web_app`), Netlify/Vercel/S3+CloudFront/GitHub Pages, or a built SPA with NO server process. There is no runtime process, so no SERVER spans; its OTLP config is BUILD-TIME (e.g. `NEXT_PUBLIC_*` / `REACT_APP_*` baked in by CI), so look in the deploy workflow, not runtime app settings. |
    | `unknown`            | no evidence                                                           |
+
+   `hostConfidence` follows the same discipline as `endpointConfigured` below: 0.9 when the
+   evidence above was CONTENT you actually read — the Terraform resource block, the k8s manifest,
+   `host.json`'s body, the workflow's own deploy steps — not merely a file's existence or its
+   name. A workflow filename matching a naming convention (containing `deploy`, `release`,
+   `pages`, …) is a reason to prioritize reading that file per the instruction in step 1, never a
+   substitute for reading it: if `host` rests on a filename pattern with the content unread, set
+   `hostConfidence` to 0.5 and add a `derived.notes` entry naming which file was not opened. This
+   matters most for `static-hosting`, where the deploy workflow is routinely the ONLY file that
+   distinguishes it from `container`/`kubernetes` — a built SPA with no server manifest looks
+   identical either way until you read how it actually ships.
 
    Also populate `deployment`: the config files that would carry the OTLP endpoint
    (`*.tf`, `*.bicep`, `k8s/*.yaml`, `docker-compose.yml`, `.env.example`, `Chart.yaml`), and
@@ -430,6 +452,7 @@ Return ONLY the following JSON object. No explanation, no preamble, no markdown 
       "instrumentableReason": null,
       "host": "<standalone|container|kubernetes|azure-functions|azure-app-service|aws-lambda|gcp-cloud-functions|static-hosting|unknown>",
       "hostSource": "<the specific evidence, e.g. file:host.json>",
+      "hostConfidence": 0.9,
       "framework": "<express|fastapi|django|flask|gin|spring|rails|nextjs|nuxt|axum|aspnetcore|minimal-api|blazor|other|unknown>",
       "frameworkVersion": null,
       "runnableEntry": "<main entry file>",

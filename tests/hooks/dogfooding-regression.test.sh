@@ -58,6 +58,14 @@
 #   #147 — Grafana notification routing had no guidance. Verified: provider >= 4.6.0 has webhook
 #         `headers`/`payload`; ntfy >= 2.14.0 reads Grafana's payload via ?template=grafana;
 #         grafana_notification_policy overwrites the whole routing tree, so route per rule.
+#   #203 — the scanner stated unverified conclusions as findings: a dotnet generatorSupported:false
+#         reason asserted about an entry point it never read (csproj-only evidence can rule the
+#         positive case IN but never OUT — a vertical-slice Host/Domain/Infrastructure layout can
+#         put the Hosting package reference on a referenced project, not this one), and a `host`
+#         inferred from a workflow FILENAME with confidence left exactly as high as if the content
+#         had been read. Fix: reading the entry point is now mandatory before the negative dotnet
+#         reason, and a new `hostConfidence` field is lowered (with a notes entry) whenever `host`
+#         rests on a filename pattern rather than content actually read.
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 pass=0; fail=0
@@ -718,6 +726,36 @@ check "#122d Flask: factory placement, and the global instrument() no-op, are st
   'py_fw | grep -q "just before \`return app\`" && py_fw | grep -q "an app created before the call is"'
 check "#122d tracing.py helpers defined for both frameworks" \
   'py_fw | grep -q "def instrument_flask(app):" && py_fw | grep -q "def instrument_django():"'
+
+# --- #203: unverified conclusions stated as findings (dotnet host-builder reason, host confidence)
+WORKERFX="fixtures/dotnet-worker"
+STATICFX="fixtures/static-site-workflow"
+
+check "#203 dotnet gate requires reading the entry point before the negative reason" \
+  'grep -qF "You MUST read the entry point before concluding the" "$SCANNER"'
+check "#203 gate names the csproj-only check as ruling IN but never OUT" \
+  'grep -qF "rule the positive case IN, but never rule it" "$SCANNER"'
+check "#203 gate names the vertical-slice Infrastructure trap (transitive, not this csproj)" \
+  'grep -qiE "Host.*Domain.*Infrastructure" "$SCANNER"'
+check "#203 dotnet-worker fixture's own csproj has NO host-builder signal (the trap)" \
+  '! grep -qE "Microsoft.NET.Sdk.Web|Microsoft.AspNetCore.App|Microsoft.Extensions.Hosting" "$WORKERFX/Worker.csproj"'
+check "#203 dotnet-worker fixture DOES call a Generic Host builder in Program.cs (disqualifies the false reason)" \
+  'grep -q "Host.CreateDefaultBuilder" "$WORKERFX/Program.cs"'
+check "#203 the Hosting package reference actually lives on the referenced Infrastructure project" \
+  'grep -q "Microsoft.Extensions.Hosting" "$WORKERFX/Infrastructure/Infrastructure.csproj"'
+check "#203 dotnet-worker fixture stays greenfield (no OTel dep)" \
+  '! grep -rqi opentelemetry "$WORKERFX"'
+
+check "#203 scanner defines hostConfidence (mirrors nameConfidence/runtimeConfidence)" \
+  'grep -q "hostConfidence" "$SCANNER"'
+check "#203 hostConfidence is tied to reading the deciding file's CONTENT, not its name" \
+  'grep -qF "CONTENT you actually read" "$SCANNER" && grep -qF "substitute for reading it" "$SCANNER"'
+check "#203 static-hosting confidence rule names the deploy-workflow case specifically" \
+  'grep -qiE "matters most for .static-hosting" "$SCANNER"'
+check "#203 static-site-workflow fixture carries a deploy workflow whose CONTENT confirms static hosting" \
+  'grep -q "deploy-pages" "$STATICFX/.github/workflows/deploy.yml"'
+check "#203 static-site-workflow fixture has no server-process evidence (pure static)" \
+  '[ -f "$STATICFX/index.html" ] && [ ! -f "$STATICFX/package.json" ]'
 
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
