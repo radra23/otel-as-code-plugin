@@ -35,3 +35,7 @@ tests/e2e/.work/
 
 # Rust golden crate build output (cargo check in CI)
 tests/snapshots/instrument/rust/target/
+
+# .NET fixture build output (dotnet-placement e2e test)
+fixtures/dotnet-nested/**/obj/
+fixtures/dotnet-nested/**/bin/
