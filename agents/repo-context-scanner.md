@@ -233,7 +233,21 @@ found none.
      `instrumentation.ts` that already calls a version-gated hook) can tell whether that hook can
      actually fire on the installed version — see `onRequestError` in `instrumentation-gen.md`'s
      Next.js section.
-   - `runnableEntry`: the main entry point file
+   - `runnableEntry`: the main entry point file. **For `framework: nextjs`, this is NOT
+     `app/layout.tsx` (or any other component under `app/`/`pages/`) — a layout is a React
+     component, never a process entry point, and recording one here sends a downstream reader to
+     code that cannot be wired or executed as an entry (#170):**
+       - If an `instrumentation.{ts,js}` hook already exists (root, or `src/` if that dir
+         exists), record ITS path. This is the file Next.js's own `register()` callback reaches,
+         so it directly answers what `/otel-evaluate` Step 2 uses `runnableEntry` for — "is the
+         bootstrap actually reached" — and it is always a real, readable source file.
+       - Otherwise (greenfield — no bootstrap exists yet, so there is nothing "reached" to
+         point at) record the ACTUAL PROCESS ENTRY instead: `"next start"` by default, or, when
+         `next.config.*` sets `output: "standalone"`, `".next/standalone/server.js"`. Either way
+         this is a descriptive string, not necessarily a file that exists in the repo pre-build —
+         add a `derived.notes` entry saying so (`".next/standalone/server.js" is build output, not
+         source` or `"next start" is the CLI command, not a repo file`) so a reader doesn't `Read`
+         it and get confused by a missing file.
    - `hasDockerfile`: boolean
    - `cliEntryPoints`: for `python` services, the script names declared in `pyproject.toml`'s
      `[project.scripts]` table (e.g. `["pii-scanner", "other-tool"]`) — `[]` when the table is

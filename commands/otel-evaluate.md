@@ -60,6 +60,12 @@ specifiers (`@opentelemetry/sdk-node@^0.221.0`), not paths, and there is nothing
 2. `context.services[i].existingOtel.wiredInto` plus the service's `runnableEntry` — an audit
    has to see whether the bootstrap is actually reached. A helper that no file imports is
    instrumentation that never runs, and that is invisible if you only read the bootstrap.
+   **`runnableEntry` is not always a repo file** — for `framework: nextjs` with no bootstrap yet,
+   the scanner records the process-entry descriptor (`"next start"`, or
+   `".next/standalone/server.js"` for a standalone build) instead, flagged in `derived.notes` as
+   build output / not a repo file (#170). Check `derived.notes` for that flag before calling
+   `Read` on it; skip the read (there is nothing to audit — no bootstrap exists) rather than
+   erroring on a path that was never meant to be opened.
 3. Files named in `derived.conformanceIssues[].file` — these carry an already-known problem, so
    they are the *last* place to look for new ones, not the first.
 

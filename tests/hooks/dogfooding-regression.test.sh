@@ -975,5 +975,31 @@ check "#180 suffixed-dockerfile-service's k8s Deployment name (keycloak) differs
   'grep -A2 "kind: Deployment" "$DOCKERDEPLOYFX/platform/k8s/deployment.yaml" | grep -q "name: keycloak" \
      && [ "$(basename "$DOCKERDEPLOYFX")" != "keycloak" ]'
 
+# --- #170: Next.js runnableEntry must never be a React component (app/layout.tsx) ---------------
+NEXTGREEN="fixtures/nextjs-greenfield"
+NEXTHOOK="fixtures/nextjs-onrequesterror-old"
+
+check "#170 scanner explicitly excludes app/layout.tsx and other app/pages components" \
+  'grep -qF "is NOT" "$SCANNER" && grep -qiE "app/layout\.tsx" "$SCANNER" \
+     && grep -qiE "never a process entry point" "$SCANNER"'
+check "#170 when instrumentation.{ts,js} already exists, the scanner records ITS path" \
+  'grep -qiE "If an .instrumentation\.\{ts,js\}. hook already exists" "$SCANNER" \
+     && grep -qF "record ITS path" "$SCANNER"'
+check "#170 with no bootstrap yet, the scanner records the real process entry, not a component" \
+  'grep -qF "next start" "$SCANNER" && grep -qF ".next/standalone/server.js" "$SCANNER"'
+check "#170 the process-entry fallback is flagged as build output / not a repo file" \
+  'grep -qiE "is build output, not|is the CLI command, not a repo file" "$SCANNER"'
+check "#170 /otel-evaluate checks derived.notes before Read-ing runnableEntry (it may not be a file)" \
+  'grep -qF "runnableEntry\` is not always a repo file" commands/otel-evaluate.md \
+     && grep -qF "Check \`derived.notes\`" commands/otel-evaluate.md'
+
+check "#170 nextjs-greenfield fixture has layout.js but NO instrumentation hook (Branch B trap)" \
+  '[ -f "$NEXTGREEN/app/layout.js" ] && [ ! -f "$NEXTGREEN/instrumentation.js" ] \
+     && [ ! -f "$NEXTGREEN/instrumentation.ts" ] && [ ! -f "$NEXTGREEN/src/instrumentation.js" ]'
+check "#170 nextjs-greenfield has no output:standalone, so the fallback is next start, not server.js" \
+  '! grep -q "standalone" "$NEXTGREEN/next.config.js"'
+check "#170 nextjs-onrequesterror-old fixture already has a root instrumentation.ts (Branch A repro)" \
+  '[ -f "$NEXTHOOK/instrumentation.ts" ]'
+
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
