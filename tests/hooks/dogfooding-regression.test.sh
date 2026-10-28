@@ -917,5 +917,32 @@ DOCKER_MATCH=$(find "$DOCKERFX" -type f | sed 's|^\./||' | grep -E "$MANIFEST_MA
 check "#181 the regex matches the suffixed Dockerfile as the service's identity input" \
   'echo "$DOCKER_MATCH" | grep -q "Dockerfile.keycloak"'
 
+# --- #179: aspnetcore/minimal-api/blazor framework values had no detection rule -------------------
+ASPFX="fixtures/dotnet-aspnetcore-controllers"
+MINAPIFX="fixtures/dotnet-greenfield"
+BLAZORFX="fixtures/dotnet-blazor-wasm"
+
+check "#179 framework enum names all three .NET values in the Step 2 prose (not just the schema)" \
+  'grep -qF "\`aspnetcore\`, \`minimal-api\`, \`blazor\`" "$SCANNER"'
+check "#179 aspnetcore rule keys on AddControllers/MapControllers" \
+  'grep -qF "AddControllers(" "$SCANNER" && grep -qF "MapControllers(" "$SCANNER"'
+check "#179 minimal-api rule keys on WebApplication.CreateBuilder + app.Map* with NO controllers" \
+  'grep -qF "WebApplication.CreateBuilder\` call and at" "$SCANNER" && grep -qiE "NO \`AddControllers" "$SCANNER"'
+check "#179 blazor framework reuses the existing runtime:browser SDK signal (one signal, two fields)" \
+  'grep -qF "same \`Microsoft.NET.Sdk.BlazorWebAssembly\` SDK signal" "$SCANNER"'
+
+check "#179 new aspnetcore fixture has AddControllers/MapControllers, no inline Map(Get|Post) routes" \
+  'grep -q "AddControllers()" "$ASPFX/Program.cs" && grep -q "MapControllers()" "$ASPFX/Program.cs" \
+     && ! grep -qE "MapGet\(|MapPost\(" "$ASPFX/Program.cs"'
+check "#179 new aspnetcore fixture routes live on an [ApiController] class" \
+  'grep -q "\[ApiController\]" "$ASPFX/Controllers/OrdersController.cs"'
+check "#179 new aspnetcore fixture declares no OTel package reference (greenfield)" \
+  '! grep -rqiE "Include=\"OpenTelemetry|@opentelemetry" "$ASPFX"'
+check "#179 existing dotnet-greenfield fixture is the minimal-api trap: inline Map* with NO controllers" \
+  'grep -q "WebApplication.CreateBuilder" "$MINAPIFX/Program.cs" && grep -qE "MapGet\(" "$MINAPIFX/Program.cs" \
+     && ! grep -qE "AddControllers\(|MapControllers\(" "$MINAPIFX/Program.cs"'
+check "#179 existing dotnet-blazor-wasm fixture still carries the SDK signal this rule reuses" \
+  'grep -q "Microsoft.NET.Sdk.BlazorWebAssembly" "$BLAZORFX/portal-web.csproj"'
+
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

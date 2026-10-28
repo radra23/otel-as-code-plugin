@@ -175,7 +175,8 @@ found none.
      service reports, not two peer sources disagreeing.)
    - `language`: `nodejs`, `python`, `go`, `java`, `dotnet`, `ruby`, `php`, `rust`, `other`
    - `framework`: `express`, `fastapi`, `django`, `flask`, `gin`, `spring`, `rails`, `nextjs`,
-     `nuxt`, `axum`, `other`, `unknown`. Detect the Node SSR meta-frameworks explicitly — `nextjs` from a
+     `nuxt`, `axum`, `aspnetcore`, `minimal-api`, `blazor`, `other`, `unknown`. Detect the Node SSR
+     meta-frameworks explicitly — `nextjs` from a
      `next` dependency together with an `instrumentation.{ts,js}` hook and/or a `next.config.*`
      file; `nuxt` from a `nuxt` dependency and/or `nuxt.config.*` — because they need a
      framework-specific instrumentation path, not the generic top-of-entry bootstrap (see the
@@ -184,8 +185,20 @@ found none.
      a framework-specific bootstrap PLACEMENT (an auto-loaded initializer), not the generic
      top-of-entry-point pattern (see the Ruby section in `agents/instrumentation-gen.md`). Detect
      `axum` from an `axum` entry in `Cargo.toml`'s `[dependencies]`, and record its version
-     requirement in `frameworkVersion` — the Rust generator's gate keys on it (step 3 below). Do
-     not collapse any of these four to `other`.
+     requirement in `frameworkVersion` — the Rust generator's gate keys on it (step 3 below).
+     Detect the three .NET shapes explicitly too — their schema values existed but had no
+     detection rule here, so every .NET service fell through to `other` (#179):
+       - `blazor` — the same `Microsoft.NET.Sdk.BlazorWebAssembly` SDK signal (or the
+         `Microsoft.AspNetCore.Components.WebAssembly` `PackageReference`) that already sets
+         `runtime: browser` above. One signal, two fields: it answers "where does this run"
+         (`runtime`) AND "what framework is this" (`framework`) at once.
+       - `aspnetcore` — `Microsoft.NET.Sdk.Web` plus an `AddControllers(` or `MapControllers(`
+         call (the controller-based API shape: routes live on `[ApiController]` classes, not
+         inline in `Program.cs`).
+       - `minimal-api` — `Microsoft.NET.Sdk.Web` plus a `WebApplication.CreateBuilder` call and at
+         least one `app.Map(Get|Post|Put|Delete|Patch)(` call, with NO `AddControllers(`/
+         `MapControllers(` — routes are declared inline, there is no controller class to wrap.
+     Do not collapse any of these seven to `other` — the four above plus these three.
    - `frameworkVersion`: the framework's own version string (NOT `languageVersion`), when directly
      readable from a manifest — e.g. Next.js from the `next` dependency in `package.json`. Record
      the stated string as-is (`"^14.2.0"`, not a resolved `"14.2.0"`); do not attempt semver

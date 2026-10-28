@@ -25,7 +25,7 @@ check "scanner: actix-web, other frameworks, axum < 0.8 and no-server stay refus
 check "scanner: a rust library crate is inScope:false" \
   'grep -q "inScope:false — rust library crate" "$SCANNER"'
 check "scanner: axum is a framework enum value (prose and schema)" \
-  'grep -q "\`nuxt\`, \`axum\`, \`other\`" "$SCANNER" && grep -q "nuxt|axum|aspnetcore" "$SCANNER"'
+  'grep -q "\`nuxt\`, \`axum\`, \`aspnetcore\`" "$SCANNER" && grep -q "nuxt|axum|aspnetcore" "$SCANNER"'
 
 # --- command ---
 check "otel-instrument lists rust as supported and no longer as coming in v1" \

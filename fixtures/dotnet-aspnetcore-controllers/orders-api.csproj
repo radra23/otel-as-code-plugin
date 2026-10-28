@@ -1,0 +1,14 @@
+<!-- orders-api — greenfield ASP.NET Core controllers-based API (NOT minimal-api). Regression
+     fixture for #179: routes live on an [ApiController] class via AddControllers()/
+     MapControllers(), not inline app.MapGet()/MapPost() calls in Program.cs — the scanner's
+     framework rule must distinguish this shape from minimal-api, not collapse both to `other`.
+     No OpenTelemetry — greenfield. -->
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+</Project>
