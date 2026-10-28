@@ -1,0 +1,15 @@
+<!-- SomeAgent — greenfield ASP.NET Core minimal-API service. Regression fixture for #180: the
+     project file's PascalCase stem ("SomeAgent") is NOT a declared service.name — no
+     <AssemblyName> or <RootNamespace> override is set, so the scanner falls to the lowest .NET
+     naming sub-tier (csproj#filename) and must normalise it to kebab-case ("some-agent") at
+     confidence 0.75, not take the file name verbatim at manifest-tier confidence 0.97.
+     No OpenTelemetry — greenfield. -->
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+</Project>

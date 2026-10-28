@@ -944,5 +944,36 @@ check "#179 existing dotnet-greenfield fixture is the minimal-api trap: inline M
 check "#179 existing dotnet-blazor-wasm fixture still carries the SDK signal this rule reuses" \
   'grep -q "Microsoft.NET.Sdk.BlazorWebAssembly" "$BLAZORFX/portal-web.csproj"'
 
+# --- #180: service-name inference had no rule for .NET or deployment-only workloads -------------
+PASCALFX="fixtures/dotnet-pascal-name"
+DOCKERDEPLOYFX="fixtures/suffixed-dockerfile-service"
+
+check "#180 .NET has no tier-4 manifest name (the csproj has no name field)" \
+  'grep -qiE "\.NET has no name field|does not apply to it" "$SCANNER"'
+check "#180 .NET priority is AssemblyName, then RootNamespace, then filename" \
+  'grep -qF "csproj#AssemblyName" "$SCANNER" && grep -qF "csproj#RootNamespace" "$SCANNER" \
+     && grep -qF "csproj#filename" "$SCANNER"'
+check "#180 the .NET-inferred name is normalised to kebab-case before being recorded" \
+  'grep -qiE "normalise it to kebab-case" "$SCANNER"'
+check "#180 the .NET-inferred name's confidence (0.75) sits below the 0.9 auto-write threshold" \
+  'grep -qF "nameConfidence: 0.75" "$SCANNER" && grep -qF "0.9 auto-write threshold" "$SCANNER"'
+check "#180 a new tier reads the workload's own deployed name (k8s/Compose/Helm)" \
+  'grep -qF "k8s-deployment-name" "$SCANNER" && grep -qF "compose-service-key" "$SCANNER" \
+     && grep -qF "helm-release-name" "$SCANNER"'
+check "#180 the deployed-name tier explicitly beats the directory name" \
+  'grep -qF "This beats the\n     directory name" "$SCANNER" || grep -qF "beats the" "$SCANNER"'
+check "#180 schema nameSource enum carries every new value (.NET + deployment tiers)" \
+  'grep -qF "k8s-deployment-name | compose-service-key | helm-release-name" "$SCANNER" \
+     && grep -qF "csproj#AssemblyName | csproj#RootNamespace | csproj#filename" "$SCANNER"'
+
+check "#180 dotnet-pascal-name fixture has the PascalCase trap with no Assembly/RootNamespace override" \
+  '[ -f "$PASCALFX/SomeAgent/SomeAgent.csproj" ] \
+     && ! sed -n "/<PropertyGroup>/,/<\/PropertyGroup>/p" "$PASCALFX/SomeAgent/SomeAgent.csproj" | grep -qE "AssemblyName|RootNamespace"'
+check "#180 dotnet-pascal-name fixture declares no OTel package reference (greenfield)" \
+  '! grep -rqiE "Include=\"OpenTelemetry|@opentelemetry" "$PASCALFX"'
+check "#180 suffixed-dockerfile-service's k8s Deployment name (keycloak) differs from its directory name (the beats-dir-name case)" \
+  'grep -A2 "kind: Deployment" "$DOCKERDEPLOYFX/platform/k8s/deployment.yaml" | grep -q "name: keycloak" \
+     && [ "$(basename "$DOCKERDEPLOYFX")" != "keycloak" ]'
+
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

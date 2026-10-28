@@ -166,13 +166,39 @@ found none.
      2. a service name passed to the SDK in an existing bootstrap
         (from `existingOtel.bootstrapFiles`) → `nameSource: "bootstrap-literal"`
      3. Dockerfile LABEL → `"dockerfile-label"`
-     4. manifest `name` → `"package.json#name"` (or the language's manifest)
-     5. directory name → `"dir-name"`
-   - `nameConfidence`: 0.97 for an observed name (tiers 1–2) or a Dockerfile/manifest name; 0.70
-     for a directory name. When an observed name (tier 1–2) disagrees with a manifest/label, still
-     record a `conflicts[]` entry — but the resolved default is the OBSERVED name, not the
-     manifest one. (A manifest-vs-observed disagreement is the manifest being wrong about what the
-     service reports, not two peer sources disagreeing.)
+     4. manifest `name` → `"package.json#name"` (or the language's manifest). **.NET has no name
+        field in a `.csproj`, so this tier does not apply to it** — see the dedicated .NET rule
+        below instead of improvising a manifest name that was never declared.
+     5. the workload's own DEPLOYED name, for a service with no manifest at all (a deployment-only
+        image: Keycloak, a vendor binary) — a Kubernetes `Deployment`/`StatefulSet`
+        `metadata.name` (`nameSource: "k8s-deployment-name"`), a Compose service key
+        (`"compose-service-key"`), or a Helm release name (`"helm-release-name"`). This beats the
+        directory name: someone chose this name when they wrote the manifest, a directory is
+        whatever the repo layout happened to be (#180).
+     6. directory name → `"dir-name"`
+
+     **.NET naming (no manifest `name` field exists — #180):** a `.csproj`/`.fsproj` has nothing
+     equivalent to tier 4, so do not read the project FILE NAME as if it were a declared name —
+     that is a filesystem convention, not an identity anyone chose, and (PascalCase like
+     `Company.Web` or `SomeAgent`) is not a value anyone would want baked into `service.name`
+     either. In order: `<AssemblyName>` if the `.csproj` sets it explicitly (`nameSource:
+     "csproj#AssemblyName"`), else `<RootNamespace>` if set (`"csproj#RootNamespace"`), else the
+     project file's stem (`"csproj#filename"`). Whichever fires, **normalise it to kebab-case**
+     before recording it as `name` (`Company.Web` → `company-web`, `SomeAgent` → `some-agent`) —
+     split on `.`/PascalCase boundaries, lowercase, hyphenate. Record at `nameConfidence: 0.75`:
+     higher than a bare directory guess (0.70, nobody named the directory FOR telemetry either,
+     but at least a `.csproj` sitting beside it ties the guess to a specific project), lower than
+     any tier above (none of the three is a value a human declared for this purpose), and
+     — critically — below `/otel-business-attrs`' 0.9 auto-write threshold, so it always routes
+     through the Tier 2 confirm table rather than silently becoming `service.name`.
+   - `nameConfidence`: 0.97 for an observed name (tiers 1–2), a Dockerfile LABEL, or a real
+     manifest-declared name (tier 4); 0.80 for the workload's own deployed name (tier 5, still a
+     human-chosen value, but describing the deployment rather than the application); 0.75 for a
+     .NET name inferred per the rule above; 0.70 for a directory name (tier 6). When an observed
+     name (tier 1–2) disagrees with a manifest/label, still record a `conflicts[]` entry — but the
+     resolved default is the OBSERVED name, not the manifest one. (A manifest-vs-observed
+     disagreement is the manifest being wrong about what the service reports, not two peer sources
+     disagreeing.)
    - `language`: `nodejs`, `python`, `go`, `java`, `dotnet`, `ruby`, `php`, `rust`, `other`
    - `framework`: `express`, `fastapi`, `django`, `flask`, `gin`, `spring`, `rails`, `nextjs`,
      `nuxt`, `axum`, `aspnetcore`, `minimal-api`, `blazor`, `other`, `unknown`. Detect the Node SSR
@@ -495,7 +521,7 @@ Return ONLY the following JSON object. No explanation, no preamble, no markdown 
     {
       "id": "<slugified name>",
       "name": "<service name>",
-      "nameSource": "<env:OTEL_SERVICE_NAME | bootstrap-literal | dockerfile-label | package.json#name | dir-name | user-added>",
+      "nameSource": "<env:OTEL_SERVICE_NAME | bootstrap-literal | dockerfile-label | package.json#name | k8s-deployment-name | compose-service-key | helm-release-name | csproj#AssemblyName | csproj#RootNamespace | csproj#filename | dir-name | user-added>",
       "nameConfidence": 0.97,
       "rootDir": "<relative path from repo root, '.' for root>",
       "language": "<nodejs|python|go|java|dotnet|ruby|php|rust|other>",
