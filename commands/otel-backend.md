@@ -1,9 +1,9 @@
 ---
 description: Generate Terraform for one observability backend (grafana | datadog | newrelic | dash0)
-argument-hint: "<vendor> [--kind all|dashboard|alerts|slo] [--output-dir <path>] [--experimental] [--force] [--dry-run] [--yes]"
+argument-hint: "<vendor> [--service <id>|all] [--kind all|dashboard|alerts|slo] [--output-dir <path>] [--experimental] [--force] [--dry-run] [--yes]"
 ---
 
-# /otel-backend <vendor> [--kind all|dashboard|alerts|slo] [--output-dir <path>] [--experimental] [--force] [--dry-run] [--yes]
+# /otel-backend <vendor> [--service <id>|all] [--kind all|dashboard|alerts|slo] [--output-dir <path>] [--experimental] [--force] [--dry-run] [--yes]
 
 Generate a complete Terraform module for one observability backend.
 Supported vendors: the backends listed in `backends.txt` at the plugin root — the single
@@ -11,17 +11,22 @@ source of truth (currently grafana, datadog, newrelic, dash0).
 
 ## Flags
 - `<vendor>` — REQUIRED. Must be one of the backends listed in `backends.txt` (plugin root)
+- `--service <id>` — the service to build the module for, by `id` from the context JSON. Skips
+  the Step 3 prompt. `--service all` generates one module per eligible candidate instead of one
+  module total — see Step 3.
 - `--kind` — default `all`. Emit only one artifact type: `dashboard`, `alerts`, or `slo`
-- `--output-dir` — default `infra/observability/<vendor>/`
+- `--output-dir` — default `infra/observability/<vendor>/` for a single service; with
+  `--service all`, each service's module goes to `infra/observability/<vendor>/<service-id>/`
+  instead, so N services never collide on one path
 - `--experimental` — include pre-Stable semconv in generated resource queries
 - `--force` — overwrite existing module files
-- `--dry-run` — preview without writing: pass `dryRun: true` to `terraform-gen` (Step 4) so it
+- `--dry-run` — preview without writing: pass `dryRun: true` to `terraform-gen` (Step 5) so it
   returns each file as `{path, content}` instead of writing; print a unified diff of each against
   on-disk (or "would create" for a new file), write nothing, do NOT create the `.otel-force`
   sentinel, and exit non-zero if anything would change. `terraform fmt`/`validate` are skipped
   (they need files on disk)
 - `--yes` — answer yes to this command's confirmation prompts: continuing without confirmed
-  business attributes (Step 2) and overwriting an existing module under `--force` (Step 3). For
+  business attributes (Step 2) and overwriting an existing module under `--force` (Step 4). For
   callers that can't answer a prompt: CI, another agent, an orchestration layer. It never implies
   `--force`. Each prompt it answers is printed as a `↷ --yes:` line, and an unconfirmed-attributes
   skip is also stamped into the generated `main.tf` header, so the choice stays visible afterwards.
@@ -63,13 +68,61 @@ If `context.confirmedAt` is null (business attrs not confirmed):
   will improve the generated dashboard queries and SLO targets."
 - If `--yes` is set, don't ask. Print "↷ --yes: continuing without confirmed business attributes
   (context.confirmedAt is null). Queries and SLO targets use scanner defaults." and pass
-  `businessAttrsUnconfirmed: true` to `terraform-gen` (Step 4).
+  `businessAttrsUnconfirmed: true` to `terraform-gen` (Step 5).
 - Otherwise ask: "Continue anyway? [Y/n]". On yes, pass `businessAttrsUnconfirmed: true` as above.
 - If 'n', or if no one can answer (see "No one to answer a prompt?" above): exit non-zero with
   "Run /otel-business-attrs first, then re-run /otel-backend <vendor> (or pass --yes to continue
   without confirmed business attributes)"
 
-## Step 3: Check for existing module
+## Step 3: Select the target service(s)
+
+Since schema 2 the context holds `services[]`, plural. `/otel-instrument` already learned
+(#13) never to default to `services[0]`; this command needs the same discipline — nothing
+about "the first service" says it is the one with telemetry worth dashboarding, and the first
+detected service is frequently a browser SPA with none at all (#185).
+
+1. Build the candidate list: every service in `context.services` with `inScope: true` AND
+   (`existingOtel.hasTraces || existingOtel.hasMetrics || existingOtel.hasLogs` — it actually
+   emits something to build selectors from, OR `generatorSupported: false` — `terraform-gen`'s
+   "Workloads without an OTel SDK (scraped metrics)" path (`terraform-patterns` skill) covers any
+   such in-scope workload, not only Keycloak). If `--service <id>` was given, use exactly that one
+   (and validate it below) instead of building a list.
+2. Then, unless `--service all` was given (go to step 4 below instead):
+   - **Exactly one candidate** → use it. Print: "Target: <name> (<rootDir>)".
+   - **More than one** → list them and ask. Never default to the first:
+     ```
+     Which service should the Terraform module target?
+       1  checkout-api   api/   (traces + metrics present)
+       2  keycloak       idp/   (no OTel SDK — scraped metrics)
+     Not offered: portal-web (web/) — runtime is browser, out of scope.
+     Not offered: billing-worker (worker/) — no telemetry yet; run /otel-instrument first.
+     →
+     ```
+   - **No candidates** → print, for each in-scope service not eligible, why, then exit without
+     writing anything:
+     ```
+     ⚠ No service in this repo has telemetry (or a scraped-metrics path) for /otel-backend to build from.
+       checkout-api (api/)  — no telemetry yet; run /otel-instrument first.
+       portal-web (web/)    — runtime is browser, out of scope.
+     ```
+3. Validate the chosen service (the explicit `--service <id>` case, or the single
+   auto-selected/prompted one): if it is not in the candidate list Step 1 built (wrong `inScope`,
+   or no signal and not `generatorSupported: false`), refuse with the same reason that excluded
+   it and exit. Emitting a module filtered on a service that exports nothing is worse than
+   emitting none — do not fall back to a near-match.
+4. **`--service all`**: build the candidate list as in step 1, but skip the single-target
+   prompt — every candidate becomes a target. Print the same "Not offered: … — <reason>" lines
+   for every excluded service as the no-candidates case above, then run Steps 4–6 once per
+   candidate, each writing to its own `<output_dir>/<service.id>/` (see the `--output-dir` flag
+   note) so N services never collide on one set of `main.tf`/`variables.tf`/`outputs.tf`. If the
+   candidate list is empty, print the same "No service … to build from" message and exit; `all`
+   over nothing is still nothing.
+
+## Step 4: Check for existing module
+
+`<output_dir>` is the default `infra/observability/<vendor>/` (or `--output-dir`'s value) for a
+single target; under `--service all`, Steps 4–6 run once per candidate and `<output_dir>` is that
+path's `<service.id>/` subdirectory for each one, so they never collide (see Step 3.4).
 
 If `<output_dir>/*.tf` files exist AND `--force` is NOT set:
 - Print: "⚠ Terraform files already exist in <output_dir>. Use --force to overwrite."
@@ -90,10 +143,13 @@ If they exist AND `--force` IS set:
   sentinel does not have to match the host's path convention. It stays path-scoped — a file you
   do not list is still protected.
 
-## Step 4: Dispatch terraform-gen subagent
+## Step 5: Dispatch terraform-gen subagent
 
 Pass to `otel-as-code:terraform-gen`:
 - `context`: loaded context JSON
+- `service`: the SELECTED service object from Step 3 — the subagent builds selectors, the
+  dashboard uid, and folder/alert names from THIS object, never by picking its own from
+  `context.services` (#185; mirrors `/otel-instrument` Step 5's identical `service` input)
 - `backend`: the validated vendor string
 - `terraformPatternsPath`: `${CLAUDE_PLUGIN_ROOT}/skills/terraform-patterns/SKILL.md` — the
   subagent has no `Skill` tool and `Read`s this file for the per-backend provider patterns and
@@ -104,12 +160,12 @@ Pass to `otel-as-code:terraform-gen`:
 - `businessAttrsUnconfirmed`: `true` when Step 2 continued past unconfirmed business attributes
   (by `--yes` or a yes answer); otherwise omit it
 
-## Step 5: Display the subagent's output
+## Step 6: Display the subagent's output
 
 The subagent handles all file writing, `terraform fmt`, and `terraform validate`.
 Print its output verbatim including the next-steps block.
 
-If a `.claude/.otel-force` sentinel was created in Step 3, remove it now to restore the
+If a `.claude/.otel-force` sentinel was created in Step 4, remove it now to restore the
 write-guard: `rm -f .claude/.otel-force`.
 
 After the subagent output, print:

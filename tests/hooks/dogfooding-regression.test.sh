@@ -1001,5 +1001,31 @@ check "#170 nextjs-greenfield has no output:standalone, so the fallback is next 
 check "#170 nextjs-onrequesterror-old fixture already has a root instrumentation.ts (Branch A repro)" \
   '[ -f "$NEXTHOOK/instrumentation.ts" ]'
 
+# --- #185: /otel-backend had no service selection in a multi-service repo -----------------------
+BACKEND_CMD="commands/otel-backend.md"
+TFGEN="agents/terraform-gen.md"
+
+check "#185 /otel-backend declares --service (argument-hint and Flags)" \
+  'grep -q "\[--service <id>|all\]" "$BACKEND_CMD" && grep -q "^- \`--service <id>\`" "$BACKEND_CMD"'
+check "#185 Step 3 candidate rule: inScope + a real signal, OR generatorSupported:false" \
+  'grep -qF "existingOtel.hasTraces || existingOtel.hasMetrics || existingOtel.hasLogs" "$BACKEND_CMD" \
+     && grep -qF "generatorSupported: false\` — \`terraform-gen\`" "$BACKEND_CMD"'
+check "#185 never defaults to the first service — explicit list-and-ask, mirroring /otel-instrument" \
+  'grep -qF "Never default to the first" "$BACKEND_CMD"'
+check "#185 excluded services are named with a reason (browser out of scope / no telemetry yet)" \
+  'grep -qiE "runtime is browser, out of scope" "$BACKEND_CMD" \
+     && grep -qiE "no telemetry yet; run /otel-instrument first" "$BACKEND_CMD"'
+check "#185 --service all fans out per-service output dirs so modules never collide" \
+  'grep -qF "<service.id>/" "$BACKEND_CMD" && grep -qF "never collide" "$BACKEND_CMD"'
+check "#185 Step 5 passes the SELECTED service object to terraform-gen, not the whole context" \
+  'grep -qF "the SELECTED service object from Step 3" "$BACKEND_CMD"'
+
+check "#185 terraform-gen's Input requires a single service object, not context.services" \
+  'grep -qF "\`service\` — the single service object the dispatching command selected" "$TFGEN"'
+check "#185 terraform-gen refuses on a missing/malformed service, never picks its own" \
+  'grep -qF "never from \`context.services[0]\` or any other service you pick yourself" "$TFGEN"'
+check "#185 terraform-gen's no-real-service refusal checks the service input, not context.services" \
+  'grep -qF "If no \`service\`" "$TFGEN"'
+
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

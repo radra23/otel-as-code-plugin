@@ -11,32 +11,41 @@ to the target directory. You run `terraform fmt` and `terraform validate` after 
 
 ## Input
 
-1. `context` — `.claude/otel-context.json` (contains service name, version, team, business attrs)
-2. `backend` — one of: `grafana`, `datadog`, `newrelic`, `dash0`
-3. `output_dir` — default `infra/observability/<backend>/`; overridden by `--output-dir`
-4. `kind` — default `all`; one of `all`, `dashboard`, `alerts`, `slo`
-5. `experimental` — boolean, default false
-6. `terraformPatternsPath` — absolute path to the `terraform-patterns` SKILL.md, passed by the
+1. `context` — `.claude/otel-context.json` (team, confirmed `businessAttrs`, and other repo-wide
+   fields; see `service` below for which service to build FOR)
+2. `service` — the single service object the dispatching command selected from
+   `context.services` (its own Step 3, mirroring `/otel-instrument`'s identical `service` input).
+   **Build every selector, the dashboard uid, and folder/rule-group/alert names from THIS object
+   — never from `context.services[0]` or any other service you pick yourself.** Since schema 2
+   `context` holds `services[]`, plural; picking one yourself is exactly the #185 bug (a module
+   silently generated for whichever service your own reasoning favored, while the rest got
+   nothing and nobody was told).
+3. `backend` — one of: `grafana`, `datadog`, `newrelic`, `dash0`
+4. `output_dir` — default `infra/observability/<backend>/`; overridden by `--output-dir`
+5. `kind` — default `all`; one of `all`, `dashboard`, `alerts`, `slo`
+6. `experimental` — boolean, default false
+7. `terraformPatternsPath` — absolute path to the `terraform-patterns` SKILL.md, passed by the
    dispatching command; `Read` it for the per-backend patterns/gotchas (you have no `Skill` tool).
-7. `dryRun` (optional, default false) — when `true`, do NOT write the module files (and skip
+8. `dryRun` (optional, default false) — when `true`, do NOT write the module files (and skip
    `terraform fmt`/`validate`, which need files on disk). Generate as normal and return each file
    as a `{path, content}` object so the command can diff it against disk.
-8. `businessAttrsUnconfirmed` (optional, default false) — `true` when the command continued
+9. `businessAttrsUnconfirmed` (optional, default false) — `true` when the command continued
    without confirmed business attributes (`context.confirmedAt` is null). Add the extra header
    line shown under "Required header in every main.tf" so anyone reading the module later can
    see the queries and SLO targets were not built from confirmed attributes.
 
 ## Refuse a module with no real service
 
-A module is built from a service's identity (`name`, `version`, `namespace`): PromQL selectors,
-the dashboard uid, folder and rule-group names, and alert labels all come from it. If
-`context.services` is empty, or the service has no `name`, **write nothing and return the reason**
-("no service identity in the context: run /otel-init on an application repository"). Never keep a
-template placeholder such as `<SERVICE_NAME>` or `<SERVICE_VERSION>` as a variable default, and
-never invent an identity (`unknown-service`, `0.0.0`, one inferred from unrelated files). The
-result looks valid, but every selector matches nothing, so the dashboard is empty and an alert
-with `no_data_state = "OK"` reports a healthy service that does not exist (#164). The dispatching
-command applies the same rule first; this is the backstop for a stale cache or a direct call.
+A module is built from `service`'s identity (`name`, `version`, `namespace`): PromQL selectors,
+the dashboard uid, folder and rule-group names, and alert labels all come from it. If no `service`
+was passed, or it has no `name`, **write nothing and return the reason** ("no service identity in
+the context: run /otel-init on an application repository"). Never keep a template placeholder
+such as `<SERVICE_NAME>` or `<SERVICE_VERSION>` as a variable default, and never invent an
+identity (`unknown-service`, `0.0.0`, one inferred from unrelated files). The result looks valid,
+but every selector matches nothing, so the dashboard is empty and an alert with
+`no_data_state = "OK"` reports a healthy service that does not exist (#164). The dispatching
+command applies the same rule first (an empty `context.services`); this is the backstop for a
+stale cache or a direct call with a malformed `service`.
 
 ## kind parameter behavior
 
