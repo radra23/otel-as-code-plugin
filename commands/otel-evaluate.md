@@ -74,7 +74,80 @@ rather than auditing nothing.
 
 Read each file with the Read tool.
 
-## Step 3: Dispatch brownfield-auditor
+## Step 3: Verify the bootstrap actually initializes
+
+The auditor has **no `Bash` tool** (`Read`, `Grep`, `Glob` only), so it can only read whether a
+bootstrap's setup call is wrapped in a `try`/`except` (or `try`/`catch`) — it cannot tell whether
+that wrapper is CATCHING something. A setup function that raises and is silently swallowed
+leaves every provider on the OTel API's own no-op default: the app keeps running, nothing throws,
+and from source alone this reads identical to a correctly-guarded, correctly-initialized
+bootstrap. Reading `try`/`except` as a clean bill of health is exactly backwards — it is a reason
+to verify, not a reason to skip verifying (#194). This command has `Bash`; the auditor does not,
+so this check runs here and is passed down as a fact.
+
+Applies to **Node.js and Python** bootstraps only (the two the bug was reported against); skip
+for other languages. For each service with a non-empty `existingOtel.bootstrapFiles`:
+
+Run the smoke only if the SDK dependencies are installed (`node_modules` / the venv present). If
+not, DO NOT fail and DO NOT assume health — record `{"checked": false}` for that service and say
+verification was skipped. (Mirrors `/otel-instrument` Step 7's deferral, but the stakes differ: a
+deferred check there means "unverified since generation"; here it means "unknown — do not let the
+auditor imply this is healthy" #194.)
+
+The check: import the bootstrap, then ask each provider whether it is a REAL SDK-registered
+provider or still the API package's own no-op/proxy default. Verified empirically (Python
+`opentelemetry` 1.x, Node `@opentelemetry/api` 1.x): the default placeholder for every one of
+traces/metrics/logs lacks a working `shutdown` method; the real SDK-registered provider in both
+languages always has one. This is more robust than checking a class name (names drift across SDK
+versions — this project's own earlier attempt via `addSpanProcessor` did not survive contact with
+the installed package; `shutdown` did). Re-verify against the installed version if this ever
+looks wrong — do not assume it holds forever.
+
+- **Python** (`cd` to the service's `rootDir` first; adjust the import to the bootstrap's module
+  name without `.py`):
+  ```
+  python -c "
+  import <bootstrap_module>
+  from opentelemetry import trace, metrics
+  from opentelemetry import _logs
+  report = {}
+  for signal, provider in (
+      ('traces', trace.get_tracer_provider()),
+      ('metrics', metrics.get_meter_provider()),
+      ('logs', _logs.get_logger_provider()),
+  ):
+      report[signal] = hasattr(provider, 'shutdown')
+  print(report)
+  "
+  ```
+- **Node.js** (adjust the `require` path to the bootstrap file; `@opentelemetry/api-logs` may not
+  be a dependency — fall back to `{logs: null}` if the `require` throws):
+  ```
+  node -e "
+  require('./tracing.js');
+  const { trace, metrics } = require('@opentelemetry/api');
+  const report = {
+    traces: typeof trace.getTracerProvider().shutdown === 'function',
+    metrics: typeof metrics.getMeterProvider().shutdown === 'function',
+  };
+  try {
+    const { logs } = require('@opentelemetry/api-logs');
+    report.logs = typeof logs.getLoggerProvider().shutdown === 'function';
+  } catch { report.logs = null; }
+  console.log(JSON.stringify(report));
+  "
+  ```
+
+If the import itself throws (an escaping exception — the bootstrap has no fallback, or the
+fallback itself is broken), that is a DIFFERENT, more severe finding the auditor's existing
+checks already cover (a throw that breaks the app); record `{"checked": true, "importError":
+"<message>"}` for that service and let the auditor's own dimension 6 report it.
+
+Record the result per service as `bootstrapHealth[serviceId]` — `{"checked": bool, "traces":
+bool|null, "metrics": bool|null, "logs": bool|null}` (or the `importError` shape above) — to pass
+to the auditor in Step 4.
+
+## Step 4: Dispatch brownfield-auditor
 
 Pass to `otel-as-code:brownfield-auditor`:
 - `context`: loaded context JSON
@@ -92,8 +165,13 @@ Pass to `otel-as-code:brownfield-auditor`:
 - `cachedJudgements`: `services[i].derived` for each service — passed explicitly as **claims to
   re-verify, not findings to inherit**. Include each block's `guidanceVersion` so the auditor
   can see which predate the current `SEMCONV_VERSION`.
+- `bootstrapHealth`: the per-service result from Step 3 — passed as a **fact the auditor cannot
+  derive itself** (it has no `Bash` tool), the same relationship `cachedJudgements` has, just in
+  the opposite direction: that one is a claim to re-verify, this one is a verification already
+  done. `checked: false` means "unknown", not "healthy" — the auditor must say verification was
+  skipped, never imply a clean bill of health from an absent check (#194).
 
-## Step 4: Display the report
+## Step 5: Display the report
 
 Print the audit report returned by the subagent verbatim.
 
@@ -123,7 +201,7 @@ write anything above, so a later command can tell this judgement reflects THIS a
 last scan. Skip the cache write entirely if the auditor returned no `new`/`refuted`/`corrected`
 `CV`/`CR` findings — printing the report is enough when nothing changed.
 
-## Step 5: Offer next steps (but do NOT apply them)
+## Step 6: Offer next steps (but do NOT apply them)
 
 This report is read-only. Print the finding IDs alongside the options, so applying a subset is
 possible:

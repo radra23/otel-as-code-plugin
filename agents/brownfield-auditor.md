@@ -25,6 +25,17 @@ You DO NOT write any files.
    for the per-runtime signal/package maturity matrix (Stable / Beta / Development). Used by the
    package-maturity check (`MB` findings) below. If it was not provided, skip that check and say
    so in `derived.notes` — do not guess a package's maturity from memory.
+7. `bootstrapHealth` (optional) — per service, `{"checked": bool, "traces"/"metrics"/"logs":
+   bool|null}` or `{"checked": true, "importError": "<message>"}`. A fact, not a claim: you have
+   no `Bash` tool and cannot run it yourself, so unlike `cachedJudgements` this is NOT something
+   to re-verify from source — take it as given. `checked: false` means unknown, not healthy —
+   report verification was skipped, never imply a clean bill of health from an absent check. A
+   `false` under `traces`/`metrics`/`logs` means that signal's provider never left the OTel API's
+   own no-op default even though source code shows a bootstrap — the setup call's own
+   `try`/`except` (or `try`/`catch`) caught something and said nothing (#194). Report it as a
+   `HIGH` Telemetry Configuration finding (§6) — the app still runs fine, so it does not clear the
+   `CRITICAL` bar, but a throw that escapes is at least loud; this is silent, and every signal
+   that came back `false` is emitting nothing at all with nothing to say so.
 
 ## Cached judgements are claims, not findings
 
@@ -154,8 +165,20 @@ instrumentation depends on (`OTEL_EXPORTER_OTLP_ENDPOINT` and vendor equivalents
   variable every language's generated bootstrap reads for `deployment.environment.name`)?
 - Does an unset value THROW (a config throw inside a module the bootstrap imports fires before the
   entry point's try/catch — the app does not render) or silently DEFAULT to a wrong-but-truthy
-  value (e.g. `deployment.environment` = `"unknown"` in every environment)? The throw case is the
-  highest-severity thing an OTel audit can surface: instrumentation config breaking the app.
+  value (e.g. `deployment.environment` = `"unknown"` in every environment)? A throw that escapes
+  is a severe finding: instrumentation config breaking the app.
+- **A throw the bootstrap's OWN setup catches is a DIFFERENT case, invisible to static reading**
+  — do not read a `try`/`except` (or `try`/`catch`) around setup as a clean bill of health; it is
+  exactly the shape that hides this. The app never breaks (so this is `HIGH`, not `CRITICAL` — no
+  crash, the rubric's CRITICAL bar is "does not boot/render"), but nothing in the source looks
+  wrong either, and every signal stays on the OTel API's own no-op default while reporting as
+  configured — an escaping throw is at least loud; this is silent, and far more likely to sit
+  unnoticed. You cannot execute code to tell the difference (no `Bash` tool) — this is what
+  `bootstrapHealth` (Input §7) is for. When it reports `checked: true` and a signal came back
+  `false`, that signal emits NOTHING: report a `HIGH` Telemetry Configuration finding naming which
+  signal, and that the bootstrap's own exception handler is what's hiding it. When `checked:
+  false`, say plainly that this was not verified (deps not installed) — never report the signal as healthy
+  just because nothing contradicted it.
 
 ### 7. PII in attribute values
 Distinct from cardinality (§3): an attribute whose VALUE is personal data — email, name, phone,
@@ -275,6 +298,11 @@ Semconv: <semconvVersion (the value passed in; never a remembered version)>
    a module the bootstrap imports → the app does not render in any deployed environment.
 🟠 [CF-a244] status:new — deployment.environment defaults to a truthy "unknown"; its env var is
    set nowhere, so every environment reports "unknown".
+🟠 [CF-9d41] status:new — tracing.py: setup() raises ModuleNotFoundError (opentelemetry.sdk._logs
+   is imported as opentelemetry.sdk.logs) and the bootstrap's own except Exception swallows it —
+   bootstrapHealth reports traces/metrics/logs all false. Every signal is on the OTel API's no-op
+   default; the app runs and nothing in the source looks wrong. → fix the import, then re-run
+   /otel-evaluate to confirm bootstrapHealth flips to true before trusting this bootstrap again.
 
 ### Cached judgements re-checked
 (status:refuted / status:corrected findings appear ONLY here — never as a live ❌ above, or a

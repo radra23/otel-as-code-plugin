@@ -1027,5 +1027,35 @@ check "#185 terraform-gen refuses on a missing/malformed service, never picks it
 check "#185 terraform-gen's no-real-service refusal checks the service input, not context.services" \
   'grep -qF "If no \`service\`" "$TFGEN"'
 
+# --- #194: a bootstrap whose setup catches its own exception reads as healthy from source alone -
+EVALCMD="commands/otel-evaluate.md"
+AUDITOR2="agents/brownfield-auditor.md"
+SILENTFX="fixtures/python-silent-bootstrap-failure"
+
+check "#194 /otel-evaluate adds a bootstrap-health verification step (the command has Bash)" \
+  'grep -qF "Verify the bootstrap actually initializes" "$EVALCMD"'
+check "#194 the check is reasoned around the no-op provider lacking a working shutdown method" \
+  'grep -qF "lacks a working \`shutdown\` method" "$EVALCMD"'
+check "#194 deps-absent defers rather than assuming health (checked: false, not healthy)" \
+  'grep -qF "{\"checked\": false}" "$EVALCMD" && grep -qiE "do not assume health" "$EVALCMD"'
+check "#194 the result is passed to the auditor as bootstrapHealth" \
+  'grep -qF "\`bootstrapHealth\`: the per-service result from Step 3" "$EVALCMD"'
+check "#194 auditor's Input defines bootstrapHealth as a fact, not a claim to re-derive" \
+  'grep -qF "NOT something" "$AUDITOR2" && grep -qF "take it as given" "$AUDITOR2"'
+check "#194 a try/except around setup must NOT be read as a clean bill of health" \
+  'grep -qiE "do not read a .try./.except. \(or .try./.catch.\) around setup as a clean bill of" "$AUDITOR2"'
+check "#194 a caught-and-silenced signal is reported HIGH, correctly below the CRITICAL (crash) bar" \
+  'grep -qF "HIGH\` Telemetry Configuration finding" "$AUDITOR2" \
+     && grep -qF "does not clear the" "$AUDITOR2" && grep -qF "\`CRITICAL\` bar" "$AUDITOR2"'
+check "#194 checked:false is reported as unverified, never as healthy" \
+  'grep -qiE "checked: false. means unknown, not healthy" "$AUDITOR2"'
+
+check "#194 fixture's setup() wraps the broken import in its own try/except (the repro)" \
+  'grep -q "try:" "$SILENTFX/tracing.py" && grep -q "except Exception" "$SILENTFX/tracing.py"'
+check "#194 fixture's pyproject.toml pins OTel with minimum-version floors only (>=)" \
+  'grep -qE "opentelemetry-sdk>=" "$SILENTFX/pyproject.toml"'
+check "#194 fixture carries the exact wrong import that raises under current SDK versions" \
+  'grep -qF "from opentelemetry.sdk.logs import LoggerProvider" "$SILENTFX/tracing.py"'
+
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
