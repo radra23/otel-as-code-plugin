@@ -314,7 +314,19 @@ found none.
    Then set two booleans — they answer DIFFERENT questions; one flag cannot carry both without
    hiding an already-instrumented service as "nothing to do here":
    - `generatorSupported` — can `instrumentation-gen` emit a bootstrap for this runtime today?
-     `true` for `node`, `python`, `jvm`. For `dotnet` it is `true` **only when the project has a
+     `true` for `node`, `python`, `jvm` — **except a batch job**, which `jvm` otherwise collapses
+     into indistinguishably from a long-running server (#210). The Java agent attaches to one
+     process; a Spark job runs a driver AND many short-lived executor JVMs the agent never
+     touches, and without a forced flush before exit the last batch of telemetry is lost — the
+     same class of problem as Next.js's SIGTERM handling (#173), but there is no generator yet to
+     add that flush. Detect a batch job from ANY of: `spark-submit` referenced in a Dockerfile
+     `CMD`/`ENTRYPOINT` or a deploy script; `SparkSession` imported/constructed in the source; an
+     `org.apache.spark` dependency group in `pom.xml`/`build.gradle`; a `SparkApplication` CRD in
+     a k8s manifest; or the workload's own k8s manifest being `kind: CronJob` / `kind: Job` rather
+     than `Deployment`/`StatefulSet`. Any of these → `generatorSupported: false`, `inScope: true`
+     (it is still a first-class candidate for `/otel-evaluate` and, once a batch generator exists,
+     for `/otel-instrument`) — do not default to `true` just because the language is supported;
+     the workload SHAPE, not the language, is what the Java agent can't fit here. For `dotnet` it is `true` **only when the project has a
      host builder to extend**: the .NET generator wires into an `IServiceCollection`, and a
      project without one (a console app, a class library, a test project) has nothing to receive
      it. This is a THIRD precondition the other three languages don't have — their bootstraps
@@ -391,7 +403,8 @@ found none.
      or `"generatorSupported:false — no php generator yet (#117); inScope:true (first-class OTel runtime, audit with /otel-evaluate)"`,
      or `"generatorSupported:false — actix-web found; rust instrumentation covers axum 0.8 only (actix-web is planned, not yet supported); inScope:true"` (naming whichever rust shape was actually found: `axum 0.7`, `rocket`, `no axum::serve call`, `opentelemetry already in Cargo.toml — audit with /otel-evaluate`),
      or `"generatorSupported:false, inScope:false — rust library crate (src/lib.rs, no binary target); instrument the application that depends on it"`,
-     or `"generatorSupported:false — github.com/gin-gonic/gin required; go instrumentation only covers net/http-compatible frameworks today (chi, gorilla/mux); inScope:true"` (naming whichever of gin/echo/fiber was actually found).
+     or `"generatorSupported:false — github.com/gin-gonic/gin required; go instrumentation only covers net/http-compatible frameworks today (chi, gorilla/mux); inScope:true"` (naming whichever of gin/echo/fiber was actually found),
+     or `"generatorSupported:false — Spark batch job (spark-submit / SparkSession / org.apache.spark); the Java agent attaches to one process and misses executor JVMs, with no flush-before-exit generator yet; inScope:true, audit with /otel-evaluate"` (naming whichever batch signal was actually found: `spark-submit`, `SparkSession`, `org.apache.spark`, a `SparkApplication` CRD, or `kind: CronJob`/`kind: Job`).
 
 4. Determine `host` — **how the process is started**, which decides whether an inbound HTTP
    server exists at all, and where deployment-side OTLP settings have to be written:

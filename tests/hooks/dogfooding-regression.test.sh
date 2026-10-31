@@ -1125,5 +1125,29 @@ for fx in "$FASTIFYFX" "$KOAFX" "$NESTFX"; do
     "! grep -rqi opentelemetry $fx"
 done
 
+# --- #210: a Spark/batch workload must not collapse into generatorSupported:true for jvm --------
+SPARKFX="fixtures/java-spark-batch-job"
+
+check "#210 jvm's generatorSupported:true carries an explicit batch-job exception" \
+  'grep -qF "\`jvm\` — **except a batch job**" "$SCANNER"'
+check "#210 all four batch signals are named: spark-submit, SparkSession, org.apache.spark, CronJob/Job" \
+  'grep -qF "\`spark-submit\`" "$SCANNER" && grep -qF "\`SparkSession\`" "$SCANNER" \
+     && grep -qF "\`org.apache.spark\`" "$SCANNER" && grep -qF "\`kind: CronJob\`" "$SCANNER"'
+check "#210 a detected batch job is generatorSupported:false but still inScope:true" \
+  'grep -qF "generatorSupported: false\`, \`inScope: true\`" "$SCANNER"'
+check "#210 instrumentableReason example names the Spark/batch shape" \
+  'grep -qF "Spark batch job (spark-submit / SparkSession / org.apache.spark)" "$SCANNER"'
+
+check "#210 fixture's pom.xml carries the org.apache.spark dependency group (the trap)" \
+  'grep -q "<groupId>org.apache.spark</groupId>" "$SPARKFX/pom.xml"'
+check "#210 fixture's source constructs a SparkSession" \
+  'grep -rq "SparkSession" "$SPARKFX/src"'
+check "#210 fixture's Dockerfile ENTRYPOINT runs spark-submit" \
+  'grep -q "spark-submit" "$SPARKFX/Dockerfile"'
+check "#210 fixture's k8s manifest is a CronJob, not a Deployment" \
+  'grep -q "kind: CronJob" "$SPARKFX/k8s/cronjob.yaml"'
+check "#210 fixture stays greenfield (no OTel dep)" \
+  '! grep -rqi opentelemetry "$SPARKFX"'
+
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
