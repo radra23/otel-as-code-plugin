@@ -1,0 +1,14 @@
+{
+  "name": "payments-api",
+  "version": "1.0.0",
+  "description": "Payments service built on NestJS, using Fastify as its underlying HTTP adapter",
+  "main": "dist/main.js",
+  "scripts": {
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@nestjs/core": "^10.4.0",
+    "@nestjs/common": "^10.4.0",
+    "@nestjs/platform-fastify": "^10.4.0"
+  }
+}

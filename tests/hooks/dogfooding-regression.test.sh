@@ -1098,5 +1098,32 @@ check "#191 the two OTEL_EXPORTER_OTLP_ENDPOINT hops are explicitly distinguishe
 check "#191 the app-side line is explicitly labeled as the other hop" \
   'grep -qF "NOT the line above" "$COLLECTOR_CMD"'
 
+# --- #188: fastify/koa/nestjs had no detection rule, although instrumentation-gen branches on them
+FASTIFYFX="fixtures/nodejs-fastify-app"
+KOAFX="fixtures/nodejs-koa-app"
+NESTFX="fixtures/nodejs-nestjs-app"
+
+check "#188 framework enum names fastify/koa/nestjs in the prose (not just the schema)" \
+  'grep -qF "\`express\`, \`fastify\`, \`koa\`, \`nestjs\`" "$SCANNER"'
+check "#188 nestjs is detected from @nestjs/core, never a literal nestjs dependency" \
+  'grep -qF "@nestjs/core" "$SCANNER" && grep -qiE "Nest.s packages are scoped" "$SCANNER"'
+check "#188 nestjs is checked BEFORE fastify (platform-fastify must not win)" \
+  'grep -qiE "Check \`nestjs\` FIRST, before \`fastify\`" "$SCANNER"'
+check "#188 the don't-collapse count was updated to include all three new values" \
+  'grep -qF "these ten to \`other\`" "$SCANNER" && grep -qF "fastify\`/\`koa\`/\`nestjs\`" "$SCANNER"'
+check "#188 schema framework enum carries fastify/koa/nestjs too" \
+  'grep -qF "<express|fastify|koa|nestjs|fastapi" "$SCANNER"'
+
+check "#188 fastify fixture carries the literal fastify dependency (the trap)" \
+  'grep -q "\"fastify\":" "$FASTIFYFX/package.json"'
+check "#188 koa fixture carries the literal koa dependency (the trap)" \
+  'grep -q "\"koa\":" "$KOAFX/package.json"'
+check "#188 nestjs fixture carries BOTH @nestjs/core AND @nestjs/platform-fastify (the priority trap)" \
+  'grep -q "@nestjs/core" "$NESTFX/package.json" && grep -q "@nestjs/platform-fastify" "$NESTFX/package.json"'
+for fx in "$FASTIFYFX" "$KOAFX" "$NESTFX"; do
+  check "#188 $(basename "$fx") stays greenfield (no OTel dep)" \
+    "! grep -rqi opentelemetry $fx"
+done
+
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

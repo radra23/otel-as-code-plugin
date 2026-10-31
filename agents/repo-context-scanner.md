@@ -208,8 +208,21 @@ found none.
      disagreement is the manifest being wrong about what the service reports, not two peer sources
      disagreeing.)
    - `language`: `nodejs`, `python`, `go`, `java`, `dotnet`, `ruby`, `php`, `rust`, `other`
-   - `framework`: `express`, `fastapi`, `django`, `flask`, `gin`, `spring`, `rails`, `nextjs`,
-     `nuxt`, `axum`, `aspnetcore`, `minimal-api`, `blazor`, `other`, `unknown`. Detect the Node SSR
+   - `framework`: `express`, `fastify`, `koa`, `nestjs`, `fastapi`, `django`, `flask`, `gin`,
+     `spring`, `rails`, `nextjs`, `nuxt`, `axum`, `aspnetcore`, `minimal-api`, `blazor`, `other`,
+     `unknown`. Detect `fastify` and `koa` from a dependency literally named `fastify` / `koa` —
+     the npm package name IS the enum value, same as `express`. Detect `nestjs` from `@nestjs/core`
+     (or any `@nestjs/platform-*` package) — NOT a literal `nestjs` dependency, which does not
+     exist; Nest's packages are scoped. **Check `nestjs` FIRST, before `fastify`**: a Nest app
+     commonly depends on `@nestjs/platform-fastify` as its underlying HTTP adapter, invisible to
+     application code behind Nest's own decorators/DI — that dependency being present means
+     `framework: nestjs`, never `fastify`. None of these three need a framework-specific
+     instrumentation path (unlike the Node SSR meta-frameworks below) — `instrumentation-gen`
+     already treats `fastify`/`koa`/`nestjs` the same as `express`/`other`, so the generic
+     top-of-entry bootstrap applies; the enum simply had no detection rule for them, so a service
+     using any of the three always fell to `other` even though the scanner's own runtime table
+     (below) already uses the exact same `fastify`/`koa` dependency names as Node evidence and
+     then discarded the signal (#188). Detect the Node SSR
      meta-frameworks explicitly — `nextjs` from a
      `next` dependency together with an `instrumentation.{ts,js}` hook and/or a `next.config.*`
      file; `nuxt` from a `nuxt` dependency and/or `nuxt.config.*` — because they need a
@@ -232,7 +245,8 @@ found none.
        - `minimal-api` — `Microsoft.NET.Sdk.Web` plus a `WebApplication.CreateBuilder` call and at
          least one `app.Map(Get|Post|Put|Delete|Patch)(` call, with NO `AddControllers(`/
          `MapControllers(` — routes are declared inline, there is no controller class to wrap.
-     Do not collapse any of these seven to `other` — the four above plus these three.
+     Do not collapse any of these ten to `other` — the four above, the three .NET shapes, and
+     `fastify`/`koa`/`nestjs`.
    - `frameworkVersion`: the framework's own version string (NOT `languageVersion`), when directly
      readable from a manifest — e.g. Next.js from the `next` dependency in `package.json`. Record
      the stated string as-is (`"^14.2.0"`, not a resolved `"14.2.0"`); do not attempt semver
@@ -557,7 +571,7 @@ Return ONLY the following JSON object. No explanation, no preamble, no markdown 
       "host": "<standalone|container|kubernetes|azure-functions|azure-app-service|aws-lambda|gcp-cloud-functions|static-hosting|unknown>",
       "hostSource": "<the specific evidence, e.g. file:host.json>",
       "hostConfidence": 0.9,
-      "framework": "<express|fastapi|django|flask|gin|spring|rails|nextjs|nuxt|axum|aspnetcore|minimal-api|blazor|other|unknown>",
+      "framework": "<express|fastify|koa|nestjs|fastapi|django|flask|gin|spring|rails|nextjs|nuxt|axum|aspnetcore|minimal-api|blazor|other|unknown>",
       "frameworkVersion": null,
       "runnableEntry": "<main entry file>",
       "hasDockerfile": true,
