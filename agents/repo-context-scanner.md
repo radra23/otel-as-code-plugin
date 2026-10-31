@@ -505,7 +505,17 @@ found none.
      the data files that drive them. `/otel-evaluate` reads them (an audit has to see them);
      `/otel-instrument` never offers them for overwrite. Record the importers of each call-site
      helper too, not just the first one found, so the auditor does not report a helper with
-     "one importer" when two files call it.
+     "one importer" when two files call it. **For .NET, also follow the host project's
+     `<ProjectReference>` items and glob each referenced project's directory too** — a
+     vertical-slice solution routinely puts the actual `ActivitySource`/`Meter` code in a sibling
+     `Domain`/`Infrastructure` class library, which sits OUTSIDE `rootDir` entirely (library
+     projects are `inScope: false` in their own right — see the host-builder rule above — but
+     their OTel code still belongs to the application that references them, and `rootDir`-only
+     globbing never sees it: #205). Read the `<ProjectReference Include="...">` paths straight
+     out of the host `.csproj` (resolve relative to it); there is no depth limit — follow a
+     referenced library's OWN `<ProjectReference>`s too, since a Domain project can itself
+     reference a lower-level Common/Shared one. Record the paths repo-relative as always; they do
+     not need to be under `rootDir` to belong in `bootstrapFiles`/`apiCallSites`.
    - `wiredInto`: files that import or preload those bootstrap files (entry points,
      `node -r` flags in `scripts`, Dockerfile `CMD`). An OTel module nothing imports is
      instrumentation that never runs — a fact worth recording plainly.

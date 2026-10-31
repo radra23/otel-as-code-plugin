@@ -1166,5 +1166,22 @@ check "#184 the .NET pin is current (1.20.1) in both the generator and its golde
   '[ "$(grep -c "1\.20\.1" agents/instrumentation-gen.md)" -ge 4 ] \
      && [ "$(grep -c "1\.20\.1" tests/snapshots/instrument/dotnet/checkout-api.csproj)" -eq 4 ]'
 
+# --- #205: .NET OTel call sites in a sibling Domain/Infrastructure project were missed ----------
+SIBLINGFX="fixtures/dotnet-sibling-projects"
+
+check "#205 scanner follows the host's ProjectReference items for existingOtel detection" \
+  'grep -qF "also follow the host project" "$SCANNER" && grep -qF "\`<ProjectReference>\` items" "$SCANNER"'
+check "#205 recorded paths need not be under rootDir" \
+  'grep -qF "need to be under \`rootDir\`" "$SCANNER"'
+check "#205 ProjectReference following has no depth limit (nested library references too)" \
+  'grep -qiE "no depth limit" "$SCANNER"'
+
+check "#205 fixture's host Api.csproj references the sibling Api.Domain project (the trap)" \
+  'grep -q "ProjectReference Include=\"../Api.Domain/Api.Domain.csproj\"" "$SIBLINGFX/src/Api/Api.csproj"'
+check "#205 fixtures ActivitySource lives in Api.Domain, outside Api own rootDir" \
+  'grep -rq "new ActivitySource" "$SIBLINGFX/src/Api.Domain" && ! grep -rq "new ActivitySource" "$SIBLINGFX/src/Api"/*.cs'
+check "#205 fixture stays greenfield (no OTel package reference)" \
+  '! grep -rqiE "Include=\"OpenTelemetry" "$SIBLINGFX"'
+
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
