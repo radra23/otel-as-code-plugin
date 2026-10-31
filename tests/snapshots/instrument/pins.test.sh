@@ -116,7 +116,7 @@ check ".NET pins match generator" 'pins_match_dotnet tests/snapshots/instrument/
 # drift into a throwaway copy of the golden csproj and assert the guard reports failure.
 check ".NET pin guard catches version drift (teeth check)" '
   tmp=$(mktemp -d)
-  sed -E "s/(Include=\"OpenTelemetry.Instrumentation.Http\" Version=\")1\.18\.0\"/\1""9.999.0\"/" \
+  sed -E "s/(Include=\"OpenTelemetry.Instrumentation.Http\" Version=\")1\.20\.1\"/\1""9.999.0\"/" \
     tests/snapshots/instrument/dotnet/checkout-api.csproj > "$tmp/x.csproj"
   drift_injected=0
   grep -qF "Include=\"OpenTelemetry.Instrumentation.Http\" Version=\"9.999.0\"" "$tmp/x.csproj" && drift_injected=1

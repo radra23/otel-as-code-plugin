@@ -38,6 +38,15 @@ golden_py = dict(_re.findall(r"^(opentelemetry-[^>=\s]+)>=(\S+)$", open("tests/s
 check(f"python golden requirements match the generator pins ({len(golden_py)})", golden_py and golden_py == pp)
 if golden_py != pp:
     print("  generator:", pp); print("  golden:   ", golden_py)
+dp = dict(d.dotnet_pins())
+check("dotnet pins parsed (OpenTelemetry.Extensions.Hosting)", "OpenTelemetry.Extensions.Hosting" in dp)
+# Same idea as the node/python checks above: the golden .csproj must pin exactly what the
+# generator pins (#184 — .NET had no drift coverage at all until this parser existed).
+golden_csproj = open("tests/snapshots/instrument/dotnet/checkout-api.csproj").read()
+golden_dotnet = dict(_re.findall(r'Include="(OpenTelemetry[^"]*)" Version="([^"]+)"', golden_csproj))
+check(f"dotnet golden csproj matches the generator pins ({len(golden_dotnet)})", golden_dotnet and golden_dotnet == dp)
+if golden_dotnet != dp:
+    print("  generator:", dp); print("  golden:   ", golden_dotnet)
 rp = dict(d.rust_pins())
 check("rust pins parsed from the generator's marked block (tower with features, plain, table forms)",
       rp.get("opentelemetry") == "0.33" and rp.get("opentelemetry-instrumentation-tower") == "0.19"

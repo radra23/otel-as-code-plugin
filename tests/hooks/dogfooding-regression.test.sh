@@ -1149,5 +1149,22 @@ check "#210 fixture's k8s manifest is a CronJob, not a Deployment" \
 check "#210 fixture stays greenfield (no OTel dep)" \
   '! grep -rqi opentelemetry "$SPARKFX"'
 
+# --- #184: drift_check.py had no NuGet source, so .NET pins were invisible to every report ------
+DRIFTPY="scripts/drift_check.py"
+
+check "#184 drift_check.py defines a NuGet lookup" \
+  'grep -qF "def latest_nuget(pkg):" "$DRIFTPY"'
+check "#184 drift_check.py parses the .NET pins from instrumentation-gen.md" \
+  'grep -qF "def dotnet_pins():" "$DRIFTPY"'
+check "#184 main() wires dotnet_pins into the report, not just defines it" \
+  'grep -qF "for pkg, pinned in dotnet_pins():" "$DRIFTPY"'
+check "#184 the module docstring lists .NET alongside the other ecosystems it checks" \
+  'grep -qF ".NET OTel SDK packages" "$DRIFTPY"'
+check "#184 no .NET pin location still reads the stale 1.18.0" \
+  '! grep -q "1\.18\.0" agents/instrumentation-gen.md tests/snapshots/instrument/dotnet/checkout-api.csproj'
+check "#184 the .NET pin is current (1.20.1) in both the generator and its golden, in lockstep" \
+  '[ "$(grep -c "1\.20\.1" agents/instrumentation-gen.md)" -ge 4 ] \
+     && [ "$(grep -c "1\.20\.1" tests/snapshots/instrument/dotnet/checkout-api.csproj)" -eq 4 ]'
+
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

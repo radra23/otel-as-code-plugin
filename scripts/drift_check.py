@@ -6,6 +6,7 @@ reports what is behind:
   - OTel semconv spec        (SEMCONV_VERSION vs the semantic-conventions GitHub release)
   - Node OTel SDK packages   (agents/instrumentation-gen.md pins vs the npm registry)
   - Python OTel SDK packages (agents/instrumentation-gen.md pins vs PyPI)
+  - .NET OTel SDK packages   (agents/instrumentation-gen.md pins vs NuGet)
   - Terraform providers       (snapshot required_providers major vs the Terraform registry)
   - OTel Collector (contrib)  (tests/collector-validate.sh pin vs the collector-releases GitHub release)
   - Semconv GUIDANCE          (the OLD->NEW table vs the upstream attribute registry at the pin)
@@ -46,6 +47,16 @@ def latest_pypi(pkg):
 
 def latest_crate(name):
     return fetch_json(f"https://crates.io/api/v1/crates/{name}")["crate"]["max_stable_version"]
+
+
+def latest_nuget(pkg):
+    """Highest STABLE version on nuget.org. The flat-container index lists every version ever
+    published, ascending, with no "latest" field and no stable/prerelease split (unlike npm's
+    /latest or crates.io's max_stable_version) — prerelease versions carry a `-` suffix
+    (`1.21.0-rc.1`), so filter those out before taking the last one."""
+    versions = fetch_json(f"https://api.nuget.org/v3-flatcontainer/{pkg.lower()}/index.json")["versions"]
+    stable = [v for v in versions if "-" not in v]
+    return stable[-1] if stable else versions[-1]
 
 
 def latest_tf(source):  # e.g. "grafana/grafana"
@@ -219,6 +230,16 @@ def python_pins():
     return re.findall(r'"(opentelemetry-[^">=]+)>=([0-9][^"]*)"', _read("agents/instrumentation-gen.md"))
 
 
+def dotnet_pins():
+    """(package, version) for each `dotnet add package <id>  # <version>` line in the .NET
+    section of instrumentation-gen.md — the comment carries the pin, since `dotnet add` itself
+    takes no version argument in the generated command. #184: this plugin pinned .NET packages
+    but had no NuGet source, so they were invisible to every drift report."""
+    return re.findall(
+        r"dotnet add package (OpenTelemetry\.[A-Za-z.]+)\s+#\s*([0-9][0-9.]*)",
+        _read("agents/instrumentation-gen.md"))
+
+
 def rust_pins():
     """(crate, requirement) for each line of the marked Cargo.toml block in the Rust section of
     instrumentation-gen.md, which is the one place the Rust pins are written down."""
@@ -289,6 +310,9 @@ def main():
     for pkg, pinned in python_pins():
         latest, err = safe(latest_pypi, pkg)
         add(f"pypi {pkg}", pinned, latest, err)
+    for pkg, pinned in dotnet_pins():
+        latest, err = safe(latest_nuget, pkg)
+        add(f"nuget {pkg}", pinned, latest, err)
     for crate, pinned in rust_pins():
         latest, err = safe(latest_crate, crate)
         add(f"crates.io {crate}", pinned, latest, err, cmp=behind_compatible)

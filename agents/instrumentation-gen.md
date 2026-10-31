@@ -1156,10 +1156,10 @@ verified-current stable line — keep them in step with `tests/snapshots/instrum
 which `pins.test.sh` diffs against this file):
 
 ```
-dotnet add package OpenTelemetry.Extensions.Hosting          # 1.18.0
-dotnet add package OpenTelemetry.Instrumentation.AspNetCore  # 1.18.0
-dotnet add package OpenTelemetry.Instrumentation.Http        # 1.18.0
-dotnet add package OpenTelemetry.Exporter.OpenTelemetryProtocol  # 1.18.0
+dotnet add package OpenTelemetry.Extensions.Hosting          # 1.20.1
+dotnet add package OpenTelemetry.Instrumentation.AspNetCore  # 1.20.1
+dotnet add package OpenTelemetry.Instrumentation.Http        # 1.20.1
+dotnet add package OpenTelemetry.Exporter.OpenTelemetryProtocol  # 1.20.1
 ```
 
 Do not assert in a comment which types these packages export (per the version-claims rule) —
