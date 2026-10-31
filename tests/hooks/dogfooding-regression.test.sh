@@ -1057,5 +1057,35 @@ check "#194 fixture's pyproject.toml pins OTel with minimum-version floors only 
 check "#194 fixture carries the exact wrong import that raises under current SDK versions" \
   'grep -qF "from opentelemetry.sdk.logs import LoggerProvider" "$SILENTFX/tracing.py"'
 
+# --- #177: a header claiming "otel-as-code v0.1.0" is eight-plus minor versions stale ------------
+# Scoped to the exact contiguous phrase, not bare "0.1.0" — ROADMAP.md's "0.1.0 MVP — shipped"
+# milestone reference and every SKILL.md's own frontmatter `version: 0.1.0` are unrelated and
+# legitimately unaffected by this fix; only a HEADER stamping this literal phrase is the bug.
+check "#177 no file anywhere stamps the literal 'otel-as-code v0.1.0' header" \
+  '! grep -rq "otel-as-code v0\.1\.0" \
+     --include="*.md" --include="*.cs" --include="*.snap" --include="*.js" --include="*.py" \
+     --include="*.go" --include="*.rb" --include="*.env" \
+     commands/ agents/ skills/ tests/snapshots/'
+check "#177 scanner's Input defines pluginVersion, copied verbatim (mirrors #202's scanTime)" \
+  'grep -qF "\`pluginVersion\` — the installed plugin" "$SCANNER" \
+     && grep -qF "never a literal placeholder" "$SCANNER"'
+check "#177 every one of the 8 scanner-dispatching commands passes pluginVersion" \
+  '( for f in commands/otel-init.md commands/otel-evaluate.md commands/otel-remediate.md \
+       commands/otel-collector.md commands/otel-backend.md commands/otel-business-attrs.md \
+       commands/otel-uninstrument.md commands/otel-instrument.md; do \
+         grep -q "pluginVersion" "$f" || exit 1; \
+       done )'
+check "#177 instrumentation-gen's Input defines pluginVersion, stamped into <PLUGIN_VERSION>" \
+  'grep -qF "Stamp it into the" agents/instrumentation-gen.md \
+     && grep -qF "<PLUGIN_VERSION>\` header placeholder" agents/instrumentation-gen.md'
+check "#177 terraform-gen's Input defines pluginVersion the same way" \
+  'grep -qF "<PLUGIN_VERSION>\` placeholder; you cannot read" agents/terraform-gen.md'
+check "#177 otel-collector.md reads plugin.json itself (direct write, no subagent)" \
+  'grep -qF "read the \`version\` field from" commands/otel-collector.md \
+     && grep -qF "ACTUAL installed version" commands/otel-collector.md'
+check "#177 golden snapshots show the CURRENT installed plugin version, not a stale literal" \
+  'PLUGVER=$(python3 -c "import json; print(json.load(open(\".claude-plugin/plugin.json\"))[\"version\"])"); \
+   [ "$(grep -rl "otel-as-code v${PLUGVER}" tests/snapshots/ | wc -l)" -eq 13 ]'
+
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

@@ -77,11 +77,15 @@ costs minutes per command for nothing.
 
 Dispatch the `otel-as-code:repo-context-scanner` subagent with the repo root as context.
 
-The subagent has **no clock and no `Skill` tool** — pass it both explicitly, or it invents a
-midnight timestamp and guesses the high-cardinality list:
+The subagent has **no clock, no way to read `plugin.json`, and no `Skill` tool** — pass all
+three explicitly, or it invents a midnight timestamp, an eight-version-stale literal, and guesses
+the high-cardinality list:
 - `scanTime`: run `date -u +%Y-%m-%dT%H:%M:%SZ` and pass its output. Without this the subagent
   stamps `scannedAt` and every `observedAt`/`derivedAt` from the schema's `<ISO-8601>` example,
   which reads as the date at midnight — making two same-day scans indistinguishable (#202).
+- `pluginVersion`: read the `version` field from `${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json`
+  and pass it. Without this the subagent stamps `pluginVersion` from the schema's `0.1.0` example
+  literal, so a cache written today claims a release eight-plus minor versions old (#177).
 - `semconvVersion`: the `SEMCONV_VERSION` value from the `semconv-discipline` skill (read it here
   first — you, the command, can).
 - `semconvGuidancePath`: `${CLAUDE_PLUGIN_ROOT}/skills/semconv-discipline/SKILL.md` (an absolute

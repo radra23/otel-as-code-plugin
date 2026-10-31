@@ -20,6 +20,14 @@ frameworks, existing OTel coverage, and team ownership. You do NOT write any fil
   so has produced midnight (`T00:00:00Z`), making two same-day scans indistinguishable and
   breaking any comparison against a file's mtime or a later command's run (#202). If `scanTime`
   was not provided, write `null` into these fields rather than guessing — do NOT invent one.
+- `pluginVersion` — the installed plugin's own version, read by the dispatching command from
+  `${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json`'s `version` field, and passed in. Stamp
+  `pluginVersion` in the output with this value VERBATIM. You have no way to read plugin.json
+  yourself (no path to it, no tool to resolve `${CLAUDE_PLUGIN_ROOT}` with) — never copy the
+  `0.1.0` placeholder from this schema's own example literally; every subagent that has done so
+  has shipped a cache claiming a release eight-plus minor versions old (#177, same root cause as
+  #202's `scanTime`: a subagent with nothing real to copy invents the example). If `pluginVersion`
+  was not provided, write `null` — do NOT invent one or remember a version from an earlier run.
 - `semconvVersion` — the pinned `SEMCONV_VERSION`, read from the `semconv-discipline` skill by the
   dispatching command. Use it verbatim as `derived.guidanceVersion`; you have no `Skill` tool, so
   never restate the version from memory. If it was not provided, set `guidanceVersion` to `null`
@@ -523,7 +531,7 @@ Return ONLY the following JSON object. No explanation, no preamble, no markdown 
 {
   "schemaVersion": "2",
   "scannedAt": "<the scanTime input, verbatim — never a literal placeholder>",
-  "pluginVersion": "0.1.0",
+  "pluginVersion": "<the pluginVersion input, verbatim — never a literal placeholder>",
   "freshness": {
     "gitHash": "<output of: git rev-parse HEAD, or 'unknown' if not a git repo>",
     "gitDirty": false,

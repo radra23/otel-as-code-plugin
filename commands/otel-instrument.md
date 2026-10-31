@@ -45,8 +45,9 @@ Check `.claude/otel-context.json`. Apply the freshness rule from `/otel-init` St
 - Run `/otel-init` logic inline — dispatch `otel-as-code:repo-context-scanner` **passing the
   existing cache as `priorContext`** so confirmed answers survive, and write what it returns.
   A refresh is a merge, never a replace (see `agents/repo-context-scanner.md`). Pass the same
-  `scanTime` + `semconvVersion` + `semconvGuidancePath` inputs `/otel-init` Step 2 does — the
-  scanner has no clock and no `Skill` tool, and cannot read the guidance or the time itself.
+  `scanTime` + `pluginVersion` + `semconvVersion` + `semconvGuidancePath` inputs `/otel-init`
+  Step 2 does — the scanner has no clock, no way to read `plugin.json`, and no `Skill` tool, and
+  cannot read the guidance, the time, or its own installed version itself.
 - Do NOT print the /otel-init success message; just run the scan silently.
 
 If the scan or the cache has **no services**, apply `/otel-init` Step 2's "Empty scan" rule:
@@ -213,6 +214,9 @@ Pass to `otel-as-code:instrumentation-gen`:
 - `experimental`: boolean from --experimental flag
 - `semconvVersion`: the `SEMCONV_VERSION` from the `semconv-discipline` skill (the subagent has no
   `Skill` tool; it stamps this into the header and must not restate it from memory)
+- `pluginVersion`: the `version` field from `${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json` —
+  the subagent cannot read that file itself; it stamps this into the header's `<PLUGIN_VERSION>`
+  placeholder and must never copy the literal `v0.1.0` shown in its own template (#177)
 - `languageMaturityPath`: `${CLAUDE_PLUGIN_ROOT}/skills/language-maturity/SKILL.md` — the subagent
   `Read`s it for the per-language signal-maturity matrix
 - `existingArtifacts`: the paths resolved in Step 4
