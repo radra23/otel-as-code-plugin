@@ -181,10 +181,19 @@ If not on PATH, print: "otelcol-contrib not found on PATH. To validate manually:
 To run a local Collector:
   docker run --rm \
     -p 4317:4317 -p 4318:4318 \
+    -e OTEL_EXPORTER_OTLP_ENDPOINT=<your gateway or backend OTLP endpoint> \
     -v $(pwd)/<filename>:/etc/otelcol-contrib/config.yaml \
     otel/opentelemetry-collector-contrib:latest
 
-Set in your app: OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+This OTEL_EXPORTER_OTLP_ENDPOINT is the COLLECTOR's own upstream (where IT forwards to —
+a gateway or your backend) — the exporter block in <filename> reads it, and otelcol-contrib
+refuses to start without it (`exporters::otlp: requires a non-empty "endpoint"`). It is a
+DIFFERENT hop from the next line, which is your SDK's own env var, read by a different
+process entirely. Setting the same value in your shell for both does not work: that would
+point your app's exporter at itself instead of at this Collector (#191).
+
+Set in your app (the SDK → this Collector hop, NOT the line above):
+  OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
 ```
 
 If the generated exporter has no `headers:` or `auth:` block, append:

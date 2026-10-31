@@ -1087,5 +1087,16 @@ check "#177 golden snapshots show the CURRENT installed plugin version, not a st
   'PLUGVER=$(python3 -c "import json; print(json.load(open(\".claude-plugin/plugin.json\"))[\"version\"])"); \
    [ "$(grep -rl "otel-as-code v${PLUGVER}" tests/snapshots/ | wc -l)" -eq 13 ]'
 
+# --- #191: the printed "docker run" omits the endpoint otelcol-contrib refuses to start without -
+COLLECTOR_CMD="commands/otel-collector.md"
+
+check "#191 the printed docker run sets OTEL_EXPORTER_OTLP_ENDPOINT, not just the app hint" \
+  'grep -qF -- "-e OTEL_EXPORTER_OTLP_ENDPOINT=" "$COLLECTOR_CMD"'
+check "#191 the two OTEL_EXPORTER_OTLP_ENDPOINT hops are explicitly distinguished" \
+  'grep -qiE "COLLECTOR.s own upstream" "$COLLECTOR_CMD" \
+     && grep -qiE "DIFFERENT hop from the next line" "$COLLECTOR_CMD"'
+check "#191 the app-side line is explicitly labeled as the other hop" \
+  'grep -qF "NOT the line above" "$COLLECTOR_CMD"'
+
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
