@@ -111,6 +111,9 @@ jobs:
       - name: Run auditor-report contract (deterministic IDs, severity mapping, richer fields, real scanTime; #226)
         run: bash tests/hooks/auditor-report-contract.test.sh
 
+      - name: Run auditor-guidance-gaps contract (node_modules evidence, PII list, per-package maturity, serverless SDK health; #227)
+        run: bash tests/hooks/auditor-guidance-gaps.test.sh
+
       - name: assert-traces unit test
         run: bash tests/e2e/assert-traces.test.sh
 

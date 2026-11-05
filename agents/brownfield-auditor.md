@@ -100,6 +100,21 @@ and report that dimension as **"not independently confirmed — search could not
 naming which control failed, never as a pass. Do this once per distinct search pattern/tool
 combination you rely on for a clean verdict, not once per file.
 
+**Reading an installed package's own source is stronger evidence than its version number alone
+(#227).** A version-to-behavior rule (e.g. dimension 6's HTTP semconv opt-in check) is a HEURISTIC
+that can drift as new releases ship — the installed package's actual source is the fact that
+heuristic is trying to approximate. Unlike a compiled .NET DLL (#215 — you have no `Bash` to run
+`strings` on a binary, so that one genuinely is out of reach), a Node `node_modules/<pkg>` or
+Python `site-packages`/venv install ships plain-text source you CAN `Read`/`Grep` directly: e.g.
+grepping an installed `@opentelemetry/instrumentation-http` build for the literal
+`ATTR_HTTP_REQUEST_METHOD` vs. `SEMATTRS_HTTP_METHOD` constant name is more direct evidence of
+which attribute set it emits than inferring it from a semver range. Use this when it's available
+and the version-based heuristic is uncertain or contested — but minified/bundled output can
+rename or tree-shake away the literal names you're looking for, so a zero-match grep against an
+installed package's dist file is NOT evidence it doesn't do the thing (apply the positive-control
+rule above before trusting that silence); fall back to the version-based heuristic rather than
+reporting an inconclusive grep as a negative finding.
+
 For each service in the context:
 
 ### 1. Signal coverage
@@ -172,6 +187,20 @@ configured non-Node service as broken because it doesn't use the Node class name
 
 - Per-span (Simple) export to a **console** exporter is correct in every runtime — judge the
   pairing, not the class name.
+
+**Serverless host: a periodic batch flush cannot be relied on (#227).** The "Batched export" row
+above is correct for a long-running process, but it is actively WRONG for `host: azure-functions`
+or `aws-lambda` without a per-invocation flush: the execution environment can freeze between
+invocations (no CPU time at all, so a `BatchSpanProcessor`'s periodic timer or
+`PeriodicExportingMetricReader`'s interval literally cannot fire) or be torn down without notice.
+Telemetry buffered at the moment the handler returns can be silently lost. Check whether
+something explicitly flushes once per invocation — e.g. a `forceFlush()`/`shutdown()` call inside
+the `withServerSpan()` wrapper's `finally` (the same "flush every invocation, not only on
+`SIGTERM`" shape `instrumentation-gen` already generates for a short-lived CLI process) — not
+just a module-level shutdown handler that assumes the process stays up long enough for one to
+fire. Its absence on a serverless host is a live finding (data loss in normal operation), not a
+latent one: the risk is realized on every invocation that happens to land near a freeze, not only
+under some rare unset configuration.
 
 **Meters/sources defined inside a referenced package (#215).** You have no `Bash` tool, so you
 cannot inspect a NuGet-cached DLL yourself — the scanner already did this at scan time (its
@@ -247,6 +276,16 @@ data-safety finding regardless of how many distinct values it has. An email is h
 *and* a privacy problem; report the privacy problem in its own right (`PI`). The fix differs: drop
 or hash the value at the source — merely moving it to a log record (the cardinality fix) does not
 help if the objection is that it must not leave the process.
+
+**Match against the canonical list, not memory (#227).** `semconvGuidancePath`'s "Canonical
+Personal-Data Attribute Patterns" section (same file you already `Read` for the high-cardinality
+list) gives both a by-NAME list (`user.email`, `user.phone`, etc. — matched on the attribute's
+final dotted segment too, so a house-namespaced `com.acme.user.email` still matches) and a
+by-VALUE-SHAPE list (email-shaped, phone-shaped, full-name-shaped strings, free text, a
+serialized blob containing any of them) to check independently — a value can be personal data
+under a name the list doesn't anticipate, which is exactly why the value-shape check exists
+alongside the name list, not instead of it. Neither list is exhaustive; flag something you
+recognize as personal data even when it matches neither, and say what made you flag it.
 
 ### 8. Credentials in exporter config
 The exporter config is where the backend key lives (`OTEL_EXPORTER_OTLP_HEADERS`, a vendor

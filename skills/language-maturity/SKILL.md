@@ -47,6 +47,25 @@ plugin applies to it.
 rather than generating a near-miss. This is stated here as well as in the MVP docs because the
 only other way to discover it is to try it.
 
+## The "Auto" row is the mechanism's maturity, not every bundled package's (#227)
+
+A language's "Auto" row below states the maturity of the auto-instrumentation FRAMEWORK/meta-
+package as a whole (e.g. Node's `@opentelemetry/auto-instrumentations-node`, Python's
+`opentelemetry-instrumentation-*` family) — not a guarantee that every individual instrumentation
+plugin it bundles or that family contains is independently at that same level. A meta-package can
+be "Stable" as a mechanism while a specific niche or newly-added instrumentation inside it ships
+Beta or Experimental; the .NET row already names the one concrete, verified case of this
+(`OpenTelemetry.Instrumentation.EntityFrameworkCore` pinned Beta while its `AspNetCore`/`Http`
+siblings are Stable) — the same shape can recur in any ecosystem's auto-instrumentation family,
+not only .NET's. Do not read "Auto: Stable" as clearing every per-package pin in
+`existingOtel.sdkPackages` without checking: when a specific installed instrumentation package's
+version or README states a narrower maturity than the row implies, that package-level claim wins
+— report it as an `MB` finding (`brownfield-auditor` dimension 9) the same way the .NET exception
+is reported, rather than deferring to this table's broader-brush claim. This table is not a
+substitute for checking the specific installed package when something looks pinned below its
+siblings; verify against the installed version or its own README before asserting a per-package
+maturity this table does not itself enumerate.
+
 ## Supported Languages (Node.js, Python, Java, .NET, Go, Ruby, Rust)
 
 ### Node.js

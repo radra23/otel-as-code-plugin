@@ -238,3 +238,32 @@ Also flag, and route to span events or structured logs:
 - Full URLs with query parameters containing PII
 
 Signal: if an attribute value could have >10,000 distinct values in production, flag it.
+
+## Canonical Personal-Data Attribute Patterns (#227)
+
+Distinct from cardinality above: this is about what a VALUE *is* (personal data), not how many
+distinct values it can take. An attribute can be high-cardinality without being personal data
+(a request ID) and can be personal data without being high-cardinality (a household's shared
+`home.country` — still PII, just low-cardinality). Report a `PI` finding by matching EITHER of
+these, independently — do not require both:
+
+**By attribute name** — these commonly carry a personal-data value regardless of the specific
+value observed, matched as an exact key or as the attribute's final dotted segment (so a house
+namespace like `com.acme.user.email` still matches on `email`):
+`user.email`, `user.name`, `user.full_name`, `user.phone`, `user.phone_number`, `user.address`,
+`user.ssn`, `user.date_of_birth`, `user.ip`, `client.address`, `enduser.id` (when populated with
+an email or real name rather than an opaque internal ID — see the value-shape check below for
+telling those apart).
+
+**By value shape** — read what the code actually sets, not just the key name, since a poorly
+named attribute (`data`, `extra`, `metadata`, a serialized object) can carry the same personal
+data under a name the list above cannot anticipate:
+- An email-shaped string (`<local>@<domain>`)
+- A phone-number-shaped string (a run of digits with optional `+`/`-`/`()`, typically 7+ digits)
+- A full name (two or more capitalized words where the attribute is not itself an enum/category)
+- A free-text user-input field (a comment body, a search query, a support-ticket description)
+- A serialized object/JSON blob that itself contains any of the above as a nested field
+
+Neither list is exhaustive — personal data takes forms specific to each domain (a patient MRN, a
+national ID number, a vehicle plate). Treat both as a floor, not a ceiling: flag a value you
+recognize as personal data even when it matches neither list, and say what made you flag it.
