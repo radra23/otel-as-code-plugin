@@ -1302,7 +1302,7 @@ check "#224 instrumentation-gen notes VITE_/REACT_APP_ never reach it (runtime:b
 check "#224 instrumentation-gen says to generate the env read against the confirmed prefixed name for Next.js SSR" \
   'grep -qF "generate the" "$GEN" && grep -qF "Next.js bootstrap'"'"'s env read against the confirmed name instead of bare" "$GEN"'
 check "#224 vite-browser-deployment-env fixture matches the issue's repro: a Vite SPA with VITE_DEPLOYMENT_ENV baked in" \
-  'grep -qF "VITE_DEPLOYMENT_ENV=production" "$VITEFX/.env.production" \
+  'grep -qF "VITE_DEPLOYMENT_ENV=production" "$VITEFX/.env.example" \
    && grep -q "\"vite\"" "$VITEFX/package.json" \
    && [ ! -f "$VITEFX/server.js" ]'
 
