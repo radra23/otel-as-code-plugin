@@ -1,6 +1,6 @@
 ---
 description: Generate an otelcol-contrib config (agent or gateway mode)
-argument-hint: "[agent|gateway] [--experimental] [--public] [--exporter-header Name=${env:VAR}] [--force] [--confirm-remove-auth] [--confirm-remove-exporter-auth] [--dry-run]"
+argument-hint: "[agent|gateway] [--experimental] [--public] [--exporter-header Name=${env:VAR}] [--cardinality-budget <N>] [--force] [--confirm-remove-auth] [--confirm-remove-exporter-auth] [--dry-run]"
 ---
 
 # /otel-collector [mode] [--experimental] [--public]
@@ -26,6 +26,16 @@ Generate an otelcol-contrib config for this service's Collector setup.
   `--exporter-header 'Authorization=Bearer ${env:BACKEND_AUTH_TOKEN}'`. The plugin deliberately
   does not pick header names per vendor — they are the vendor's OTLP-ingest contract, so take
   them from the vendor's docs. Without this flag the exporter carries no credentials.
+- `--cardinality-budget <N>` — generate a proactive metrics cardinality ceiling (#119), as
+  `cardinality_guardian`'s `max_cardinality_delta_per_epoch: <N>` (new unique label values
+  allowed per `(metric, label)` pair per 300s epoch), paired with a `filter` processor that drops
+  anything it flags. `<N>` is never inferred or defaulted — you must supply it. Requires
+  `--experimental` (the component is Development-stability upstream; refuse otherwise with a
+  one-line reason) and `mode=gateway` (refuse for `agent` — the detector needs aggregate
+  visibility across every upstream agent to mean anything; see the `collector-topology` skill's
+  "Cost/Cardinality Budget" section for why). Without this flag, no cardinality-budget processor
+  is generated, at any `--experimental` setting — this is additive, opt-in policy, not something
+  `--experimental` unlocks by itself.
 - `--force` — overwrite an existing `otelcol-agent.yaml` / `otelcol-gateway.yaml`. Required if the
   write-guard hook blocks re-generation (it protects generated collector configs). If the existing
   file has receiver auth and `--public` is not also passed, `--force` alone is refused — see
@@ -111,6 +121,14 @@ If the file already exists:
 
 ## Step 4: Generate the config
 
+**If `--cardinality-budget` was passed, validate it before generating anything:**
+- Without `--experimental`: refuse — "⚠ --cardinality-budget requires --experimental (the
+  cardinality_guardian processor is Development-stability upstream). Nothing was written." Exit.
+- With `mode=agent` (or the default, unspecified mode): refuse — "⚠ --cardinality-budget only
+  applies to gateway mode — the growth-rate detector needs aggregate visibility across every
+  upstream agent to mean anything. Re-run with `gateway`. Nothing was written." Exit.
+- Otherwise (gateway + `--experimental`): proceed: generate it per the gateway section below.
+
 Begin the file with an ownership header so the write-guard recognises it as plugin-generated
 (the guard only blocks overwrites of files carrying this marker) and a human can tell it was
 machine-written. This command has `Bash`: read the `version` field from
@@ -141,6 +159,14 @@ For `gateway` mode:
 - Use the gateway template from the `collector-topology` skill
 - Include `tail_sampling` with error + latency + debug + probabilistic policies
 - Set `decision_wait: 10s`, `num_traces: 100000`
+- If `--cardinality-budget <N>` was validated above, add the `cardinality_guardian` +
+  `filter/cardinality_budget` processor pair from the `collector-topology` skill's "Cost/Cardinality
+  Budget" section to the **metrics** pipeline only, between `memory_limiter` and `batch`
+  (`[memory_limiter, cardinality_guardian, filter/cardinality_budget, batch]`), with
+  `max_cardinality_delta_per_epoch: <N>` set to exactly the value passed — never a default, never
+  rounded. Annotate both with `# experimental — requires --experimental (#119)`, same convention as
+  other experimental components below. Do not touch the traces or logs pipelines: the component has
+  no traces/logs support (verified against the real binary, see the skill).
 
 Apply `--experimental`:
 - If `--experimental` is NOT set, emit ONLY the stable receivers/processors/exporters from
@@ -257,4 +283,14 @@ client-side auth on their own exporter, not an app env var):
 Both modes, append:
 ```
 Note: bearertokenauth is beta-stability upstream (opentelemetry-collector-contrib).
+```
+
+If `--cardinality-budget <N>` was generated, append:
+```
+Note: cardinality_guardian is Development-stability upstream (opentelemetry-collector-contrib) —
+that's why this required --experimental. It flags a metric/label pair once its new-value growth
+in a 300s epoch exceeds <N>; the paired filter processor then drops those flagged datapoints, so
+<N> is a hard ceiling on cardinality GROWTH RATE, not on total series count. Watch the collector's
+own logs for drops before trusting this in production, and re-run with a higher <N> if legitimate
+metrics start getting cut.
 ```
