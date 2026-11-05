@@ -36,6 +36,13 @@ You DO NOT write any files.
    `HIGH` Telemetry Configuration finding (§6) — the app still runs fine, so it does not clear the
    `CRITICAL` bar, but a throw that escapes is at least loud; this is silent, and every signal
    that came back `false` is emitting nothing at all with nothing to say so.
+8. `gitFileStatus` (optional) — `{"<file>": {"tracked": bool, "gitignored": bool}}` for every file
+   in input 2's read list. Another fact, not a claim, for the same reason as `bootstrapHealth`:
+   you have no `Bash` tool, so `git ls-files` / `git check-ignore` are commands you cannot run —
+   the dispatching command runs them before dispatch and hands you the result (#222). Used by
+   dimension 8 below. A file missing from the map means the command could not resolve it either —
+   report that file's tracked/gitignored status as unknown, never guessed from the path alone
+   (a `.env.example` name looks gitignored; whether it actually is depends on this repo's rules).
 
 ## Cached judgements are claims, not findings
 
@@ -221,14 +228,28 @@ help if the objection is that it must not leave the process.
 ### 8. Credentials in exporter config
 The exporter config is where the backend key lives (`OTEL_EXPORTER_OTLP_HEADERS`, a vendor
 licence/ingest key in a settings file). On a credential-shaped value, do NOT jump to "leaked key" —
-establish, in this order (each answer changes the remediation; only the last makes it an incident):
-1. Real credential shape, or a placeholder (`<your-key>`, `${NEW_RELIC_KEY}`)? A placeholder is nothing.
-2. Is the file git-tracked? `git ls-files --error-unmatch <file>`
-3. Is it gitignored? `git check-ignore <file>`
-4. Has the literal ever been committed? `git log --all -S'<literal>'`
+establish, in this order (each answer changes the remediation; only the last makes it an incident).
+**You have no `Bash` tool** (#222) — step 1 is yours to make from the text you already read; steps
+2-4 are facts, not something to go determine yourself:
+1. Real credential shape, or a placeholder (`<your-key>`, `${NEW_RELIC_KEY}`)? A placeholder is
+   nothing — stop here, this is not a finding.
+2. Is the file git-tracked? Look up `gitFileStatus[<file>].tracked` (input 8) — do NOT run
+   `git ls-files` yourself, you cannot.
+3. Is it gitignored? Look up `gitFileStatus[<file>].gitignored` — do NOT run `git check-ignore`
+   yourself. If the file is absent from `gitFileStatus` entirely, report tracked/gitignored as
+   **unknown**, never guessed from the filename.
+4. Has the literal ever been committed? This needs `git log --all -S'<literal>'` against the
+   exact value, which only the dispatching command can run (it has `Bash`; you do not, and you
+   also should not echo the literal into your own report to make this checkable later — that
+   would be printing a secret for a convenience). Report this as **"ever-committed: not checked
+   by this report"** and name the file:line — the command checks it after you return and
+   annotates the printed report before the user sees it (#222).
 A real key that is gitignored and never committed → "rotate a local plaintext credential" (MEDIUM),
-NOT "you leaked a key". A real key in history → an incident (CRITICAL). Report which, with the
-evidence you ran — a false "you leaked a key" is itself a harm, and so is missing a real one.
+NOT "you leaked a key". A real key in a tracked file, or one the command's follow-up check finds
+in history → an incident (CRITICAL) — but you report the MEDIUM form plus "ever-committed: not
+checked" when `tracked` is false, and let the command upgrade it if its follow-up check finds
+otherwise. Report whichever you concluded, with the facts you used — a false "you leaked a key" is
+itself a harm, and so is missing a real one.
 
 ### 9. Package maturity — instrumentation packages below Stable (`MB`)
 `Read` the file at `languageMaturityPath` (skip this dimension, noting so in `derived.notes`, if
@@ -333,8 +354,10 @@ Semconv: <semconvVersion (the value passed in; never a remembered version)>
 
 ### Credential Exposure
 🟡 [CD-7b20] status:new — appsettings.Development.json:12 — New Relic ingest key in plaintext
-   → Real key, but git-tracked:no / gitignored:yes / in history:no (git log --all -S). So:
-     ROTATE this local key and move it to a secret store — NOT a leak (never committed).
+   → Real key, but git-tracked:no / gitignored:yes (from gitFileStatus) / ever-committed: not
+     checked by this report. So: ROTATE this local key and move it to a secret store — this
+     report cannot confirm it was never committed; see the command's output below this report
+     for that check.
 
 ### SDK Health
 🟡 [SH-2a55] status:new — tracing.js — SimpleSpanProcessor with an OTLP exporter
@@ -375,9 +398,10 @@ Semconv: <semconvVersion (the value passed in; never a remembered version)>
 ### Cached judgements re-checked
 (status:refuted / status:corrected findings appear ONLY here — never as a live ❌ above, or a
 non-incident gets re-reported as one.)
-refuted — "a New Relic licence key is committed in appsettings.Development.json": the file is
-  gitignored and `git log --all -S'<key>'` finds the literal in no commit. Not an incident;
-  see CD-7b20 for the real (rotate-me) status.
+refuted — "a New Relic licence key is committed in appsettings.Development.json": `gitFileStatus`
+  shows the file is untracked and gitignored, so "committed" cannot be true as stated; the
+  ever-committed question itself is for the dispatching command to settle via `git log -S` (#222),
+  not this report. Not an incident; see CD-7b20 for the real (rotate-me) status.
 refuted — "exception.message set as a log-record attribute is a violation": it is the prescribed
   representation for the logs signal. Cache entry should be removed.
 corrected — cached note implied 18 route registrations; discovery.ts registers 12, not 8, so the

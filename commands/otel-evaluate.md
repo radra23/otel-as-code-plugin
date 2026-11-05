@@ -95,6 +95,22 @@ rather than auditing nothing.
 
 Read each file with the Read tool.
 
+**Resolve `gitFileStatus` for every file in this read list (#222).** The auditor's dimension 8
+(credential exposure) needs to know whether each file is git-tracked and gitignored, but the
+auditor has no `Bash` tool and cannot run `git` itself — this command can, so do it here rather
+than let the auditor guess or skip it:
+
+```bash
+for f in <each file in the read list>; do
+  tracked=false; git ls-files --error-unmatch "$f" >/dev/null 2>&1 && tracked=true
+  gitignored=false; git check-ignore -q "$f" && gitignored=true
+  # record gitFileStatus[f] = {tracked, gitignored}
+done
+```
+
+Build `gitFileStatus` as `{"<file>": {"tracked": bool, "gitignored": bool}}` for every file read
+above; pass it to the auditor in Step 4.
+
 ## Step 3: Verify the bootstrap actually initializes
 
 The auditor has **no `Bash` tool** (`Read`, `Grep`, `Glob` only), so it can only read whether a
@@ -191,10 +207,31 @@ Pass to `otel-as-code:brownfield-auditor`:
   the opposite direction: that one is a claim to re-verify, this one is a verification already
   done. `checked: false` means "unknown", not "healthy" — the auditor must say verification was
   skipped, never imply a clean bill of health from an absent check (#194).
+- `gitFileStatus`: the map built in Step 2 — another fact the auditor cannot derive itself (no
+  `Bash` tool), used by dimension 8 (credential exposure) (#222).
 
 ## Step 5: Display the report
 
-Print the audit report returned by the subagent verbatim.
+**First, resolve the "ever-committed" fact the auditor deferred (#222).** For each `[CD-...]`
+finding in the report (dimension 8, credential exposure), the auditor named a file:line but could
+not run `git log --all -S'<literal>'` itself (no `Bash` tool) — and should not have echoed the
+literal into its own report just to make this checkable later. Re-read that exact file:line
+yourself (you already have `Read`), extract the value at that location, and run:
+
+```bash
+git log --all -S'<the literal you just read>' --oneline | head -1
+```
+
+If that prints a commit, the key has been committed at some point regardless of its current
+`tracked`/`gitignored` state — upgrade that finding's severity to `CRITICAL` ("real credential
+committed to history") in the printed output and show the commit as evidence. If it prints
+nothing, annotate the finding as "ever-committed: no (confirmed)" rather than leaving the
+auditor's "not checked" wording, since it has now been checked. Do this before printing anything
+below — a reader should never see a MEDIUM credential finding that a quick history search would
+have shown is actually an incident.
+
+Print the audit report returned by the subagent verbatim, with the Step 5 annotations above
+applied to any `[CD-...]` findings.
 
 **With `--no-cache-write` (#212), stop here — do not write anything below.** The report has
 already been printed from the in-memory result; writing the findings back would be the one
