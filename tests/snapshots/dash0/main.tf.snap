@@ -174,3 +174,44 @@ resource "dash0_check_rule" "latency" {
                 summary: p99 latency above 500ms for ${var.service_name}
   YAML
 }
+
+resource "dash0_slo" "otel" {
+  dataset = var.dash0_dataset
+
+  # dash0_slo's rolling window is NOT configurable (#174): timeWindow durations other than
+  # 28d/4w are rejected with a 400, and isRolling must be explicit — confirmed against Dash0's
+  # own SLO API docs, not inferred from the Terraform schema (slo_yaml is an opaque string to
+  # Terraform). Never add a window variable for this resource.
+  slo_yaml = <<-YAML
+    apiVersion: openslo.com/v1
+    kind: SLO
+    metadata:
+      name: ${local.resource_name_slug}-availability
+    spec:
+      description: 99.9% of requests to ${var.service_name} are non-5xx, rolling 28d.
+      service: ${var.service_name}
+      budgetingMethod: Occurrences
+      timeWindow:
+        - duration: 28d
+          isRolling: true
+      indicator:
+        metadata:
+          name: ${local.resource_name_slug}-availability-ratio
+        spec:
+          ratioMetric:
+            counter: true
+            good:
+              metricSource:
+                type: Prometheus
+                spec:
+                  query: sum(rate(http_server_request_duration_seconds_count{service_name="${var.service_name}",http_response_status_code!~"5.."}[5m]))
+            total:
+              metricSource:
+                type: Prometheus
+                spec:
+                  query: sum(rate(http_server_request_duration_seconds_count{service_name="${var.service_name}"}[5m]))
+      objectives:
+        - displayName: 99.9% non-5xx
+          target: 0.999
+  YAML
+}

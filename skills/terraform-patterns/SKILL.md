@@ -544,9 +544,79 @@ Dash0 is an OTel-native backend; their Terraform provider models resources aroun
 directly. Before writing the `terraform-gen` subagent's Dash0 template, verify current resource
 names at https://registry.terraform.io/providers/dash0hq/dash0/latest/docs.
 
-As of mid-2026, the provider supports dashboards and monitoring rules. Use the registry docs
-as the authoritative source for resource names and required fields — do not rely on this skill
-alone for Dash0-specific field names.
+As of mid-2026, the provider supports dashboards, monitoring rules, and SLOs (`dash0_slo`, #174)
+— this generator emits all three. It also exposes `dash0_notification_channel` for alert
+routing, which this generator does not generate yet (no ask for it beyond #174's passing
+mention) — a future addition, not implemented here. Use the registry docs as the authoritative
+source for resource names and required fields — do not rely on this skill alone for
+Dash0-specific field names.
+
+### SLO resource (`dash0_slo`, #174)
+
+Like `dash0_dashboard`/`dash0_check_rule`, `dash0_slo` is opaque at the Terraform level — its
+schema is just `dataset` (optional) and `slo_yaml` (required string). The actual shape lives
+inside that YAML, as an **OpenSLO v1** document, and Dash0 enforces real constraints on it —
+confirmed against the live API docs, not inferred from the Terraform schema (which cannot see
+inside an opaque string):
+
+- **Exactly one objective.** More than one is rejected with `400`.
+- **`budgetingMethod: Occurrences`** — the only supported method; Dash0 does not support
+  time-based budgeting for this resource.
+- **Exactly one rolling 28-day window, and it is NOT configurable.** `timeWindow` entries other
+  than `duration: 28d` (or the equivalent `4w`) are rejected with `400`; `isRolling: true` must
+  be set explicitly — omitting it is also a `400`. If `timeWindow` is omitted entirely, Dash0
+  defaults to the same rolling 28d window anyway. This is a HARD platform constraint, not a
+  current-version limitation to work around — do not offer a `window` variable the way the
+  Grafana/New Relic SLO patterns do; there is nothing for it to control.
+- **`indicator.spec.ratioMetric`** (not a single query) — a `good`/`total` Prometheus query pair,
+  each under `metricSource: { type: Prometheus, spec: { query: ... } }`. Filter by
+  `service_name="<name>"`, the same label this skill's Dash0 section already establishes for
+  every other PromQL query here (Dash0's OTel-native pipeline, unlike a vanilla
+  OTLP→Prometheus setup — see the "Service filter" note above) — never `job=`.
+
+```hcl
+resource "dash0_slo" "otel" {
+  dataset = var.dash0_dataset
+
+  slo_yaml = <<-YAML
+    apiVersion: openslo.com/v1
+    kind: SLO
+    metadata:
+      name: ${local.resource_name_slug}-availability
+    spec:
+      description: 99.9% of requests to ${var.service_name} are non-5xx, rolling 28d.
+      service: ${var.service_name}
+      budgetingMethod: Occurrences
+      timeWindow:
+        - duration: 28d
+          isRolling: true
+      indicator:
+        metadata:
+          name: ${local.resource_name_slug}-availability-ratio
+        spec:
+          ratioMetric:
+            counter: true
+            good:
+              metricSource:
+                type: Prometheus
+                spec:
+                  query: sum(rate(http_server_request_duration_seconds_count{service_name="${var.service_name}",http_response_status_code!~"5.."}[5m]))
+            total:
+              metricSource:
+                type: Prometheus
+                spec:
+                  query: sum(rate(http_server_request_duration_seconds_count{service_name="${var.service_name}"}[5m]))
+      objectives:
+        - displayName: 99.9% non-5xx
+          target: 0.999
+  YAML
+}
+```
+`metadata.name` (both the SLO's own and the nested `indicator.metadata.name`) follows the SAME
+DNS-1123 slug (`local.resource_name_slug`) `dash0_check_rule`'s `metadata.name` already uses — it
+is a Kubernetes-style object name in both resources, not just the check rule.
+`tests/snapshots/dash0/main.tf.snap` carries this shape and is `terraform validate`d in CI; keep
+the two in step.
 
 Key principle: Dash0 uses OTel attribute names natively in query expressions, so no translation
 layer is needed between OTel semconv and the monitoring query syntax.

@@ -361,7 +361,7 @@ auth token needs management/write scope. All four are confirmed against live `ap
 (#102/#103/#104, and the `check_rule_yaml` shape caught by the first opt-in live run) — copy the
 variable descriptions and YAML shape from that section verbatim rather than reconstructing them.
 Verify current resource names from the Dash0 Terraform provider registry documentation
-before writing. Include: provider block, dashboard resource (generic panels **plus one panel per confirmed `businessAttrs` entry** — see "Business-attribute panels" above), alert/monitoring resource.
+before writing. Include: provider block, dashboard resource (generic panels **plus one panel per confirmed `businessAttrs` entry** — see "Business-attribute panels" above), alert/monitoring resource, `dash0_slo` (availability SLO, #174) using the shape in the skill's "SLO resource (`dash0_slo`)" section — a fixed rolling 28d window, `budgetingMethod: Occurrences`, exactly one objective; never offer a configurable window for this resource, Dash0 rejects anything else with a 400.
 
 ## After writing and validating
 
