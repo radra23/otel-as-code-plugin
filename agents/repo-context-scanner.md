@@ -584,6 +584,20 @@ found none.
    back to its hardcoded default silently misreports `deployment.environment.name` in every
    environment where this is `false` (or unverifiable, `null`).
 
+   **Build-time-prefixed variants also count as `true` (#224).** A browser/static-hosting
+   service (see `host: static-hosting` above) has no runtime process to read a plain env var from
+   at all — its build tool bakes env values into the bundle at build time under a
+   framework-specific prefix, so `VITE_DEPLOYMENT_ENV` (Vite), `NEXT_PUBLIC_DEPLOYMENT_ENV`
+   (Next.js), or `REACT_APP_DEPLOYMENT_ENV` (Create React App) set in `.env*`, the build/CI
+   workflow, or wherever that tool reads build-time vars from, is the SAME fact as bare
+   `DEPLOYMENT_ENV` — not evidence of a differently-named, still-missing variable. Report
+   `deploymentEnvConfigured: true` and record **which exact variable name was found** in
+   `derived.notes` (e.g. `"deploymentEnvConfigured: true via VITE_DEPLOYMENT_ENV"`) — the name
+   matters downstream (a generator or auditor reading bare `DEPLOYMENT_ENV` would otherwise look
+   for a variable that isn't there, even though the value genuinely is configured). This is in
+   addition to, never instead of, the bare `DEPLOYMENT_ENV` check above: check both, and record
+   whichever was actually found.
+
 5. Check for existing OTel and record **which files hold it**:
    - Node.js: `@opentelemetry/` in any `package.json` dependencies
    - Python: `opentelemetry-` in any `pyproject.toml` or `requirements.txt`

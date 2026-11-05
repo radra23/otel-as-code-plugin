@@ -1,0 +1,17 @@
+{
+  "name": "storefront-web",
+  "version": "1.0.0",
+  "description": "Vite SPA with VITE_DEPLOYMENT_ENV baked in at build time (#224)",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "vite": "^5.4.0",
+    "@vitejs/plugin-react": "^4.3.1"
+  }
+}

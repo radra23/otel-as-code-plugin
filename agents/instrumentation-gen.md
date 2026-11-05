@@ -237,6 +237,15 @@ each language's summary below:
   (or the confirmed default) in every environment until it is set per target.` `null` specifically
   means the scanner found no deployment config files to check at all — say that explicitly rather
   than implying "checked and absent."
+- `deploymentEnvConfigured: true` via a build-time-prefixed variant (#224 — `derived.notes` names
+  which: `VITE_DEPLOYMENT_ENV`, `NEXT_PUBLIC_DEPLOYMENT_ENV`, or `REACT_APP_DEPLOYMENT_ENV`).
+  `VITE_*`/`REACT_APP_*` only ever appear on a `runtime: browser` service, which this generator
+  already refuses outright — not a case this file reaches. `NEXT_PUBLIC_*` is the one exception:
+  Next.js inlines it into the client bundle at build time but ALSO leaves it as a normal
+  server-side env var, so a Next.js SSR service (`runtime: node`) can legitimately be confirmed
+  via `NEXT_PUBLIC_DEPLOYMENT_ENV` while still being instrumentable. In that case, generate the
+  Next.js bootstrap's env read against the confirmed name instead of bare `DEPLOYMENT_ENV` — it
+  would otherwise read a variable that is genuinely unset while the value is in fact configured.
 
 ## HTTP semconv stability check (Node.js / Python)
 

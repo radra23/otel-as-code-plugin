@@ -1282,5 +1282,29 @@ check "#205 fixtures ActivitySource lives in Api.Domain, outside Api own rootDir
 check "#205 fixture stays greenfield (no OTel package reference)" \
   '! grep -rqiE "Include=\"OpenTelemetry" "$SIBLINGFX"'
 
+# --- #224: deploymentEnvConfigured must count build-time-prefixed variants, not just bare DEPLOYMENT_ENV ---
+VITEFX="fixtures/vite-browser-deployment-env"
+SCANNER="agents/repo-context-scanner.md"
+GEN="agents/instrumentation-gen.md"
+
+check "#224 scanner counts VITE_/NEXT_PUBLIC_/REACT_APP_-prefixed DEPLOYMENT_ENV as true, not just bare" \
+  'grep -qF "Build-time-prefixed variants also count as \`true\` (#224)" "$SCANNER" \
+   && grep -qF "\`VITE_DEPLOYMENT_ENV\` (Vite), \`NEXT_PUBLIC_DEPLOYMENT_ENV\`" "$SCANNER" \
+   && grep -qF "\`REACT_APP_DEPLOYMENT_ENV\` (Create React App)" "$SCANNER"'
+check "#224 scanner records which exact variable name was found as evidence" \
+  'grep -qF "record **which exact variable name was found** in" "$SCANNER" \
+   && grep -qF "deploymentEnvConfigured: true via VITE_DEPLOYMENT_ENV" "$SCANNER"'
+check "#224 scanner checks the prefixed variants IN ADDITION TO bare DEPLOYMENT_ENV, not instead of it" \
+  'grep -qF "never instead of, the bare" "$SCANNER"'
+check "#224 instrumentation-gen notes VITE_/REACT_APP_ never reach it (runtime:browser is refused) but NEXT_PUBLIC_ can" \
+  'grep -qF "only ever appear on a \`runtime: browser\` service, which this generator" "$GEN" \
+   && grep -qF "is the one exception" "$GEN"'
+check "#224 instrumentation-gen says to generate the env read against the confirmed prefixed name for Next.js SSR" \
+  'grep -qF "generate the" "$GEN" && grep -qF "Next.js bootstrap'"'"'s env read against the confirmed name instead of bare" "$GEN"'
+check "#224 vite-browser-deployment-env fixture matches the issue's repro: a Vite SPA with VITE_DEPLOYMENT_ENV baked in" \
+  'grep -qF "VITE_DEPLOYMENT_ENV=production" "$VITEFX/.env.production" \
+   && grep -q "\"vite\"" "$VITEFX/package.json" \
+   && [ ! -f "$VITEFX/server.js" ]'
+
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
