@@ -173,6 +173,45 @@ else
   echo "FAIL: identityExclude's additive-not-replacing contract is missing on one side (#208)"; fail=$((fail+1))
 fi
 
+
+# --- #225: the fingerprint hash must be shell-neutral (no sha256sum/cut, which don't exist on
+# Windows PowerShell), and both files must define it the SAME way ---
+PY_FINGERPRINT_CMD='git hash-object --stdin-paths | python3 -c "import sys,hashlib; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest()[:16])"'
+
+if ! grep -qF "sha256sum | cut -c1-16" "$INIT" && ! grep -qF "sha256sum | cut -c1-16" "$SCANNER"; then
+  echo "PASS: neither file defines the fingerprint via sha256sum/cut any more (#225)"; pass=$((pass+1))
+else
+  echo "FAIL: sha256sum | cut -c1-16 still appears somewhere — not shell-neutral (#225)"; fail=$((fail+1))
+fi
+
+if grep -qF "$PY_FINGERPRINT_CMD" "$INIT" && grep -qF "$PY_FINGERPRINT_CMD" "$SCANNER"; then
+  echo "PASS: otel-init and the scanner define the IDENTICAL python3 fingerprint command (#225)"; pass=$((pass+1))
+else
+  echo "FAIL: the python3 fingerprint command is missing or differs between the two files (#225)"; fail=$((fail+1))
+fi
+
+if grep -qF "do not exist on Windows PowerShell" "$INIT"; then
+  echo "PASS: otel-init explains python3 replaces sha256sum/cut because they don't exist on PowerShell (#225)"; pass=$((pass+1))
+else
+  echo "FAIL: otel-init no longer explains why python3 replaces sha256sum/cut (#225)"; fail=$((fail+1))
+fi
+
+if grep -qF "read and concatenate each file" "$INIT" && grep -qF "read and concatenate the files" "$SCANNER"; then
+  echo "PASS: the non-git-repo fallback (read+concatenate bytes, same sorted order, SHA-256) is defined on both sides (#225)"; pass=$((pass+1))
+else
+  echo "FAIL: the non-git-repo fallback definition is missing on one side (#225)"; fail=$((fail+1))
+fi
+
+# Teeth: prove the python3 replacement is actually byte-identical to the old sha256sum|cut
+# pipeline it replaces, not just plausible-sounding prose.
+OLD_HASH="$(git hash-object CLAUDE.md AGENTS.md | sha256sum | cut -c1-16)"
+NEW_HASH="$(printf 'CLAUDE.md\nAGENTS.md\n' | git hash-object --stdin-paths | python3 -c "import sys,hashlib; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest()[:16])")"
+if [ "$OLD_HASH" = "$NEW_HASH" ]; then
+  echo "PASS: teeth: the python3 fingerprint command reproduces the exact same hash as sha256sum|cut did (#225)"; pass=$((pass+1))
+else
+  echo "FAIL: teeth: python3 fingerprint ($NEW_HASH) diverges from the old sha256sum|cut result ($OLD_HASH) (#225)"; fail=$((fail+1))
+fi
+
 echo ""
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

@@ -86,14 +86,30 @@ costs minutes per command for nothing.
    cheap, since there is little source to read. Don't try to fix this by adding deployment
    files to `identityInputs`: the regex can't reproduce them, so the sets would never match (#30).
 3. Otherwise recompute the fingerprint over that same list and compare to
-   `freshness.identityFingerprint`:
+   `freshness.identityFingerprint`. **The definition is shell-neutral (#225): SHA-256 over the
+   raw bytes `git hash-object` printed for the path list (one blob hash per line, in the SAME
+   order the paths were given), truncated to the first 16 hex characters.** `sha256sum` and `cut`
+   are coreutils that do not exist on Windows PowerShell — compute the hash with `python3`
+   instead (every hook in this plugin already depends on `python3`), piping the SAME `git
+   hash-object` output into it rather than inventing a second, different fingerprint definition
+   per shell:
    ```
-   git hash-object <the paths above> | sha256sum | cut -c1-16
+   git hash-object --stdin-paths | python3 -c "import sys,hashlib; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest()[:16])"
    ```
-   If it differs, the cache is STALE (a manifest changed). If it matches, the cache is CURRENT
-   even when `HEAD` has moved.
-4. If this is not a git repo (`git rev-parse` fails), fall back to `sha256sum` over the same
-   paths; if that also fails, treat the cache as stale.
+   (`--stdin-paths` reads the path list from stdin — feed it the sorted path list from step 1's
+   pipeline directly, rather than passing hundreds of paths as argv, which has its own platform-
+   specific length limits.) This is the ONE canonical form; do not write a second definition using
+   `sha256sum`/`cut` for a bash environment and this one for everything else — a fingerprint
+   computed two different ways from the same inputs is not actually one contract. `git` and
+   `python3` are both real executables piped between identically on POSIX shells and PowerShell —
+   it is specifically `sha256sum`/`cut` (coreutils with no PowerShell equivalent) that this
+   replaces, not the piping itself.
+   If the recomputed fingerprint differs from the stored one, the cache is STALE (a manifest
+   changed). If it matches, the cache is CURRENT even when `HEAD` has moved.
+4. If this is not a git repo (`git rev-parse` fails), fall back to the same `python3` hash over
+   the paths' own file contents (read and concatenate each file's bytes, in the same sorted
+   order, then SHA-256 and truncate to 16 hex characters — there is no git blob to hash without a
+   repo); if that also fails, treat the cache as stale.
 
 - If CURRENT: print "✓ Context cache is current (identity: <fingerprint>)" and skip to Step 4.
 - If STALE: print "↻ Context cache is stale (<reason: new/removed manifest <path> | <path>

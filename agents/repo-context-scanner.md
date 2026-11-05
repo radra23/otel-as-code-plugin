@@ -723,12 +723,19 @@ found none.
      `[]` and don't pad it with deployment files. `/otel-init` Step 1 treats an in-scope service
      with no identity input under its `rootDir` as always stale, so its `deployment.configFiles`
      get re-read on every run (#150).
-   - `identityFingerprint`: a hash over those files' contents. Compute it with
-     `git hash-object` over the listed paths and hash the result list, e.g.
-     `git hash-object <paths...> | sha256sum | cut -c1-16`; for a non-git repo, `sha256sum` the
-     files directly. **This, not `gitHash`, is what makes a cache stale.** Commits that touch
-     only application code cannot change service identity, and re-scanning on every commit costs
-     minutes per command for nothing.
+   - `identityFingerprint`: a hash over those files' contents. **Use the same shell-neutral
+     definition `/otel-init` Step 1 recomputes it with (#225) — one canonical form, not a
+     bash-only one here and a different one there:**
+     ```
+     git hash-object --stdin-paths | python3 -c "import sys,hashlib; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest()[:16])"
+     ```
+     (SHA-256 over the raw bytes `git hash-object` printed for the sorted path list, truncated to
+     16 hex characters; `python3` replaces `sha256sum`/`cut`, which do not exist on Windows
+     PowerShell.) For a non-git repo, read and concatenate the files' own bytes in the same sorted
+     order and SHA-256 that instead — there is no git blob to hash without a repo. **This, not
+     `gitHash`, is what makes a cache stale.** Commits that touch only application code cannot
+     change service identity, and re-scanning on every commit costs minutes per command for
+     nothing.
    - `gitDirty`: `true` if `git status --porcelain` lists any change to a path in
      `identityInputs`; otherwise `false`.
 
