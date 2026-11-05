@@ -120,12 +120,22 @@ this table, find its metric names in its own docs and say which source you used.
 
 ---
 
-## Grafana Cloud (`grafana/grafana ~> 4.0`)
+## Grafana — Cloud or self-hosted (`grafana/grafana ~> 4.0`)
+
+**Ask (or take from `--self-hosted`) which flavor this is before generating anything (#167).**
+Everything below except the SLO resource is identical either way; `grafana_slo` is the one
+resource that is Cloud-specific (its own docs live under `grafana.com/docs/grafana-cloud/`, not
+the self-hosted `/docs/grafana/` tree, and the provider docs say nothing about a self-hosted
+equivalent — treat "not documented for self-hosted" as "don't assume it exists," the same
+discipline this skill applies everywhere else). Self-hosted gets a burn-rate alert rule instead —
+see "Self-hosted alternative: burn-rate alert" below. Never emit `grafana_slo` unconditionally;
+doing so against a self-hosted stack adds a resource `terraform apply` may reject outright,
+depending on which Grafana apps are installed.
 
 ### Authentication variables
 ```hcl
 variable "grafana_url" {
-  description = "Grafana Cloud URL (e.g. https://yourorg.grafana.net)"
+  description = "Grafana URL (Cloud, e.g. https://yourorg.grafana.net — or your self-hosted instance's URL)"
   type        = string
 }
 variable "grafana_service_account_token" {
@@ -139,13 +149,13 @@ variable "grafana_service_account_token" {
 1. `grafana_folder` — create a folder to scope all generated resources
 2. `grafana_dashboard` — uses `config_json` with a JSON-encoded dashboard model
 3. `grafana_rule_group` — unified alerting (NOT the deprecated `grafana_alert_notification`)
-4. `grafana_slo` — Grafana Cloud SLOs (requires `grafana_slo` resource, available on Cloud plans).
-   **It has required blocks, and omitting one fails `terraform validate`** (#165): at least one
-   `destination_datasource` (without it: `Insufficient destination_datasource blocks … At least 1
-   "destination_datasource" blocks are required`), plus `query` and `objectives`. Follow the shape
-   in "SLO resource" below.
+4. **Cloud only:** `grafana_slo` — Grafana Cloud SLOs. **It has required blocks, and omitting one
+   fails `terraform validate`** (#165): at least one `destination_datasource` (without it:
+   `Insufficient destination_datasource blocks … At least 1 "destination_datasource" blocks are
+   required`), plus `query` and `objectives`. Follow the shape in "SLO resource" below.
+   **Self-hosted:** skip this resource entirely — see "Self-hosted alternative" below instead.
 
-### SLO resource
+### SLO resource (Cloud only)
 Shares the `prometheus_datasource_uid` variable with the dashboard panels and alert rules, so there
 is one place to point all of them at the Prometheus/Mimir datasource:
 ```hcl
@@ -178,6 +188,61 @@ resource "grafana_slo" "otel" {
 ```
 `tests/snapshots/grafana/main.tf.snap` is this shape and is `terraform validate`d in CI; keep the
 two in step.
+
+### Self-hosted alternative: burn-rate alert
+
+No `grafana_slo` resource, no error-budget dashboard app — but the SAME `grafana_rule_group`
+resource already used for the error-rate alert above can carry a second rule that approximates
+the one thing an SLO buys you operationally: catching budget-threatening error rates fast, not
+just "error rate is currently above some flat number." Uses the standard SRE fast-burn constant
+(Google's SRE Workbook, "Alerting on SLOs"): a 1h window with a **14.4×** burn-rate threshold
+fires when the service would exhaust 2% of a 30-day error budget within that hour if the rate
+held steady. This is a deliberate single-window simplification of the workbook's full
+multi-window, multi-severity scheme — appropriate for this generator's existing complexity level
+(the error-rate alert above is one flat threshold too), not a claim that it replaces a real SLO
+dashboard.
+
+```hcl
+# Second `rule` block inside the SAME grafana_rule_group "otel" resource as the error-rate alert —
+# do not create a separate rule_group just for this.
+rule {
+  name           = "SLO burn rate (1h fast-burn, 14.4x) — ${var.service_name}"
+  condition      = "C"
+  no_data_state  = "NoData"
+  exec_err_state = "Error"
+  for            = "5m"
+
+  data {
+    ref_id         = "A"
+    datasource_uid = var.prometheus_datasource_uid
+    relative_time_range { from = 3600, to = 0 }
+    model = jsonencode({
+      refId      = "A"
+      datasource = { type = "prometheus", uid = var.prometheus_datasource_uid }
+      instant    = false
+      range      = true
+      # error_ratio_over_1h / (1 - objective) — 14.4x is a fixed constant for a 1h window
+      # against a 30d / 99.9% objective; recompute it if the objective or window changes.
+      expr = "(sum(rate(http_server_request_duration_seconds_count{job=\"${var.service_name}\",http_response_status_code=~\"5..\"}[1h])) / sum(rate(http_server_request_duration_seconds_count{job=\"${var.service_name}\"}[1h]))) / (1 - 0.999)"
+    })
+  }
+  data {
+    ref_id         = "B"
+    datasource_uid = "__expr__"
+    relative_time_range { from = 0, to = 0 }
+    model = jsonencode({ refId = "B", type = "reduce", expression = "A", reducer = "last" })
+  }
+  data {
+    ref_id         = "C"
+    datasource_uid = "__expr__"
+    relative_time_range { from = 0, to = 0 }
+    model = jsonencode({
+      refId = "C", type = "threshold", expression = "B"
+      conditions = [{ evaluator = { type = "gt", params = [14.4] } }]
+    })
+  }
+}
+```
 
 ### Key gotchas
 - `grafana_folder.uid` is auto-generated on create; reference it via `grafana_folder.<resource_label>.uid` (e.g. `grafana_folder.otel_folder.uid`)

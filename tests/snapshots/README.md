@@ -16,6 +16,12 @@ cp infra/observability/newrelic/main.tf  tests/snapshots/newrelic/main.tf.snap
 cp infra/observability/dash0/main.tf     tests/snapshots/dash0/main.tf.snap
 ```
 
+`tests/snapshots/grafana-selfhosted/main.tf.snap` (from `/otel-backend grafana --self-hosted`,
+#167) is the one exception: it is NOT a `backends.txt` vendor — `grafana` covers both flavors —
+so the `validate-terraform` job's `backends.txt`-driven loop above never touches it. It has its
+own dedicated CI step instead; update it by hand the same way if the self-hosted generation
+shape changes.
+
 Commit the updated snapshots with a message like:
 `test: update TF snapshots for semconv 1.44.0 / grafana provider 4.x`
 

@@ -674,6 +674,14 @@ jobs:
           fi
           echo "Validated $found committed snapshot module(s)."
 
+      - name: Validate grafana-selfhosted snapshot (#167 — not a backends.txt vendor, validated separately)
+        run: |
+          tmp=$(mktemp -d)
+          cp tests/snapshots/grafana-selfhosted/main.tf.snap "$tmp/main.tf"
+          terraform -chdir="$tmp" init -backend=false -input=false 2>&1 | tail -5
+          terraform -chdir="$tmp" validate
+          rm -rf "$tmp"
+
   drift-check:
     name: Upstream drift check (scheduled / manual)
     runs-on: ubuntu-latest

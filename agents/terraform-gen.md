@@ -33,7 +33,11 @@ to the target directory. You run `terraform fmt` and `terraform validate` after 
    without confirmed business attributes (`context.confirmedAt` is null). Add the extra header
    line shown under "Required header in every main.tf" so anyone reading the module later can
    see the queries and SLO targets were not built from confirmed attributes.
-10. `pluginVersion` — the installed plugin's own version, read by the dispatching command from
+10. `grafanaFlavor` (`cloud` | `self-hosted`, Grafana only, default `cloud`) — from
+    `/otel-backend`'s `--self-hosted` flag. Decides whether the SLO piece is the `grafana_slo`
+    resource or the burn-rate alert rule; see "Grafana main.tf" below (#167). Ignored for every
+    other backend.
+11. `pluginVersion` — the installed plugin's own version, read by the dispatching command from
     `${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json`'s `version` field. Stamp it into the
     header's `<PLUGIN_VERSION>` placeholder; you cannot read `plugin.json` or resolve
     `${CLAUDE_PLUGIN_ROOT}` yourself, so never copy the header template's own `v0.1.0` literally
@@ -57,7 +61,11 @@ stale cache or a direct call with a malformed `service`.
 When `kind` is not `all`, generate only the specified resource type:
 - `dashboard` — generate only dashboard resource + its variables/outputs; skip alerts and SLO
 - `alerts` — generate only alert/monitor resources + their variables/outputs; skip dashboard and SLO
-- `slo` — generate only SLO resource + its variables/outputs; skip dashboard and alerts
+- `slo` — generate only the SLO piece + its variables/outputs; skip dashboard and the error-rate
+  alert. For Grafana specifically, "the SLO piece" depends on `grafanaFlavor` (#167): `cloud` →
+  the `grafana_slo` resource as usual; `self-hosted` → a `grafana_rule_group` containing ONLY the
+  burn-rate `rule` block (no error-rate rule, no dashboard) — there is no SLO-specific resource to
+  generate on self-hosted, so this is the closest equivalent to "just the SLO piece."
 - `all` (default) — generate all three resource types
 
 Omit resource types not requested. Only include the corresponding variables and outputs.
@@ -318,7 +326,18 @@ Rules:
 ## Grafana main.tf
 
 Generate using patterns from the `terraform-patterns` skill (grafana section).
-Include: provider block, grafana_folder, grafana_dashboard (request rate + error rate + p99 latency panels **plus one panel per confirmed `businessAttrs` entry** — see "Business-attribute panels" above), grafana_rule_group (error rate > 5% for 5m, p99 > 500ms for 5m), grafana_slo (availability SLO at 99.9% over 30d, with its three required blocks: `query`, `objectives` and at least one `destination_datasource { uid = var.prometheus_datasource_uid }`; leaving the last out fails `terraform validate`, #165).
+Include: provider block, grafana_folder, grafana_dashboard (request rate + error rate + p99 latency panels **plus one panel per confirmed `businessAttrs` entry** — see "Business-attribute panels" above), grafana_rule_group (error rate > 5% for 5m, p99 > 500ms for 5m).
+
+**`grafanaFlavor` (`cloud` | `self-hosted`, from `/otel-backend`'s `--self-hosted` flag — default
+`cloud`, unchanged from before #167) decides the last piece:**
+- `cloud`: also include `grafana_slo` (availability SLO at 99.9% over 30d, with its three
+  required blocks: `query`, `objectives` and at least one
+  `destination_datasource { uid = var.prometheus_datasource_uid }`; leaving the last out fails
+  `terraform validate`, #165).
+- `self-hosted`: do NOT emit `grafana_slo` at all — add the burn-rate `rule` block from the
+  skill's "Self-hosted alternative: burn-rate alert" section as a SECOND rule inside the SAME
+  `grafana_rule_group "otel"` resource (not a separate rule_group). Never emit `grafana_slo`
+  for `self-hosted`, even if the caller omits `grafanaFlavor` — only `cloud` turns it on.
 
 ## Datadog main.tf
 

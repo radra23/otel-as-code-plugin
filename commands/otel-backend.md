@@ -1,9 +1,9 @@
 ---
 description: Generate Terraform for one observability backend (grafana | datadog | newrelic | dash0)
-argument-hint: "<vendor> [--service <id>|all] [--kind all|dashboard|alerts|slo] [--output-dir <path>] [--experimental] [--force] [--dry-run] [--yes]"
+argument-hint: "<vendor> [--service <id>|all] [--kind all|dashboard|alerts|slo] [--output-dir <path>] [--experimental] [--self-hosted] [--force] [--dry-run] [--yes]"
 ---
 
-# /otel-backend <vendor> [--service <id>|all] [--kind all|dashboard|alerts|slo] [--output-dir <path>] [--experimental] [--force] [--dry-run] [--yes]
+# /otel-backend <vendor> [--service <id>|all] [--kind all|dashboard|alerts|slo] [--output-dir <path>] [--experimental] [--self-hosted] [--force] [--dry-run] [--yes]
 
 Generate a complete Terraform module for one observability backend.
 Supported vendors: the backends listed in `backends.txt` at the plugin root — the single
@@ -19,6 +19,13 @@ source of truth (currently grafana, datadog, newrelic, dash0).
   `--service all`, each service's module goes to `infra/observability/<vendor>/<service-id>/`
   instead, so N services never collide on one path
 - `--experimental` — include pre-Stable semconv in generated resource queries
+- `--self-hosted` — **Grafana only** (refuse with a reason for any other vendor: "--self-hosted
+  only applies to grafana"). Without it, the Grafana module assumes Grafana Cloud, as before
+  #167: it emits a `grafana_slo` resource, which Cloud's own docs describe and self-hosted's do
+  not — treat "not documented for self-hosted" as "don't assume it exists," not as "probably
+  fine." With it, the module emits a burn-rate alert rule instead of `grafana_slo` — see
+  `terraform-gen`'s "Grafana main.tf" section and the `terraform-patterns` skill's "Self-hosted
+  alternative" for the shape. Passed to `terraform-gen` as `grafanaFlavor: "self-hosted"` (Step 5).
 - `--force` — overwrite existing module files
 - `--dry-run` — preview without writing: pass `dryRun: true` to `terraform-gen` (Step 5) so it
   returns each file as `{path, content}` instead of writing; print a unified diff of each against
@@ -45,6 +52,10 @@ the single source of truth). If `<vendor>` is not in that list:
 - Print: "Unknown vendor: <vendor>. Supported: <the backends from backends.txt>"
 - Print: "v1 will add: honeycomb, dynatrace, sumo-logic, splunk, azure-monitor,
   cloudwatch, gcp-ops, elastic, lightstep, chronosphere, last9"
+- Exit.
+
+If `--self-hosted` was passed and `<vendor>` is not `grafana`:
+- Print: "⚠ --self-hosted only applies to grafana. Nothing was written."
 - Exit.
 
 ## Step 2: Load skills and context
@@ -158,6 +169,8 @@ Pass to `otel-as-code:terraform-gen`:
 - `output_dir`: resolved output directory
 - `kind`: from --kind flag (default 'all')
 - `experimental`: from --experimental flag
+- `grafanaFlavor`: `"self-hosted"` when `--self-hosted` was passed, else `"cloud"` (the default —
+  omit this entirely for a non-Grafana vendor, since it's meaningless there)
 - `businessAttrsUnconfirmed`: `true` when Step 2 continued past unconfirmed business attributes
   (by `--yes` or a yes answer); otherwise omit it
 - `pluginVersion`: the `version` field from `${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json` —
