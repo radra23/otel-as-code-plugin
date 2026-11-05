@@ -1,0 +1,15 @@
+name: Deploy inventory-api
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.internal:4317"
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm ci
+      - run: ./deploy.sh

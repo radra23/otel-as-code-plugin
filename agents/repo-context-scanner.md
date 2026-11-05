@@ -155,11 +155,19 @@ found none.
      nothing matching the bare name, so missing it drops the service's only identity input (#181).
    - `docker-compose.yml` / `docker-compose.yaml`
    - `CODEOWNERS` / `.github/CODEOWNERS`
-   - `.github/workflows/*.yml` — read any whose name matches deploy/release/cd/publish FIRST
+   - **CI workflow files — check every CI format present, not just GitHub (#178).** A repo's CI
+     is whichever of these directories/files actually exist; more than one CAN be present
+     (a migration in progress), so check all of them rather than stopping at the first match:
+     `.github/workflows/*.yml` (GitHub Actions), `.gitea/workflows/*.yml` (Gitea Actions),
+     `.forgejo/workflows/*.yml` (Forgejo Actions — same YAML shape as GitHub/Gitea Actions, a
+     different directory only), `.gitlab-ci.yml` (GitLab CI, repo root, single file), and
+     `.circleci/config.yml` (CircleCI). Within whichever directory-based formats are present
+     (GitHub/Gitea/Forgejo), read any file whose name matches deploy/release/cd/publish FIRST
      (that is where the OTLP endpoint / `endpointConfigured` is usually set), then up to ~5 more.
      Do NOT just take the alphabetical first 3: the deploy workflow (e.g. `tabapp-deploy.yml`) is
      often not in them, and it is the file that answers `endpointConfigured` for a
-     static-hosting / App Service target.
+     static-hosting / App Service target. `.gitlab-ci.yml` and `.circleci/config.yml` are each a
+     single file — read the whole thing, there is no "which N files" question for them.
    - `.env.example` / `.env.sample` (to detect env var patterns)
 
 2. For each detected service, determine:

@@ -782,6 +782,21 @@ check "#203 static-site-workflow fixture carries a deploy workflow whose CONTENT
 check "#203 static-site-workflow fixture has no server-process evidence (pure static)" \
   '[ -f "$STATICFX/index.html" ] && [ ! -f "$STATICFX/package.json" ]'
 
+# --- #178: the CI-workflow read must check every CI format present, not just GitHub ---
+GITEAFX="fixtures/nodejs-gitea-ci"
+
+check "#178 scanner checks Gitea, Forgejo, GitLab CI and CircleCI, not just .github/workflows" \
+  'grep -qF ".gitea/workflows/*.yml" "$SCANNER" \
+   && grep -qF ".forgejo/workflows/*.yml" "$SCANNER" \
+   && grep -qF ".gitlab-ci.yml" "$SCANNER" \
+   && grep -qF ".circleci/config.yml" "$SCANNER"'
+check "#178 scanner says to check ALL CI formats present, not stop at the first match" \
+  'grep -qF "more than one CAN be present" "$SCANNER" && grep -qi "check all of them" "$SCANNER"'
+check "#178 nodejs-gitea-ci fixture has a Gitea deploy workflow setting OTEL_EXPORTER_OTLP_ENDPOINT, and no .github/ dir" \
+  'grep -qF "OTEL_EXPORTER_OTLP_ENDPOINT" "$GITEAFX/.gitea/workflows/deploy.yml" && [ ! -d "$GITEAFX/.github" ]'
+check "#178 nodejs-gitea-ci fixture is a real Node HTTP service (identity + server evidence)" \
+  'grep -q "\"name\": \"inventory-api\"" "$GITEAFX/package.json" && grep -qF "app.listen" "$GITEAFX/index.js"'
+
 # --- #202: scanner timestamps must come from a real clock, never the schema's example literal ---
 CMDS_DISPATCHING_SCANNER="commands/otel-evaluate.md commands/otel-remediate.md commands/otel-collector.md
 commands/otel-backend.md commands/otel-business-attrs.md commands/otel-uninstrument.md"
