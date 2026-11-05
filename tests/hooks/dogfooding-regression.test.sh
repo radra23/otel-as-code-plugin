@@ -128,6 +128,22 @@ check "#94 test fixture IS a test project" \
 check "#94 test fixture has NO host builder (the disqualifying fact)" \
   '! grep -rqE "WebApplication.CreateBuilder|Host.CreateApplicationBuilder|Host.CreateDefaultBuilder|IHostBuilder" "$TESTPROJ"'
 
+# --- #207: a user-owned scopeOverride survives re-scan; IsTestProject/tests-perf-tools is a
+# suggestion to the user, never an automatic inScope:false ---
+check "#207 scopeOverride is registered as a user-owned field in the cache ownership contract" \
+  'grep -qF "services[].scopeOverride" "$SCANNER" && grep -qF "NEVER reset to null or \`[]\`" "$SCANNER"'
+check "#207 scanner applies scopeOverride:out to force inScope:false regardless of detection" \
+  'grep -qiF "set \`inScope: false\` here regardless of the above" "$SCANNER"'
+check "#207 scanner treats IsTestProject/tests-perf-tools evidence as a suggestion, never automatic" \
+  'grep -qF "Test/tooling evidence is a suggestion, never an automatic" "$SCANNER" \
+   && grep -qF "Do not set \`inScope: false\` from this evidence alone" "$SCANNER"'
+check "#207 dotnet-testproject fixture (IsTestProject=true) is exactly the evidence the new suggestion rule looks for" \
+  'grep -qF "IsTestProject" "$SCANNER" && grep -qF "IsTestProject" "$TESTPROJ/Fillr.WebTests.csproj"'
+check "#207 otel-init Step 3 offers a persistent exclude verb, distinct from remove" \
+  'grep -qF "exclude <N>" commands/otel-init.md && grep -qiF "survives re-scans" commands/otel-init.md'
+check "#207 otel-init explains WHY hand-editing inScope directly never stuck" \
+  'grep -qiF "unlike hand-editing \`inScope\` itself, which is scanner-owned" commands/otel-init.md'
+
 # Both new .NET fixtures are greenfield — no OTel *packages* (a prose mention in a comment is
 # fine; what matters is no dependency), so they exercise the classifier, not coexistence.
 check "new .NET fixtures declare no OTel package reference (greenfield)" \

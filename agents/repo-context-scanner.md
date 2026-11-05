@@ -67,6 +67,17 @@ These exist only because a human answered a question:
 - `services[].namespace`, `namespaceSource`, `namespaceConfidence` when
   `namespaceSource` is `user-confirmed`
 - `services[].team`, `teamSource`, `teamConfidence` when `teamSource` is `user-confirmed`
+- `services[].scopeOverride` (`"out"` or absent, #207) — a human decided this service is not a
+  candidate for observability work (test/tooling harness, perf-test rig, etc.), independent of
+  whatever the detection rules below would otherwise compute for it. `inScope` itself stays
+  scanner-owned and gets recomputed fresh every scan like any other fact — but when
+  `priorContext` carries `scopeOverride: "out"` for a service (matched by `id`/`rootDir`), set
+  this scan's `inScope: false` regardless of what the detection rules compute, and say so in
+  `instrumentableReason`: `"generatorSupported:false, inScope:false — excluded by user override
+  (scopeOverride: out); detection would otherwise have found <what it actually detected>"`. This
+  is the fix for the exact failure the override exists to prevent: hand-editing `inScope` in
+  `.claude/otel-context.json` directly does NOT work today, because that field is scanner-owned
+  and the very next scan overwrites it back.
 - `conflicts[].resolvedValue`, `resolvedSource`, `resolvedAt`, `conflict_resolved`
 - Any service the user added manually (`nameSource: "user-added"`) that you did not
   re-detect — keep it, and add a `derived.notes` entry saying it was not found this scan
@@ -452,6 +463,20 @@ found none.
      otherwise, INCLUDING a runtime merely outside today's codegen (`php` — a first-class
      OTel runtime on the roadmap, and often already instrumented by hand). `/otel-evaluate` is
      read-only and language-agnostic and must never be filtered out by a missing generator.
+     **Then apply `services[].scopeOverride` from `priorContext` (#207)**: if it is `"out"` for
+     this service, set `inScope: false` here regardless of the above — see the cache ownership
+     contract's User-owned list for the exact `instrumentableReason` wording.
+   - **Test/tooling evidence is a suggestion, never an automatic `inScope: false` (#207).** A
+     `.csproj`/`Directory.Build.props` with `<IsTestProject>true</IsTestProject>`, a root under
+     `tests/`, `perf/`, or `tools/`, or a name containing `PerfHarness`/`LoadTest`/`Benchmark`-
+     style tokens is real evidence a service MAY be test/tooling rather than a production
+     service — but it is a naming/location heuristic, not a structural fact like "runs in a
+     browser," and a repo can genuinely deploy and monitor a perf-testing service under exactly
+     that kind of name. Do not set `inScope: false` from this evidence alone — add a
+     `derived.notes` entry naming the evidence and suggesting the user review it via `/otel-init`
+     Step 3's exclude option, and leave `inScope: true` unless/until a `scopeOverride` says
+     otherwise. This is also why hand-editing `inScope` never used to stick: the right fix is the
+     override above, not loosening this rule to guess.
    - `instrumentableReason` — one line, set when either flag is `false`, naming which and why:
      `"generatorSupported:false — no ASP.NET Core / Generic Host builder found; .NET instrumentation requires an IServiceCollection to extend; inScope:true"` (a console / library / test `dotnet` project),
      or `"generatorSupported:false, inScope:false — runtime browser; browser/RUM is out of scope (ROADMAP: Not planned)"`,

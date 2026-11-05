@@ -143,11 +143,25 @@ still audit with `/otel-evaluate`) — is visible now rather than discovered lat
 If there are any conflicts in the scanner response, show the conflict resolution block
 from the `otel-as-code:business-attr-ux` skill for each conflict.
 
+**If any service's `derived.notes` suggests test/tooling evidence (#207)** — a test-project
+marker, a `tests/`/`perf/`/`tools/` root, or a perf/benchmark-style name — flag it right under
+the table, distinct from the `instrumentableReason` block above (this is a suggestion on an
+`inScope: true` service, not an existing exclusion):
+```
+  ⚠ perf-harness looks like test/tooling (IsTestProject=true), not a production service. Still
+    in scope today — exclude it below if it's not something to instrument/monitor.
+```
+
 Ask: "Do these service boundaries look correct? [Y/n/edit]"
 
 If the user types 'n' or 'edit':
 - Show numbered list of services
-- Ask: "Enter a number to rename/remove, or 'add' to add a service manually"
+- Ask: "Enter a number to rename/remove, 'exclude <N>' to mark it out of scope permanently
+  (survives re-scans — for test/tooling the scanner flagged, or anything else that isn't a real
+  service), or 'add' to add a service manually"
+- `exclude <N>` sets that service's `scopeOverride: "out"` — write it into `context.json` as a
+  user-owned field (see the scanner's cache ownership contract) so it survives the NEXT re-scan,
+  unlike hand-editing `inScope` itself, which is scanner-owned and gets silently overwritten.
 - Handle the edit inline; repeat until user confirms
 - Mark any manually added service `"nameSource": "user-added"` so a later re-scan keeps it
 
