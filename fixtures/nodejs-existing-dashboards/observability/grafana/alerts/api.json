@@ -1,0 +1,18 @@
+{
+  "name": "api-alerts",
+  "rules": [
+    {
+      "title": "High 5xx error rate — api",
+      "condition": "C",
+      "data": [
+        {
+          "refId": "A",
+          "model": {
+            "expr": "sum(rate(http_server_request_duration_seconds_count{job=\"api\",http_response_status_code=~\"5..\"}[5m])) / sum(rate(http_server_request_duration_seconds_count{job=\"api\"}[5m]))"
+          }
+        }
+      ],
+      "for": "5m"
+    }
+  ]
+}

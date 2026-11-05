@@ -231,6 +231,28 @@ grep a package's README:
   package the matrix lists as Stable, and do not invent a maturity you cannot source from the
   matrix or the installed package.
 
+### 10. Existing observability-as-code (`EX`, #168)
+
+Distinct from SDK-side signal coverage (§1): committed dashboard/alert-rule JSON that ANOTHER
+system provisions (not this plugin, not the SDK) — a `dashboards/`/`alerts/`/`grafana/`-style
+directory of Grafana dashboard models (`"panels":`, `"targets":` keys) and/or alert-rule exports
+(`"rules":` with a PromQL-looking `expr`/query). `Glob` for `*.json` under paths matching those
+names and `Grep` each hit for those keys before trusting a match — a JSON file that happens to
+live in a directory named `dashboards/` but isn't actually a Grafana model (app fixture data, a
+snapshot test) is not a finding.
+
+For each one found, extract what it already covers: panel/rule titles, and the metric names each
+query references (same `http_server_request_duration_seconds_*`-style names this plugin's own
+generated queries use — see `terraform-patterns`). This is read-only reporting, not a violation
+to fix:
+- Report it as existing coverage, named by file and what it covers, so `/otel-backend` (which
+  reads this report via the scanner, not by re-deriving it) does not generate an overlapping
+  second dashboard/alert for the same condition.
+- Flag it `HIGH` ONLY if it duplicates what a later `/otel-backend` run actually generated (a
+  real double-alert risk, confirmed by comparing `infra/observability/<vendor>/main.tf` against
+  this file's conditions) — otherwise this is informational (`MINOR`), not a problem by itself.
+  Existing observability-as-code working correctly is success, not a finding to manufacture.
+
 ## Output Format
 
 Return a plain-text report in this format:
@@ -258,7 +280,9 @@ does not renumber the rest, and an ID means the same thing across runs (what
 `<serviceId>:<CAT>-<id>`. Categories: `SC` signal coverage, `CV` semconv violation, `CR`
 cardinality risk, `PI` PII in a value, `CD` credential exposure, `CF` telemetry configuration,
 `SH` SDK health, `WR` wiring, `MB` maturity (an instrumentation package below Stable — see
-dimension 9). `/otel-instrument --fix <ids>` consumes these, so every finding carries one.
+dimension 9), `EX` existing observability-as-code (committed dashboard/alert JSON another system
+provisions — see dimension 10). `/otel-instrument --fix <ids>` consumes these, so every finding
+carries one.
 
 ```
 ## OTel Coverage Audit — <service.name>
@@ -304,6 +328,15 @@ Semconv: <semconvVersion (the value passed in; never a remembered version)>
    → 0 of 22 handlers wrapped. The instrumentation is well-formed and entirely unreachable.
 🟠 [WR-6f91] status:new — instrumentation.ts exports onRequestError, but frameworkVersion is
    "^14.2.0" — the hook doesn't exist until Next.js 15, so it never fires on this build.
+
+### Existing Observability-as-code
+⚪ [EX-5a10] status:new — observability/grafana/dashboards/overview.json — already covers request
+   rate, 5xx ratio and p99 latency on http_server_request_duration_seconds_* for this service.
+   → Informational: /otel-backend grafana would otherwise generate an overlapping dashboard here.
+⚪ [EX-8c2f] status:new — observability/grafana/alerts/api.json — an alert-rule group already
+   fires on the same 5xx ratio condition.
+   → Review before running /otel-backend; applying a second alert on the same condition
+     double-pages.
 
 ### Telemetry Configuration
 🔴 [CF-3e07] status:new — config.ts:8 — reads REACT_APP_OTEL_OTLP_ENDPOINT, which throws when

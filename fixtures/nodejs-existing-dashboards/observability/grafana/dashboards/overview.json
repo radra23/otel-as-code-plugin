@@ -1,0 +1,26 @@
+{
+  "title": "api — Overview",
+  "panels": [
+    {
+      "title": "Request rate",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "sum(rate(http_server_request_duration_seconds_count{job=\"api\"}[5m]))" }
+      ]
+    },
+    {
+      "title": "Error rate (5xx)",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "sum(rate(http_server_request_duration_seconds_count{job=\"api\",http_response_status_code=~\"5..\"}[5m]))" }
+      ]
+    },
+    {
+      "title": "p99 latency",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "histogram_quantile(0.99, sum(rate(http_server_request_duration_seconds_bucket{job=\"api\"}[5m])) by (le))" }
+      ]
+    }
+  ]
+}

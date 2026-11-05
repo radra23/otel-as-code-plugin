@@ -136,6 +136,22 @@ detected service is frequently a browser SPA with none at all (#185).
 single target; under `--service all`, Steps 4–6 run once per candidate and `<output_dir>` is that
 path's `<service.id>/` subdirectory for each one, so they never collide (see Step 3.4).
 
+**This only catches this plugin's OWN prior output. Separately check for observability-as-code
+committed by ANOTHER system (#168)** — a `dashboards/`/`alerts/`/`grafana/`-style directory of
+Grafana dashboard-model or alert-rule JSON, anywhere in the repo, not just `<output_dir>`. Use
+the exact same heuristic `brownfield-auditor`'s "Existing observability-as-code" dimension does
+(`Glob` for `*.json` under those path names, `Grep` each hit for `"panels":`/`"targets":` or
+`"rules":`+a PromQL-looking `expr`/query before trusting a match) — do not restate or
+reimplement the heuristic differently here, it must stay the one place that can drift. If a hit
+covers the same condition this run is about to generate (compare metric names / panel titles to
+what Step 5 is about to produce), warn before writing, same non-blocking shape as the
+already-deployed-Collector check in `/otel-collector`:
+```
+Note: <path> already covers <what it covers — e.g. "request rate, 5xx ratio, p99 latency"> for
+<name>. Generating anyway — review whether this duplicates what's already provisioned there
+before applying the output below; a second alert on the same condition double-pages.
+```
+
 If `<output_dir>/*.tf` files exist AND `--force` is NOT set:
 - Print: "⚠ Terraform files already exist in <output_dir>. Use --force to overwrite."
 - Exit.

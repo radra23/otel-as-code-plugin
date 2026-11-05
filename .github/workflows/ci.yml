@@ -67,6 +67,8 @@ jobs:
         run: bash tests/hooks/keycloak-span-scrub.test.sh
       - name: Run Keycloak telemetry-endpoint contract (shared endpoint + native OTLP logs/metrics; #196)
         run: bash tests/hooks/keycloak-telemetry-endpoint.test.sh
+      - name: Run existing-observability-as-code contract (committed dashboard/alert JSON, no silent duplicates; #168)
+        run: bash tests/hooks/existing-observability-as-code.test.sh
       - name: Run Next.js shutdown-flush contract (generator, Step 8, goldens; #173)
         run: bash tests/hooks/nextjs-shutdown-flush.test.sh
       - name: Run zero-services guard contract (every command answers an empty scan the same way; #164)
