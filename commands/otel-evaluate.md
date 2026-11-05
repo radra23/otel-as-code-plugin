@@ -1,11 +1,21 @@
 ---
 description: Read-only audit of existing OTel coverage, semconv conformance, and cardinality risks
+argument-hint: "[--no-cache-write]"
 ---
 
-# /otel-evaluate
+# /otel-evaluate [--no-cache-write]
 
 Read-only audit of existing OTel coverage. Does NOT write any application files.
 Produces a structured gap analysis report.
+
+## Flags
+- `--no-cache-write` — scan into memory, audit, print the report, and write nothing to disk —
+  not even `.claude/otel-context.json` (#212). The report itself has always been read-only; by
+  default the RUN was not, because a stale-or-absent cache still gets scanned and written in
+  Step 1, and Step 5 can still write audit findings back into the cache. Use this flag when
+  evaluating someone else's repo, or any repo under a policy that nothing may be committed or
+  left dirty, and no cache should exist on disk afterward either. Without it, behavior is
+  unchanged from before this flag existed.
 
 ## Step 1: Load context
 
@@ -13,10 +23,19 @@ Check `.claude/otel-context.json`. Apply the freshness rule from `/otel-init` St
 (identity-input fingerprint, not `HEAD`). If stale or absent, dispatch
 `otel-as-code:repo-context-scanner` **passing the existing cache as `priorContext`, `scanTime`
 (the output of `date -u +%Y-%m-%dT%H:%M:%SZ`), and `pluginVersion` (the `version` field from
-`${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json`)** and write what it returns via
-`scripts/write_context.py`, exactly as `/otel-init` Step 4 does (#211) — never by transcribing the
-JSON into a `Write` call. A refresh is a merge, never a replace (see the cache ownership contract
-in `agents/repo-context-scanner.md`).
+`${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json`)**.
+
+**Without `--no-cache-write`:** write what the scanner returns via `scripts/write_context.py`,
+exactly as `/otel-init` Step 4 does (#211) — never by transcribing the JSON into a `Write` call. A
+refresh is a merge, never a replace (see the cache ownership contract in
+`agents/repo-context-scanner.md`).
+
+**With `--no-cache-write` (#212):** keep the scanner's JSON in context for the rest of this run
+and skip `write_context.py` entirely — `.claude/otel-context.json` is left exactly as it was
+found (absent stays absent; present and stale stays stale on disk, even though this run audits
+the fresh in-memory result). Every later step in this command reads from the in-memory result,
+not from disk, so this does not change what gets audited or printed — only whether anything
+lands on the filesystem.
 
 If the scan or the cache has **no services**, apply `/otel-init` Step 2's "Empty scan" rule:
 print its message, write nothing, exit 0. Do this before the check below: "every service reports
@@ -177,7 +196,13 @@ Pass to `otel-as-code:brownfield-auditor`:
 
 Print the audit report returned by the subagent verbatim.
 
-**Write the audit's findings back into the cache — not only its refutations.** The auditor's
+**With `--no-cache-write` (#212), stop here — do not write anything below.** The report has
+already been printed from the in-memory result; writing the findings back would be the one
+filesystem write this flag exists to prevent, including on a repo where `.claude/otel-context.json`
+did not exist before this run.
+
+**Without the flag: write the audit's findings back into the cache — not only its refutations.**
+The auditor's
 report distinguishes `refuted` / `corrected` / `confirmed` / `new` (see
 `agents/brownfield-auditor.md`'s Output Format) for exactly this reason, but only `refuted` was
 ever applied here: a `new` finding — one the scanner's own heuristics never caught (an unprefixed

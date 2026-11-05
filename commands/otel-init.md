@@ -1,11 +1,21 @@
 ---
 description: "First-run: scan the repo, detect service boundaries, and prime the context cache"
+argument-hint: "[--local-ignore]"
 ---
 
-# /otel-init
+# /otel-init [--local-ignore]
 
 First-run setup for otel-as-code. Run this before any other /otel-* command.
 This command is safe to re-run; it will refresh the context cache if stale.
+
+## Flags
+- `--local-ignore` — write the ignore rules for `.claude/otel-context.json` and
+  `.claude/.otel-force` to `.git/info/exclude` instead of the tracked `.gitignore` (#212). Use
+  this when evaluating someone else's repo, or any repo with a policy that nothing may be
+  committed or left dirty: `.git/info/exclude` is honoured by git exactly like `.gitignore` but
+  lives inside `.git/` — it is never tracked, never shows up in `git status`, and never needs
+  committing or reverting. Without this flag the rules go into the tracked `.gitignore`, as
+  before.
 
 ## Step 1: Check context cache freshness
 
@@ -217,14 +227,24 @@ loosening a check — the refusal means Step 2 needs to be redone with the real 
 refreshes the cache invokes this same script the same way; they cross-reference this step rather
 than restating the invocation.
 
-**Update `.gitignore`.** `.claude/otel-context.json` and `.claude/.otel-force` are ephemeral and
-must be ignored; `.claude/otel-services.json` is the shared service map and must stay
-committable. Inspect the existing rules before adding anything, because a blanket ignore
+**Update the ignore rules.** `.claude/otel-context.json` and `.claude/.otel-force` are ephemeral
+and must be ignored; `.claude/otel-services.json` is the shared service map and must stay
+committable.
+
+**Target file: `.gitignore` by default, `.git/info/exclude` with `--local-ignore` (#212).** The
+two files are interchangeable to git — both are plain gitignore-syntax pattern lists, and a file
+matching a rule in *either* is ignored — but only `.gitignore` is tracked. `--local-ignore` exists
+for a repo where nothing may be committed or left dirty (someone else's repo, or one under a
+strict change policy): with it, write the two rules below to `.git/info/exclude` instead, which
+git honours identically but which lives inside `.git/` and is never tracked, never shows up in
+`git status`, and never needs committing. Say which file you used either way.
+
+Inspect the existing rules in the TARGET file before adding anything, because a blanket ignore
 silently swallows the service map and **git cannot un-ignore a file inside an excluded
 directory** — the directory rule itself has to change:
 
-- If `.gitignore` contains a blanket `.claude` or `.claude/` rule, that rule must be rewritten,
-  not appended to. Tell the user what you found and what it costs, then rewrite it:
+- If the target file contains a blanket `.claude` or `.claude/` rule, that rule must be
+  rewritten, not appended to. Tell the user what you found and what it costs, then rewrite it:
   ```
   ⚠ .gitignore:<line> ignores all of .claude/, so .claude/otel-services.json is ignored too.
     Git cannot un-ignore a file inside an excluded directory, so the directory rule has to
@@ -235,9 +255,14 @@ directory** — the directory rule itself has to change:
   ```
   Do not apply the rewrite silently and do not leave it unmentioned — this is the user's
   ignore policy, and other tooling may depend on it.
-- If there is no blanket rule, append the two specific paths if absent:
+  **Exception with `--local-ignore`:** if the blanket rule is in the TRACKED `.gitignore` (not
+  `.git/info/exclude`), do not rewrite it — editing a tracked file is exactly what `--local-ignore`
+  was asked to avoid. Warn instead, and say the cache files are covered by `.git/info/exclude` but
+  `.claude/otel-services.json` is still swallowed by the tracked rule until the user fixes it
+  themselves.
+- If there is no blanket rule in the target file, append the two specific paths if absent:
   `.claude/otel-context.json` and `.claude/.otel-force`.
-- Do NOT add `.claude/otel-services.json` in either case — users should commit the service map.
+- Do NOT add `.claude/otel-services.json` to either file — users should commit the service map.
 
 ## Step 5: Show recommended next steps
 
