@@ -238,6 +238,35 @@ each language's summary below:
   means the scanner found no deployment config files to check at all — say that explicitly rather
   than implying "checked and absent."
 
+## HTTP semconv stability check (Node.js / Python)
+
+`OTEL_SEMCONV_STABILITY_OPT_IN` controls whether `instrumentation-http` (Node) and
+`instrumentation-fastapi`/`-flask` (Python) emit OLD HTTP attributes (`http.method`,
+`http.status_code`) or STABLE ones (`http.request.method`, `http.response.status_code`) — and
+this plugin's own generated Terraform (Grafana/Datadog/New Relic/Dash0 panels, alerts, SLOs)
+queries only the STABLE names. Getting this wrong doesn't error — it produces a dashboard/alert/
+SLO set that sits in permanent NoData, which reads as healthy, not broken (#192).
+
+- **Node.js.** `@opentelemetry/instrumentation-http` removed the OLD mode entirely at `0.300.0`
+  — from that version on it emits STABLE attributes unconditionally, and the env var is a no-op.
+  Below `0.300.0` it still defaults to OLD and requires the opt-in. Resolve the version in play:
+  for a fresh install, it's whatever this generator pins today (currently `>= 0.300.0` — nothing
+  to do); for a brownfield regeneration that **keeps the installed version** (see the Node
+  `package.json` section below), read it from `service.existingOtel.sdkPackages` instead of
+  assuming.
+- **Python.** `opentelemetry-instrumentation-fastapi`/`-flask` has no version where this defaults
+  to stable — every current release resolves `_StabilityMode.DEFAULT` to OLD attributes only
+  (`opentelemetry/instrumentation/_semconv.py`). This is true for both greenfield and brownfield
+  Python generation; re-verify against the installed package before assuming this has changed,
+  the same caution this file already applies elsewhere to semconv constants.
+- **The actual env var is never written by this subagent.** Per #192, `/otel-instrument` Step 8
+  owns deployment-config injection: it adds `OTEL_SEMCONV_STABILITY_OPT_IN=http/dup` to a FRESH
+  Python service's deployment settings automatically (nothing already running to change), but for
+  any brownfield case (Python always; Node.js below `0.300.0`) it only prints a `⚠` warning and
+  leaves applying the value to the user — this subagent's job is limited to making the fact
+  (resolved version, old-vs-stable) available, not to silently changing an existing service's wire
+  format. `brownfield-auditor` independently reports the brownfield case as a finding.
+
 ## Node.js Bootstrap
 
 **Framework check first.** If `service.framework` is `nextjs`, do NOT use the generic bootstrap
@@ -390,6 +419,18 @@ to the latest at generation time rather than copying these verbatim if newer rel
 "@opentelemetry/auto-instrumentations-node": "^0.82.0",
 "@opentelemetry/semantic-conventions": "^1.44.0"
 ```
+
+**Brownfield regeneration — keep installed versions, never silently bump them.** When
+`existingArtifacts` is non-empty (this is a regeneration) and a package above is already present
+in the target `package.json`, leave its existing version string exactly as it is; do not replace
+it with a newer pin just because one exists upstream. Only ADD a line for a package that is
+genuinely missing, using the pin above (bumped to latest, per the note above, since that's a
+first install with no existing version to respect). Silently bumping an already-installed OTel
+dependency during what looks like a routine regeneration is an upgrade decision that belongs to
+the user, not this generator (the `drift-check` CI job exists for exactly that decision) — and
+doing it inconsistently is the root cause of #189, where two separate regeneration runs against
+the same shared bootstrap file produced two different SDK lines depending on which run touched it
+first. The same principle applies to every other language's "add dependencies" step below.
 
 Add `-r ./tracing.js` to the `scripts.start` entry:
 ```json

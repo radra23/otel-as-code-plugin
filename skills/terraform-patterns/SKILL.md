@@ -184,6 +184,16 @@ two in step.
 - Pin `~> 4.0` (current major); the 2.x → 3.x → 4.x jumps each changed resource schemas — don't copy older-major patterns
 - **Filter by `job`, NOT `service_name`.** On a default OTLP → Prometheus pipeline, `service.name` is mapped to the **`job`** label (and `service.instance.id` → `instance`); resource attributes are NOT added as metric labels — they live only on the separate `target_info` series (`otlp.promote_resource_attributes` defaults to `[]`). So `{service_name="..."}` returns NO DATA — a silently-empty panel/alert. Use `{job="<name>"}`; when `service.namespace` is set, `job` becomes `<namespace>/<name>`, so filter `{job="<namespace>/<name>"}`. (Only emit `{service_name="..."}` if the user's Prometheus receiver sets `otlp.promote_resource_attributes: [service.name]`.)
 
+- **These queries assume STABLE HTTP semconv is actually on the wire (#192).** They read
+  `http_server_request_duration_seconds_*` / `http_response_status_code` — the stable names. An
+  OTel JS `instrumentation-http` below `0.300.0`, or ANY current release of
+  `opentelemetry-instrumentation-fastapi`/`-flask`, defaults to the OLD names/metric
+  (`http.server.duration` in ms, `http.status_code`) unless `OTEL_SEMCONV_STABILITY_OPT_IN=http`
+  or `http/dup` is set — see `instrumentation-gen`'s "HTTP semconv stability check" section and
+  `brownfield-auditor`'s `CF` finding for it. Without that opt-in, these panels/alerts/SLOs query
+  real metric names that simply don't exist for that service: permanent NoData, not a bug in the
+  generated Terraform.
+
 ### OTel-specific dashboard panels to generate
 - Request rate: `rate(http_server_request_duration_seconds_count{job="..."}[5m])`
 - Error rate: `rate(http_server_request_duration_seconds_count{job="...",http_response_status_code=~"5.."}[5m])`

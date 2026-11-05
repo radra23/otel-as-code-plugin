@@ -179,6 +179,19 @@ instrumentation depends on (`OTEL_EXPORTER_OTLP_ENDPOINT` and vendor equivalents
   signal, and that the bootstrap's own exception handler is what's hiding it. When `checked:
   false`, say plainly that this was not verified (deps not installed) — never report the signal as healthy
   just because nothing contradicted it.
+- **HTTP semconv stability mismatch (#192).** `OTEL_SEMCONV_STABILITY_OPT_IN` is a value this
+  instrumentation depends on, same class as the bullets above, and an unset one does not throw or
+  look wrong in the source either — it just means the wrong attribute names go out. Resolve the
+  service's `instrumentation-http` (Node) or `instrumentation-fastapi`/`-flask` (Python) version
+  from `existingOtel.sdkPackages`, and check whether `OTEL_SEMCONV_STABILITY_OPT_IN` is provisioned
+  anywhere `endpointConfigured`'s own sources were checked. Flag `HIGH` when:
+  - Node, resolved version `< 0.300.0`, opt-in unset: still emits OLD HTTP attributes
+    (`http.method`, `http.status_code`); this plugin's own generated Terraform (if present) queries
+    only the STABLE names, so the dashboards/alerts/SLOs sit in permanent NoData — which reads as
+    healthy, not broken.
+  - Python (`-fastapi`/`-flask`, ANY version), opt-in unset: same finding, unconditional on
+    version — no current release of either package defaults to stable.
+  Node `>= 0.300.0` needs no finding: that version has no old-semconv mode left to opt out of.
 
 ### 7. PII in attribute values
 Distinct from cardinality (§3): an attribute whose VALUE is personal data — email, name, phone,
@@ -303,6 +316,11 @@ Semconv: <semconvVersion (the value passed in; never a remembered version)>
    bootstrapHealth reports traces/metrics/logs all false. Every signal is on the OTel API's no-op
    default; the app runs and nothing in the source looks wrong. → fix the import, then re-run
    /otel-evaluate to confirm bootstrapHealth flips to true before trusting this bootstrap again.
+🟠 [CF-7b2a] status:new — no OTEL_SEMCONV_STABILITY_OPT_IN set anywhere checked;
+   instrumentation-http@0.57.2 still emits http.method/http.status_code (old), while this
+   plugin's own Grafana queries only http_server_request_duration_seconds_count /
+   http_response_status_code (stable) → the error-rate alert and SLO sit in permanent NoData,
+   indistinguishable from healthy.
 
 ### Cached judgements re-checked
 (status:refuted / status:corrected findings appear ONLY here — never as a live ❌ above, or a
