@@ -66,7 +66,7 @@ spans and only say that sensitive content "SHOULD be scrubbed when instrumentati
 it" (checked against semantic-conventions v1.44.0, `docs/http/http-spans.md`); an instrumentation
 cannot identify an application's own credential keys, and Keycloak's are not on the spec's default
 redaction list. Reported and reproduced in #197 with `quay.io/keycloak/keycloak:26.7.0` exporting
-to `otelcol-contrib` 0.161.0:
+to `otelcol-contrib` 0.164.0:
 
 | Where | Query string carries | Holding it allows |
 |---|---|---|
@@ -81,7 +81,7 @@ not an optional extra**:
   is owned elsewhere (another team, a managed gateway), the env-var diff must not be applied until
   it is. Say this in the report; do not leave it implied.
 - The scrub, scoped to this service by its `service.name` so other services' query strings are
-  untouched (checked against `otelcol-contrib` 0.161.0: this service's spans lose both attributes,
+  untouched (checked against `otelcol-contrib` 0.164.0: this service's spans lose both attributes,
   other services' keep them):
   ```yaml
   processors:

@@ -9,7 +9,7 @@
 > comment there rather than only in this file if you want to weigh in.
 
 Current release: **0.8.25**. Node.js, Python, Java, .NET, Go, Ruby, and Rust (axum) instrumentation, Terraform
-for Grafana, Datadog, New Relic, and Dash0, semconv pinned at 1.44.0. Since 0.2.0 the command set
+for Grafana, Datadog, New Relic, and Dash0, semconv pinned at 1.45.0. Since 0.2.0 the command set
 has grown past generation: `/otel-uninstrument` rolls instrumentation back behind an ownership
 marker, `/otel-remediate` proposes a deployment-config diff for services that have no application
 source to bootstrap, and `--dry-run` previews any writing command before it writes. Everything

@@ -68,7 +68,7 @@ check("rust group: tracing-opentelemetry is one minor ahead",
       len(otel_minors) == 1 and d.ver_tuple(rp.get("tracing-opentelemetry"))[1] == next(iter(otel_minors)) + 1)
 tf = dict(d.tf_pins())
 check("tf provider pins parsed (all 4 vendors)", len(tf) == 4 and "grafana/grafana" in tf)
-check("semconv pin parsed (1.44.0)", d.semconv_pin() == "1.44.0")
+check("semconv pin parsed (1.45.0)", d.semconv_pin() == "1.45.0")
 cp = d.collector_pins()
 check("collector pin parsed from every pinned location", all(cp.values()))
 vals = {f: m.group(1) for f, m in cp.items() if m}

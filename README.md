@@ -200,7 +200,7 @@ with the reason instead of generating a Node SDK bootstrap that cannot run in a 
 
 ## Semconv version
 
-Pinned to **1.44.0** (stable), defined once as `SEMCONV_VERSION` in the `semconv-discipline`
+Pinned to **1.45.0** (stable), defined once as `SEMCONV_VERSION` in the `semconv-discipline`
 skill — the single place to bump on a semconv release. Pass `--experimental` to unlock
 pre-Stable conventions.
 

@@ -385,10 +385,10 @@ itself from the env vars, so they are not listed here. (These minimums track the
 JS release trains — the stable packages are on the 1.x/2.x line, the SDK on the 0.x line; bump
 to the latest at generation time rather than copying these verbatim if newer releases exist):
 ```json
-"@opentelemetry/sdk-node": "^0.222.0",
-"@opentelemetry/resources": "^2.11.0",
-"@opentelemetry/auto-instrumentations-node": "^0.80.0",
-"@opentelemetry/semantic-conventions": "^1.43.0"
+"@opentelemetry/sdk-node": "^0.300.0",
+"@opentelemetry/resources": "^3.0.0",
+"@opentelemetry/auto-instrumentations-node": "^0.82.0",
+"@opentelemetry/semantic-conventions": "^1.44.0"
 ```
 
 Add `-r ./tracing.js` to the `scripts.start` entry:
@@ -595,7 +595,7 @@ from opentelemetry.sdk.resources import Resource
 from opentelemetry.semconv.resource import ResourceAttributes
 
 # `deployment.environment.name` has no constant on the legacy ResourceAttributes class in
-# opentelemetry-semantic-conventions 0.66b0 — only the deprecated `DEPLOYMENT_ENVIRONMENT` —
+# opentelemetry-semantic-conventions 0.66b2 — only the deprecated `DEPLOYMENT_ENVIRONMENT` —
 # so the key is written as a literal. Checked against the installed package; re-check rather
 # than assume if you bump the dependency.
 _DEPLOYMENT_ENVIRONMENT_NAME = "deployment.environment.name"
@@ -755,10 +755,10 @@ No new dependency is needed: `LoggingHandler` / `LoggerProvider` ship in `opente
 
 Add to `[project].dependencies`:
 ```toml
-"opentelemetry-sdk>=1.45.0",
-"opentelemetry-exporter-otlp-proto-grpc>=1.45.0",
-"opentelemetry-instrumentation-fastapi>=0.66b0",
-"opentelemetry-semantic-conventions>=0.66b0",
+"opentelemetry-sdk>=1.45.2",
+"opentelemetry-exporter-otlp-proto-grpc>=1.45.2",
+"opentelemetry-instrumentation-fastapi>=0.66b2",
+"opentelemetry-semantic-conventions>=0.66b2",
 ```
 
 (Replace `fastapi` with the detected framework from context JSON: `opentelemetry-instrumentation-flask`

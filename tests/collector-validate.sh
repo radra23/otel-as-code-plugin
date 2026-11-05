@@ -7,7 +7,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-OTELCOL_VERSION="${OTELCOL_VERSION:-0.161.0}"
+OTELCOL_VERSION="${OTELCOL_VERSION:-0.164.0}"
 OTELCOL_BIN="${OTELCOL_BIN:-/tmp/otelcol-contrib}"
 CONFIG="tests/snapshots/collector/otelcol-agent.yaml.snap"
 # --public variant (#107): adds the bearertokenauth extension + receiver auth for an
@@ -162,11 +162,11 @@ if ! binary_version_ok; then
   # HTTPS from the canonical GitHub release URL, cross-checked with both `sha256sum` and
   # python3's hashlib, and matched against that asset's published `.sha256` file. Source
   # release:
-  # https://github.com/open-telemetry/opentelemetry-collector-releases/releases/tag/v0.161.0
+  # https://github.com/open-telemetry/opentelemetry-collector-releases/releases/tag/v0.164.0
   case "$key" in
-    linux_amd64)  expected_sha="778c689efa681ff6e4722ce9f66b9b7f57c3ba009ab2e2b43dc2e0315862c731" ;;
-    darwin_arm64) expected_sha="ccc0cf5de5242adcaedc7b5aebed43a1dc56aa2dc7de6ebc495d5db60512d34c" ;;
-    darwin_amd64) expected_sha="357fc0a7a77f5d42cab2f46af6be301062a7824b82454cc264cb8661fa9a8734" ;;
+    linux_amd64)  expected_sha="f0c1ce9f661399beb4a58b711924716e08ea70c3802db0715fcfde3cbbada2d4" ;;
+    darwin_arm64) expected_sha="af6a0c56886e3cc36ccebe849fa167bad2bc47a97a48fd8497a0d6f93d0cf73a" ;;
+    darwin_amd64) expected_sha="b53ab416e9a90625c1453692f1d3a3c4eba72904424e31516866f73064b65d4f" ;;
     *) expected_sha="" ;;
   esac
 
