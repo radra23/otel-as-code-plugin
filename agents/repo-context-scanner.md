@@ -276,6 +276,21 @@ found none.
      resolved default is the OBSERVED name, not the manifest one. (A manifest-vs-observed
      disagreement is the manifest being wrong about what the service reports, not two peer sources
      disagreeing.)
+   - **Strip a baked-in deployment-environment suffix before recording `name` (#209).** Per
+     `semconv-discipline`'s "`service.name` must not bake in the deployment environment" rule: if
+     the observed/declared name (any tier above) ends in a hyphen plus a known environment token
+     (`dev`, `int`, `qa`, `sbx`, `uat`, `perf`, `test`, `stage`, `staging`, `pre-prod`, `preprod`,
+     `prod`, `production`), record the STRIPPED base as `name` — never the suffixed form — and
+     add a `derived.conformanceIssues` entry (severity `"warning"`) naming the exact value found
+     and the stripped base, so `/otel-evaluate` surfaces it rather than this plugin's own
+     generated Terraform silently filtering on a value that won't match every environment.
+     **Confidence depends on whether you found a second data point**: if the SAME base name
+     appears with a DIFFERENT one of these suffixes in another deployment config for what is
+     otherwise the same service, that is direct proof (not a coincidence — a service genuinely
+     named `data-prep` does not also show up as `data-dev`/`data-qa` elsewhere); note both
+     observed values in `derived.notes`. With only one observed value, still flag it, but say in
+     `derived.notes` that only one data point was seen (lower-confidence heuristic, not a
+     structural fact like a severe semconv-lint rule).
    - `language`: `nodejs`, `python`, `go`, `java`, `dotnet`, `ruby`, `php`, `rust`, `other`
    - `framework`: `express`, `fastify`, `koa`, `nestjs`, `fastapi`, `django`, `flask`, `gin`,
      `spring`, `rails`, `nextjs`, `nuxt`, `axum`, `actix-web`, `aspnetcore`, `minimal-api`, `blazor`,

@@ -97,6 +97,14 @@ identifier positions (uids, `alert:` names, `metadata.name`), while keeping the 
 `var.service_name` in query filters and display titles. See that section for the exact expression
 and the per-field separator choice.
 
+**Never filter on a `service.name` that bakes in a deployment environment (#209).** The scanner
+strips a known environment suffix (`-prod`, `-dev`, …) before recording `name`, so `service` as
+passed to you should already be the base name — but if it ever carries a suffixed value anyway
+(a stale cache, a hand-edited context), do not silently generate from it: every query this
+module builds would then only ever match that one environment. Say so and ask for the base name
+rather than filtering on the suffixed one, the same "emitting wrong code is worse than emitting
+none" principle `/otel-instrument` already applies to a missing service identity.
+
 For a service with `generatorSupported: false` and `inScope: true` (a workload with no OTel SDK,
 such as an upstream binary scraped by the Collector), the OTel semconv queries don't apply. Use its
 **"Workloads without an OTel SDK (scraped metrics)"** section: filter by the scrape job, use the

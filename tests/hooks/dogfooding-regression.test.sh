@@ -855,6 +855,32 @@ check "#206 helm-chart-no-host fixture matches the issue's own repro: a Chart.ya
    && [ -f "$NOHOSTFX/src/Reporting.Infrastructure/Reporting.Infrastructure.csproj" ] \
    && ! grep -rqE "WebApplication.CreateBuilder|Host.CreateApplicationBuilder|Host.CreateDefaultBuilder|IHostBuilder|static.*Main\(" "$NOHOSTFX/src"'
 
+# --- #209: service.name must not bake in the deployment environment ---
+ENVFX="fixtures/nodejs-env-suffixed-name"
+
+check "#209 semconv-discipline defines the service.name-bakes-in-environment WARNING rule" \
+  'grep -qF "### \`service.name\` must not bake in the deployment environment (#209)" "$SEMCONV" \
+   && grep -qiF "WARNING, not a severe/strict-blocking rule" "$SEMCONV"'
+check "#209 semconv-discipline lists the known environment tokens and the fix (strip + deployment.environment.name)" \
+  'grep -qF "pre-prod\`, \`preprod\`" "$SEMCONV" \
+   && grep -qiF "deployment.environment.name\` to the stripped token" "$SEMCONV"'
+check "#209 semconv-discipline treats a same-base-different-suffix pair across configs as the strongest signal" \
+  'grep -qiF "The clearest, strongest signal" "$SEMCONV" \
+   && grep -qF "data-prep" "$SEMCONV"'
+check "#209 scanner strips the suffix before recording name and raises a conformanceIssues warning" \
+  'grep -qiF "Strip a baked-in deployment-environment suffix before recording" "$SCANNER" \
+   && grep -qF "record the STRIPPED base as \`name\`" "$SCANNER" \
+   && grep -qF "add a \`derived.conformanceIssues\` entry (severity \`\"warning\"\`)" "$SCANNER"'
+check "#209 brownfield-auditor surfaces the scanner-sourced finding verbatim rather than re-deriving it" \
+  'grep -qiF "is a scanner-sourced finding, not" "$AUDITOR" \
+   && grep -qiF "do not re-run the" "$AUDITOR"'
+check "#209 terraform-gen refuses to filter on a suffixed service.name rather than silently generating" \
+  'grep -qiF "Never filter on a \`service.name\` that bakes in a deployment environment (#209)" "$TFGEN"'
+check "#209 nodejs-env-suffixed-name fixture matches the issue's own repro: same base name, two configs, different env suffix" \
+  'grep -qF "checkout-api-dev" "$ENVFX/k8s/deployment-dev.yaml" \
+   && grep -qF "checkout-api-prod" "$ENVFX/k8s/deployment-prod.yaml" \
+   && grep -qF "\"name\": \"checkout-api\"" "$ENVFX/package.json"'
+
 # --- #202: scanner timestamps must come from a real clock, never the schema's example literal ---
 CMDS_DISPATCHING_SCANNER="commands/otel-evaluate.md commands/otel-remediate.md commands/otel-collector.md
 commands/otel-backend.md commands/otel-business-attrs.md commands/otel-uninstrument.md"

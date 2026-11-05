@@ -51,6 +51,32 @@ Span attributes describe a **single operation**.
 **Common violation:** `span.setAttribute('service.name', ...)` — this is WRONG.
 `service.name` must be on the Resource, not on spans.
 
+### `service.name` must not bake in the deployment environment (#209)
+
+`service.name` identifies the logical service ACROSS environments; the environment belongs in
+`deployment.environment.name`, a separate Resource attribute that already exists for exactly
+this. A name like `checkout-api-prod` / `checkout-api-dev` conflates the two, and every downstream
+consumer pays for it: a dashboard/alert/SLO built from `service.name` (this plugin's own Grafana/
+Datadog/New Relic/Dash0 queries all filter by it) now needs one copy per environment, or a regex,
+instead of one definition filtered by `deployment.environment.name`; cross-environment comparison
+breaks outright (there is no single `checkout-api` to compare `-dev` against `-prod` as).
+
+**WARNING, not a severe/strict-blocking rule** (heuristic — a token match, not a structural fact
+like `span.setAttribute('service.name', ...)` above): a `service.name` value (observed in an
+existing bootstrap, or set via `OTEL_SERVICE_NAME` / `OTEL_RESOURCE_ATTRIBUTES` in deployment
+config) ending in a hyphen plus a known environment token —
+`dev`, `int`, `qa`, `sbx`, `uat`, `perf`, `test`, `stage`, `staging`, `pre-prod`, `preprod`,
+`prod`, `production` — is this violation. Fix: strip the suffix for `service.name`, and set
+`deployment.environment.name` to the stripped token (expand common abbreviations if the repo's
+own environment-name convention elsewhere is already the long form, e.g. `prod` →
+`"production"` — don't invent an expansion the repo doesn't already use itself).
+**The clearest, strongest signal**: the SAME base name appears across more than one deployment
+config (per environment), each time with a different one of these suffixes — that is direct
+proof the suffix is environment, not identity, and not a coincidental name ending in a token-
+like word (a service genuinely named `data-prep` is not this violation; it doesn't also show up
+as `data-dev`/`data-qa` elsewhere). A single observed name ending in a listed token, with no
+second data point, is still worth flagging, just with lower confidence — say so.
+
 ## HTTP Conventions (semconv 1.23+)
 
 Use the NEW names (1.23+ stable). **Fix** classifies whether `/otel-instrument --fix <CV-id>` may

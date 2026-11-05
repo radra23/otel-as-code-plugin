@@ -104,6 +104,14 @@ Two patterns that are correct and must NOT be reported as violations:
   constant for it. Check the installed package before calling it a violation; the constant sets
   differ per language and per release.
 
+**`service.name` baking in the deployment environment (#209) is a scanner-sourced finding, not
+one you can re-derive from source.** The scanner already did the cross-deployment-config
+comparison (`semconv-discipline`'s rule for it) and, when it found one, recorded it directly in
+`derived.conformanceIssues`. Surface that entry as a `CV` finding verbatim — do not re-run the
+comparison yourself, you have no visibility into every deployment config file the scanner read
+to find it, only whichever ones were excerpted for you. If no such entry exists, say nothing;
+absence here means the scanner didn't find the pattern, not that you checked and it's clean.
+
 ### 3. Cardinality risks
 Scan for high-cardinality identifiers, and **distinguish the position** — per the tiered rule in
 semconv-discipline, position decides severity and the fix:

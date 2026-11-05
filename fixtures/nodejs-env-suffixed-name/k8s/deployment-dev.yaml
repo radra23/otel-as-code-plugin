@@ -1,0 +1,12 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: checkout-api-dev
+spec:
+  template:
+    spec:
+      containers:
+        - name: checkout-api
+          env:
+            - name: OTEL_SERVICE_NAME
+              value: "checkout-api-dev"
