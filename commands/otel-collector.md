@@ -74,6 +74,19 @@ If the scan or the cache has **no services**, apply `/otel-init` Step 2's "Empty
 print its message, write nothing, exit 0. A Collector config describes what receives telemetry
 from services; for a repo with none it would be a repo-root file that collects from nothing.
 
+**Check for an already-deployed Collector before generating (#176).** If any service has
+`instrumentableReason` naming it existing OTel Collector infrastructure (the scanner's
+`helm_release`/`kubernetes_manifest` detection — see `repo-context-scanner.md`), print a note
+before Step 3 proceeds — this does NOT block generation, since the user may genuinely want a
+second config (a different mode, or this repo's own agent config alongside a separately-managed
+gateway), but silently generating a disconnected duplicate with no acknowledgment is the exact
+gap reported:
+```
+Note: <name> already deploys an OTel Collector (chart <chart>, image <image>) via <file>.
+Generating anyway — review whether editing that release's own `values` is more appropriate than
+a second, disconnected config before applying this one.
+```
+
 ## Step 3: Determine output path
 
 Write to: `otelcol-agent.yaml` (mode=agent) or `otelcol-gateway.yaml` (mode=gateway)

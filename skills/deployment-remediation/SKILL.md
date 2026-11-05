@@ -34,7 +34,7 @@ a target this skill doesn't cover.
 
 | Target | Detection signal | `inScope` shape |
 |---|---|---|
-| Keycloak | A container image reference matching `quay.io/keycloak/keycloak`, `keycloak/keycloak`, or the older `jboss/keycloak`, in a Dockerfile `FROM`, a Kubernetes/Helm manifest's `image:` field, or a docker-compose `image:` field | `host: kubernetes` / `container` / `standalone`, `generatorSupported: false` |
+| Keycloak | A container image reference matching `quay.io/keycloak/keycloak`, `keycloak/keycloak`, or the older `jboss/keycloak`, in a Dockerfile `FROM`, a Kubernetes/Helm manifest's `image:` field, a docker-compose `image:` field, **or a Terraform `helm_release`/`kubernetes_manifest` resource's `chart`/embedded `values`/`image` field (#176)** — same target, just provisioned from `.tf` instead of a raw manifest; the scanner notes which source it came from | `host: kubernetes` / `container` / `standalone`, `generatorSupported: false` |
 
 ## Keycloak: native OTel configuration surface
 

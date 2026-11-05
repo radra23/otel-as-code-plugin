@@ -797,6 +797,31 @@ check "#178 nodejs-gitea-ci fixture has a Gitea deploy workflow setting OTEL_EXP
 check "#178 nodejs-gitea-ci fixture is a real Node HTTP service (identity + server evidence)" \
   'grep -q "\"name\": \"inventory-api\"" "$GITEAFX/package.json" && grep -qF "app.listen" "$GITEAFX/index.js"'
 
+# --- #176: a Helm-installed Collector (or other deployment-only workload) defined only in
+# Terraform must not be invisible to the scanner, /otel-evaluate, or /otel-collector ---
+EVALCMD="commands/otel-evaluate.md"
+HELMFX="fixtures/helm-collector-infra"
+
+check "#176 scanner reads Terraform helm_release/kubernetes_manifest resources as an identity input" \
+  'grep -qF "Terraform \`helm_release\` / \`kubernetes_manifest\` resources" "$SCANNER"'
+check "#176 scanner treats an OTel Collector chart/image as infrastructure, not a remediation target" \
+  'grep -qF "chart/image is an OTel Collector itself" "$SCANNER" \
+   && grep -qF "route it through the deployment-remediation known-targets table" "$SCANNER"'
+check "#176 scanner also recognizes a KNOWN remediation target (e.g. Keycloak) sourced from a helm_release" \
+  'grep -qiF "matches a \`deployment-remediation\` known target instead" "$SCANNER"'
+check "#176 deployment-remediation skill's Keycloak detection signal includes a Terraform helm_release source" \
+  'grep -qF "a Terraform \`helm_release\`/\`kubernetes_manifest\` resource" skills/deployment-remediation/SKILL.md'
+check "#176 otel-evaluate acknowledges existing Collector infra instead of pointing at /otel-remediate" \
+  'grep -qF "If the service is existing Collector infrastructure" "$EVALCMD" \
+   && grep -qF "do NOT offer \`/otel-remediate\`" "$EVALCMD"'
+check "#176 otel-collector warns about an already-deployed Collector before generating, without blocking" \
+  'grep -qF "Check for an already-deployed Collector before generating" "$COLLECTOR_CMD" \
+   && grep -qF "does NOT block generation" "$COLLECTOR_CMD"'
+check "#176 helm-collector-infra fixture matches the issue's own repro: a helm_release for the OTel Collector chart, nothing else" \
+  'grep -qF "chart      = \"opentelemetry-collector\"" "$HELMFX/infra/main.tf" \
+   && grep -qF "otel/opentelemetry-collector-contrib" "$HELMFX/infra/main.tf" \
+   && [ ! -f "$HELMFX/package.json" ] && [ ! -f "$HELMFX/go.mod" ]'
+
 # --- #202: scanner timestamps must come from a real clock, never the schema's example literal ---
 CMDS_DISPATCHING_SCANNER="commands/otel-evaluate.md commands/otel-remediate.md commands/otel-collector.md
 commands/otel-backend.md commands/otel-business-attrs.md commands/otel-uninstrument.md"

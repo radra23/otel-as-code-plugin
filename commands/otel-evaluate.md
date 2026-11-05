@@ -234,6 +234,27 @@ If the target isn't one `/otel-remediate` v1 supports (anything other than Keycl
 so plainly rather than offering a command that will just refuse — name the findings as manual
 work: "no automated remediation path yet for this target; apply the findings above by hand."
 
+**If the service is existing Collector infrastructure** (the scanner's `instrumentableReason`
+says so — see "Terraform helm_release / kubernetes_manifest" in `repo-context-scanner.md`, #176),
+do NOT offer `/otel-remediate` — there is nothing to remediate on a Collector the way there is on
+Keycloak; it already routes telemetry, it does not need instrumenting. Acknowledge it plainly
+instead:
+
+```
+<name> is existing OTel Collector infrastructure (chart <chart>, image <image>), defined in
+<file> — not a telemetry source to instrument or a /otel-remediate target. This is why it showed
+up here rather than nothing: a repo whose only OTel footprint is infra like this would otherwise
+report "no OTel detected" with services: [], which is wrong.
+
+If /otel-collector would generate a new config for this repo, check this release's own `values`
+first — editing it directly may be more appropriate than adding a second, disconnected config.
+```
+
+This is also the fix for the specific failure mode #176 reported: an infra-only repo (no
+application source anywhere) used to come back with an empty `services` list and hit the
+"Empty scan" exit in `/otel-init` Step 2 before ever reaching this command's own checks above —
+the scanner creating this entry at all is what keeps that path from firing.
+
 **Say the `--force` caveat plainly; do not offer it as the default route.** By the time an audit
 is worth running, the bootstrap has usually been hand-refined, and this report is often the
 evidence that those refinements are *correct* — a handler wrapper for a runtime with no inbound

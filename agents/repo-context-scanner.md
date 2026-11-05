@@ -169,6 +169,38 @@ found none.
      static-hosting / App Service target. `.gitlab-ci.yml` and `.circleci/config.yml` are each a
      single file — read the whole thing, there is no "which N files" question for them.
    - `.env.example` / `.env.sample` (to detect env var patterns)
+   - **Terraform `helm_release` / `kubernetes_manifest` resources — deployment-only workloads
+     with no application source in this repo at all (#176).** An infra-only repo (Helm/k8s
+     workloads provisioned entirely from `.tf`, no Dockerfile/k8s-YAML/docker-compose) is
+     otherwise invisible: none of the manifest types above exist, `services` comes back empty,
+     and the empty-scan path (`/otel-init` Step 2) then tells every downstream command there is
+     nothing here — when there may be a whole Collector pipeline. Read every `*.tf` file for a
+     `helm_release` resource (or a `kubernetes_manifest`/`kubernetes_deployment` resource using
+     the raw k8s provider) and resolve its `chart`/`repository` arguments and its embedded
+     `values` (a `yamlencode({...})` block, or a separate `values = [file(...)]` — read the
+     referenced file too). Two outcomes:
+     - **The chart/image is an OTel Collector itself** (chart `opentelemetry-collector` from
+       repository `open-telemetry/opentelemetry-helm-charts` or `github.io/open-telemetry/...`;
+       or an `image.repository`/`image` value of `otel/opentelemetry-collector-contrib` or
+       `otelcol-contrib`). This is existing OTel INFRASTRUCTURE, not a telemetry source — do not
+       route it through the deployment-remediation known-targets table below (there is nothing on
+       a Collector to remediate the way there is on Keycloak). Create a service entry: `name`
+       from the `helm_release`'s own `name` (same priority-5 "deployment-only" naming rule
+       above), `generatorSupported: false`, `inScope: true`, `instrumentableReason:
+       "generatorSupported:false — <helm_release name> is an existing OTel Collector deployment
+       (chart <chart>, image <image>) defined in <file>; it is infrastructure this repo's
+       telemetry flows through, not a service to instrument or a /otel-remediate target;
+       inScope:true"`. Record the chart/image/file and the release's own pipeline config (if the
+       `values` set `processors`/`exporters`) in `derived.notes` so `/otel-collector` can warn
+       about duplicating it rather than silently generating a second, disconnected config.
+     - **The chart/image matches a `deployment-remediation` known target instead** (e.g.
+       Keycloak's image reference — see that skill's table): this is the SAME detection outcome
+       as finding it in a raw Kubernetes/Helm YAML manifest or docker-compose `image:` field,
+       just sourced from Terraform instead. Create the service entry the same way the existing
+       Keycloak detection does, and note in `derived.notes` that the signal came from a
+       `helm_release` resource in `.tf`, not a raw manifest — `/otel-remediate` still needs to
+       read the actual rendered config to know what's set (an inline `yamlencode` values block in
+       `.tf` is itself a valid "deployment config file" for that purpose).
 
 2. For each detected service, determine:
    - `name`: service name. Prefer the name the service is **observed to report** over any
