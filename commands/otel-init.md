@@ -30,20 +30,37 @@ costs minutes per command for nothing.
    `package.json` files under it) or `vendor`/`.venv` puts hundreds of paths the scanner never
    intended as identity inputs into this set, and every dependency bump then changes the
    fingerprint and marks the cache stale for reasons that have nothing to do with service
-   identity (#187):
+   identity (#187). **Then exclude test projects and tooling-only manifests (#208)** — a unit
+   test `*.csproj`/`*.fsproj`, or anything under a `tests/`/`Tests/` directory, defines no
+   service identity; a repo whose test suite changes on every commit should not pay for a
+   full re-scan on every commit either. Two fixed default patterns, plus whatever this repo's
+   own `.claude/otel-services.json` adds under `identityExclude` (an array of ERE fragments,
+   same alternation syntax as the two defaults — e.g. a root `pyproject.toml`/`requirements.txt`
+   that only configures pytest/lint, not a real service, needs a repo-specific pattern the
+   defaults can't guess):
    ```
+   EXCLUDE='(^|/)[^/]*[Tt]ests?\.(csproj|fsproj)$|(^|/)[Tt]ests?/'
+   if [ -f .claude/otel-services.json ]; then
+     USER_EXCLUDE=$(python3 -c "import json,sys; d=json.load(open('.claude/otel-services.json')); print('|'.join(d.get('identityExclude',[])))")
+     [ -n "$USER_EXCLUDE" ] && EXCLUDE="$EXCLUDE|$USER_EXCLUDE"
+   fi
    { git ls-files; git ls-files --others --exclude-standard; } \
      | grep -vE '(^|/)(node_modules|vendor|\.?venv|bin|obj)/' \
      | grep -E '(^|/)(package\.json|pnpm-workspace\.yaml|pyproject\.toml|requirements\.txt|setup\.py|go\.mod|go\.work|Cargo\.toml|Gemfile|composer\.json|pom\.xml|build\.gradle(\.kts)?|settings\.gradle(\.kts)?|global\.json|Directory\.Packages\.props|[^/]+\.(csproj|fsproj|sln)|([^/]+\.)?Dockerfile(\.[^/]+)?|host\.json|serverless\.yml|CODEOWNERS)$' \
+     | grep -vE "$EXCLUDE" \
      | sort
    ```
+   `identityExclude` is additive — it adds to the two defaults, never replaces them (a repo
+   fixing its root-manifest case should not have to re-declare the test-project patterns too).
    If this set differs from `freshness.identityInputs` in the cache, the cache is STALE
-   (a service was added or removed). This regex and the scanner's `identityInputs` (see
-   `agents/repo-context-scanner.md`) are ONE contract and must stay in lockstep: the scanner
-   must store exactly the paths this regex produces — no bare directories, no `.env`/CI files,
-   and nothing under a vendored directory the exclusion above drops — or the two sets differ on
-   every run and the cache can never be judged current. Compare the two as sorted sets, not by
-   order.
+   (a service was added or removed, OR `identityExclude` itself changed — recompute before
+   comparing, never compare against a set built with a stale exclude list). This regex and the
+   scanner's `identityInputs` (see `agents/repo-context-scanner.md`) are ONE contract and must
+   stay in lockstep: the scanner must store exactly the paths this regex produces — no bare
+   directories, no `.env`/CI files, nothing under a vendored directory the exclusion above drops,
+   and nothing matching the exclude pattern above (defaults + this repo's own
+   `identityExclude`) — or the two sets differ on every run and the cache can never be judged
+   current. Compare the two as sorted sets, not by order.
 2. Next, check that the fingerprint actually covers every service. The fingerprint only sees files
    matched by the regex above, so a service with none of them has nothing that can change it. A
    deployment-only workload (an upstream binary configured by a Kubernetes manifest, Helm

@@ -139,6 +139,40 @@ else
   echo "FAIL: fixtures with no identity input (cache would always read stale):$uncovered"; fail=$((fail+1))
 fi
 
+# --- #208: test projects / tooling-only manifests must be excluded from identityInputs, in
+# lockstep between /otel-init Step 1 and the scanner's prose, the same way check 0 guards the
+# include regex above. ---
+EXCLUDE='(^|/)[^/]*[Tt]ests?\.(csproj|fsproj)$|(^|/)[Tt]ests?/'
+
+if grep -qF "$EXCLUDE" "$INIT"; then
+  echo "PASS: /otel-init Step 1 carries exactly the test/tooling EXCLUDE pattern this test mirrors"; pass=$((pass+1))
+else
+  echo "FAIL: /otel-init Step 1 EXCLUDE pattern differs from this test's mirror — update it (#208)"; fail=$((fail+1))
+fi
+if grep -qF "$EXCLUDE" "$SCANNER"; then
+  echo "PASS: scanner carries exactly the same EXCLUDE pattern, in lockstep with /otel-init (#208)"; pass=$((pass+1))
+else
+  echo "FAIL: scanner's EXCLUDE pattern differs from /otel-init Step 1 — the two sets will never agree (#208)"; fail=$((fail+1))
+fi
+
+# check: applying REGEX then EXCLUDE to the real #94 dotnet-testproject fixture drops its test
+# .csproj entirely — proof the pipeline (not just the pattern text) does what #208 asks.
+TESTPROJ_DIR="fixtures/dotnet-testproject"
+testproj_survivors=$(cd "$TESTPROJ_DIR" && find . -type f | sed 's|^\./||' | grep -E "$REGEX" | grep -vE "$EXCLUDE" || true)
+if [ -d "$TESTPROJ_DIR" ] && [ -z "$testproj_survivors" ]; then
+  echo "PASS: REGEX+EXCLUDE drops the dotnet-testproject fixture's test .csproj entirely (#208)"; pass=$((pass+1))
+else
+  echo "FAIL: dotnet-testproject fixture still has identity inputs after EXCLUDE ($testproj_survivors) — #208 regression"; fail=$((fail+1))
+fi
+
+# check: otel-init documents identityExclude as ADDITIVE to the defaults, and the scanner says
+# the same — a repo adding its own pattern must not accidentally lose the built-in test coverage.
+if grep -qiF "identityExclude\` is additive" "$INIT" && grep -qF "additive to the two patterns above" "$SCANNER"; then
+  echo "PASS: identityExclude is documented as additive to the defaults on both sides (#208)"; pass=$((pass+1))
+else
+  echo "FAIL: identityExclude's additive-not-replacing contract is missing on one side (#208)"; fail=$((fail+1))
+fi
+
 echo ""
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

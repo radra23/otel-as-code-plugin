@@ -653,14 +653,29 @@ found none.
      `package.json`, vendored for whatever reason, is not this repo's service identity, and
      letting 300+ of them in means every dependency bump marks the cache stale for reasons that
      have nothing to do with a service being added or removed (#187).
+     **Also exclude a test project or tooling-only manifest (#208)**: any `.csproj`/`.fsproj`
+     whose filename ENDS in `Test`/`Tests` right before the extension — covering both a
+     dot-separated name (`Checkout.Tests.csproj`) and a joined one (`Fillr.WebTests.csproj`,
+     the real shape of the `dotnet-testproject` fixture — no literal dot before "Tests" at all)
+     — and anything under a path component named `test`/`tests`/`Test`/`Tests`. Same ERE the
+     command runs: `(^|/)[^/]*[Tt]ests?\.(csproj|fsproj)$|(^|/)[Tt]ests?/`. **Also apply this
+     repo's own
+     `identityExclude` list from `.claude/otel-services.json`** (an array of ERE fragments,
+     additive to the two patterns above, for a repo-specific case the defaults can't guess — a
+     root `pyproject.toml`/`requirements.txt` that only configures pytest/lint, not a real
+     service, is exactly the motivating case: there is no generic pattern for "this manifest is
+     tooling-only," so it stays something the repo opts into, not a default). Absent file or
+     field → no additional exclusions, just the two defaults.
      `/otel-init` Step 1 recomputes this set with a fixed filename regex (the same vendored-
-     directory exclusion applied first) and compares it to what you stored; any entry that regex
-     cannot produce (a directory, a `.env` file, anything under an excluded vendored directory)
-     guarantees the two sets differ on every comparison, so the cache is judged stale forever and
-     never hits. Keep this list in lockstep with that regex. Sort it. An empty list is valid: a
-     GitOps or config-only repo may have none of these files. Store `[]` and don't pad it with
-     deployment files. `/otel-init` Step 1 treats an in-scope service with no identity input under
-     its `rootDir` as always stale, so its `deployment.configFiles` get re-read on every run (#150).
+     directory and test/tooling exclusions, plus this repo's own `identityExclude`, applied
+     first) and compares it to what you stored; any entry that regex cannot produce (a directory,
+     a `.env` file, anything under an excluded vendored directory, a test project, or anything
+     `identityExclude` drops) guarantees the two sets differ on every comparison, so the cache is
+     judged stale forever and never hits. Keep this list in lockstep with that regex. Sort it.
+     An empty list is valid: a GitOps or config-only repo may have none of these files. Store
+     `[]` and don't pad it with deployment files. `/otel-init` Step 1 treats an in-scope service
+     with no identity input under its `rootDir` as always stale, so its `deployment.configFiles`
+     get re-read on every run (#150).
    - `identityFingerprint`: a hash over those files' contents. Compute it with
      `git hash-object` over the listed paths and hash the result list, e.g.
      `git hash-object <paths...> | sha256sum | cut -c1-16`; for a non-git repo, `sha256sum` the
