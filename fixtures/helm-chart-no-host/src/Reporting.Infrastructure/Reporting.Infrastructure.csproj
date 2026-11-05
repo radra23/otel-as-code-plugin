@@ -1,0 +1,10 @@
+<!-- Class library only — no host builder anywhere. See Reporting.Domain.csproj. -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Reporting.Domain/Reporting.Domain.csproj" />
+  </ItemGroup>
+</Project>

@@ -212,8 +212,26 @@ found none.
        `helm_release` resource in `.tf`, not a raw manifest — `/otel-remediate` still needs to
        read the actual rendered config to know what's set (an inline `yamlencode` values block in
        `.tf` is itself a valid "deployment config file" for that purpose).
-
-2. For each detected service, determine:
+   - **A raw `Chart.yaml` (not Terraform-wrapped — that's the rule above) whose workload has no
+     matching host project in this repo (#206).** Different failure shape from the Terraform
+     case: here the chart itself is ordinary Helm source, sitting in the repo, but the
+     application it deploys isn't — a library-only tree (e.g. `Reporting.Domain` +
+     `Reporting.Infrastructure` `.csproj`s with no host builder anywhere), a different repo
+     entirely, or code that just hasn't been checked in yet. After detecting every service from
+     a language manifest above AND every Terraform-sourced deployment-only workload from the
+     rule above, check each `Chart.yaml` you found: is there a detected service whose `rootDir`
+     is at or under the chart's directory (or the chart's directory at or under the service's)?
+     If yes, that chart is this service's own deployment config — nothing new to do, it's
+     already covered by the normal `deployment.configFiles` handling. **If no detected service
+     claims it, do not drop it silently** — emit a deployment-only service entry instead: `name`
+     from `Chart.yaml`'s own `name:` field (same priority-5 "deployment-only" naming tier as a
+     Helm release name elsewhere in this doc), `generatorSupported: false`, `inScope: true`,
+     `instrumentableReason: "generatorSupported:false — Chart.yaml at <path> (chart name
+     <name>) has no matching host project in this repo; the application it deploys may live
+     elsewhere or not be checked in yet; inScope:true, audit its env with /otel-remediate once
+     you locate the actual code or confirm there is none to find"`. This is read-only reporting
+     — the point is that a deployed workload stays visible in `services`/`derived.notes` instead
+     of vanishing from every later command the moment its host project isn't in this repo.
    - `name`: service name. Prefer the name the service is **observed to report** over any
      manifest or label — for a brownfield repo (the audience for `/otel-evaluate`), matching the
      identity already flowing to the backend is the whole job, and the generated

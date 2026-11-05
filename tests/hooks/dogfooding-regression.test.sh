@@ -838,6 +838,23 @@ check "#176 helm-collector-infra fixture matches the issue's own repro: a helm_r
    && grep -qF "otel/opentelemetry-collector-contrib" "$HELMFX/infra/main.tf" \
    && [ ! -f "$HELMFX/package.json" ] && [ ! -f "$HELMFX/go.mod" ]'
 
+# --- #206: a raw Chart.yaml (not Terraform-wrapped) whose workload has no matching host project
+# in this repo must not be dropped silently ---
+NOHOSTFX="fixtures/helm-chart-no-host"
+
+check "#206 scanner defines the no-matching-host-project Chart.yaml rule, distinct from the Terraform case" \
+  "grep -qF 'A raw \`Chart.yaml\` (not Terraform-wrapped' \"\$SCANNER\" && grep -qF 'whose workload has no' \"\$SCANNER\""
+check "#206 scanner says not to drop it silently, and to emit a deployment-only entry instead" \
+  'grep -qiF "do not drop it silently" "$SCANNER" \
+   && grep -qF "emit a deployment-only service entry instead" "$SCANNER"'
+check "#206 scanner cross-references already-detected services' rootDir before treating a chart as orphaned" \
+  'grep -qiF "is there a detected service whose" "$SCANNER" && grep -qF "is at or under the chart" "$SCANNER"'
+check "#206 helm-chart-no-host fixture matches the issue's own repro: a Chart.yaml plus only orphaned class libraries, no host builder" \
+  'grep -qF "name: reporting-connector" "$NOHOSTFX/charts/reporting-connector/Chart.yaml" \
+   && [ -f "$NOHOSTFX/src/Reporting.Domain/Reporting.Domain.csproj" ] \
+   && [ -f "$NOHOSTFX/src/Reporting.Infrastructure/Reporting.Infrastructure.csproj" ] \
+   && ! grep -rqE "WebApplication.CreateBuilder|Host.CreateApplicationBuilder|Host.CreateDefaultBuilder|IHostBuilder|static.*Main\(" "$NOHOSTFX/src"'
+
 # --- #202: scanner timestamps must come from a real clock, never the schema's example literal ---
 CMDS_DISPATCHING_SCANNER="commands/otel-evaluate.md commands/otel-remediate.md commands/otel-collector.md
 commands/otel-backend.md commands/otel-business-attrs.md commands/otel-uninstrument.md"

@@ -1,0 +1,5 @@
+apiVersion: v2
+name: reporting-connector
+description: Reporting connector workload (host project lives outside this repo)
+version: 0.3.0
+appVersion: "1.0"

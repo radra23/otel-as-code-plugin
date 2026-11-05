@@ -1,0 +1,8 @@
+<!-- Class library only — no host builder anywhere. The actual reporting-connector host project
+     (whatever runs this chart's workload) is not checked into this repo; see #206. -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+</Project>
