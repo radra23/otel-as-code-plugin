@@ -97,7 +97,7 @@ Detected: quay.io/keycloak/keycloak:26.7.0 in k8s/keycloak-deployment.yaml
            value: "true"
 +        - name: KC_TRACING_ENABLED
 +          value: "true"
-+        - name: KC_TRACING_ENDPOINT
++        - name: KC_TELEMETRY_ENDPOINT
 +          value: "<confirm your collector endpoint>"
 +        - name: KC_TELEMETRY_SERVICE_NAME
 +          value: "keycloak-auth"
@@ -121,11 +121,16 @@ Scrub status: <found in <file> / missing from <file> / receiving Collector not v
   ratio of 1.0. `KC_TRACING_SAMPLER_RATIO` (or tail sampling at a gateway) is your call.
 
 ### Already configured
-- KC_METRICS_ENABLED=true — no change needed
+- KC_METRICS_ENABLED=true — no change needed. Keycloak can also export metrics (and logs)
+  directly over OTLP instead of/alongside Prometheus scrape — see "Native OTLP logs/metrics
+  (Preview)" in the skill if you want resource-attribute-carrying metrics/logs rather than a
+  scrape target; not proposed here since the existing setup is a defensible default.
 
 ### Not proposed (needs your input)
-- KC_TRACING_ENDPOINT — set to a real collector endpoint; "<confirm your collector endpoint>"
-  above is a placeholder, not a value to apply as-is.
+- KC_TELEMETRY_ENDPOINT — set to a real collector endpoint; "<confirm your collector endpoint>"
+  above is a placeholder, not a value to apply as-is. This is the SHARED endpoint for traces,
+  logs and metrics (#196) — do not propose KC_TRACING_ENDPOINT alone, or OTLP logs/metrics
+  enabled later fall back to localhost:4317 unset.
 
 This report is print-only — nothing was written. Apply the diff by hand, or paste it into your
 own change-management flow for this manifest.

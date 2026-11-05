@@ -46,6 +46,16 @@ https://www.keycloak.org/server/logging) — Keycloak's own config surface has a
 properties within its lifecycle (see the deprecation note below), so treat this table as
 "verified as of this writing," not permanently pinned.
 
+**All three signals share one endpoint.** `--telemetry-endpoint` / `KC_TELEMETRY_ENDPOINT` is
+"available only when any of available OpenTelemetry components (Logs, Metrics, Traces) is turned
+on," and `--tracing-endpoint` "is inherited from the `telemetry-endpoint` option" when not given
+(confirmed against Keycloak's own docs, `quay.io/keycloak/keycloak:26.7.0 start --help-all`,
+#196). **Propose `KC_TELEMETRY_ENDPOINT`, not `KC_TRACING_ENDPOINT`, as the endpoint variable** —
+setting only `KC_TRACING_ENDPOINT` means enabling OTLP logs or metrics later silently falls back
+to `localhost:4317` a second time, unset. Only propose `KC_TRACING_ENDPOINT` directly when traces
+genuinely need to go somewhere DIFFERENT from logs/metrics, a real but unusual case — say so
+explicitly when you do.
+
 **Tracing** (default OTLP protocol is **gRPC**, default endpoint `http://localhost:4317` — same
 default this plugin uses elsewhere, so a target already running a collector on the plugin's
 standard port needs no endpoint override):
@@ -53,7 +63,7 @@ standard port needs no endpoint override):
 | Env var | Purpose | Notes |
 |---|---|---|
 | `KC_TRACING_ENABLED=true` | Turns tracing on. Build-time option (`tracing-enabled`) | Tracing is gated behind the `opentelemetry` feature, which is **enabled by default** in current Keycloak — do not also propose a `--features=opentelemetry` flag unless the target is confirmed on an older version where it wasn't. |
-| `KC_TRACING_ENDPOINT` | OTLP traces endpoint | Maps to `quarkus.otel.exporter.otlp.traces.endpoint`. Omit if the deployment already exports elsewhere and only the endpoint is unset — do not invent a value; ask/flag it as `<confirm your collector endpoint>` the same way `instrumentation-gen` never invents a Terraform-owned identifier. |
+| `KC_TELEMETRY_ENDPOINT` | Shared OTLP endpoint for traces, logs and metrics | See "All three signals share one endpoint" above. Maps to `quarkus.otel.exporter.otlp.endpoint`. Omit if the deployment already exports elsewhere and only the endpoint is unset — do not invent a value; ask/flag it as `<confirm your collector endpoint>` the same way `instrumentation-gen` never invents a Terraform-owned identifier. |
 | `KC_TELEMETRY_SERVICE_NAME` | The `service.name` resource attribute | **Use this, not `KC_TRACING_SERVICE_NAME`** — Keycloak's own docs mark `tracing-service-name` deprecated in favor of `telemetry-service-name`. Default is literally `keycloak`; every Keycloak deployment in a multi-service repo needs this set explicitly or every one of them reports the identical `service.name`. |
 | `KC_TELEMETRY_RESOURCE_ATTRIBUTES` | Extra resource attributes (`k8s.namespace.name`, etc.) | Same deprecation as above (was `tracing-resource-attributes`). The Keycloak Operator sets this automatically when present — if the target uses the Operator, do not propose it as missing without checking whether the Operator already injects it. |
 | `KC_TRACING_SAMPLER_TYPE` / `KC_TRACING_SAMPLER_RATIO` | Sampler type/ratio | Default sampler `traceidratio`, default ratio `1.0` (all traces sampled). Do not put a sampling change in the diff as if it were a gap, but do not stay silent about volume either: raise it as a choice for the user (see "Tracing exports credentials" below). |
@@ -112,6 +122,19 @@ not an optional extra**:
 
 **Metrics** — `KC_METRICS_ENABLED=true` (build-time `metrics-enabled`) is the on/off switch;
 if already `true`, that is not a finding — do not propose re-adding it.
+
+**Native OTLP logs/metrics (Preview, #196)** — Keycloak 26 can ALSO export logs and metrics
+directly over OTLP, not just to stdout/Prometheus. Neither is a finding when the target already
+has `KC_LOG_CONSOLE_OUTPUT=json` and/or `KC_METRICS_ENABLED=true` — those are a defensible,
+already-working setup — but mention the OTLP path exists as an option next to them, not silently:
+it gives logs/metrics the same `service.name` / resource attributes as traces, which a stdout
+tail or a Prometheus scrape does not carry. Only propose actually ADDING these if the target has
+NEITHER the existing path NOR the OTLP path for that signal.
+
+| Env var | Purpose | Notes |
+|---|---|---|
+| `KC_TELEMETRY_LOGS_ENABLED=true` | Export logs over OTLP | Requires the `opentelemetry-logs` feature, which is **Preview, not enabled by default** — also propose `--features=opentelemetry-logs` (a build-time flag, not an env var: it belongs in the image's entrypoint args or a `FROM`-stage build arg, not the `env:` block — say so, don't just add it to the env-var diff). Confirmed via Keycloak's own `--help-all`: "Available only when feature 'opentelemetry-logs:v1' is enabled." |
+| `KC_TELEMETRY_METRICS_ENABLED=true` | Export metrics over OTLP | Requires BOTH the `opentelemetry-metrics` feature flag (Preview, same caveat as logs above) AND `KC_METRICS_ENABLED=true` set alongside it — confirmed via Keycloak's own docs: "Available only when metrics and feature 'opentelemetry-metrics:v1' are enabled." Proposing `KC_TELEMETRY_METRICS_ENABLED` alone, without also setting `KC_METRICS_ENABLED=true`, silently does nothing. |
 
 ## Diff format per manifest type
 
