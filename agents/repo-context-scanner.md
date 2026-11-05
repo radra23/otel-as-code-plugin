@@ -209,8 +209,8 @@ found none.
      disagreeing.)
    - `language`: `nodejs`, `python`, `go`, `java`, `dotnet`, `ruby`, `php`, `rust`, `other`
    - `framework`: `express`, `fastify`, `koa`, `nestjs`, `fastapi`, `django`, `flask`, `gin`,
-     `spring`, `rails`, `nextjs`, `nuxt`, `axum`, `aspnetcore`, `minimal-api`, `blazor`, `other`,
-     `unknown`. Detect `fastify` and `koa` from a dependency literally named `fastify` / `koa` —
+     `spring`, `rails`, `nextjs`, `nuxt`, `axum`, `actix-web`, `aspnetcore`, `minimal-api`,
+     `blazor`, `other`, `unknown`. Detect `fastify` and `koa` from a dependency literally named `fastify` / `koa` —
      the npm package name IS the enum value, same as `express`. Detect `nestjs` from `@nestjs/core`
      (or any `@nestjs/platform-*` package) — NOT a literal `nestjs` dependency, which does not
      exist; Nest's packages are scoped. **Check `nestjs` FIRST, before `fastify`**: a Nest app
@@ -233,6 +233,10 @@ found none.
      top-of-entry-point pattern (see the Ruby section in `agents/instrumentation-gen.md`). Detect
      `axum` from an `axum` entry in `Cargo.toml`'s `[dependencies]`, and record its version
      requirement in `frameworkVersion` — the Rust generator's gate keys on it (step 3 below).
+     Detect `actix-web` the same way, from an `actix-web` entry in `Cargo.toml`'s
+     `[dependencies]`, also recording its version requirement in `frameworkVersion`. Check `axum`
+     FIRST: a Rust service could in principle depend on both (e.g. mid-migration), and axum is
+     this generator's more mature target.
      Detect the three .NET shapes explicitly too — their schema values existed but had no
      detection rule here, so every .NET service fell through to `other` (#179):
        - `blazor` — the same `Microsoft.NET.Sdk.BlazorWebAssembly` SDK signal (or the
@@ -606,7 +610,7 @@ Return ONLY the following JSON object. No explanation, no preamble, no markdown 
       "host": "<standalone|container|kubernetes|azure-functions|azure-app-service|aws-lambda|gcp-cloud-functions|static-hosting|unknown>",
       "hostSource": "<the specific evidence, e.g. file:host.json>",
       "hostConfidence": 0.9,
-      "framework": "<express|fastify|koa|nestjs|fastapi|django|flask|gin|spring|rails|nextjs|nuxt|axum|aspnetcore|minimal-api|blazor|other|unknown>",
+      "framework": "<express|fastify|koa|nestjs|fastapi|django|flask|gin|spring|rails|nextjs|nuxt|axum|actix-web|aspnetcore|minimal-api|blazor|other|unknown>",
       "frameworkVersion": null,
       "runnableEntry": "<main entry file>",
       "hasDockerfile": true,

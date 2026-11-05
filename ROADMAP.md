@@ -8,7 +8,7 @@
 > of the same shape, and every concrete line item that isn't done yet has a linked tracking issue —
 > comment there rather than only in this file if you want to weigh in.
 
-Current release: **0.8.25**. Node.js, Python, Java, .NET, Go, Ruby, and Rust (axum) instrumentation, Terraform
+Current release: **0.8.25**. Node.js, Python, Java, .NET, Go, Ruby, and Rust (axum, actix-web) instrumentation, Terraform
 for Grafana, Datadog, New Relic, and Dash0, semconv pinned at 1.45.0. Since 0.2.0 the command set
 has grown past generation: `/otel-uninstrument` rolls instrumentation back behind an ownership
 marker, `/otel-remediate` proposes a deployment-config diff for services that have no application
@@ -83,16 +83,25 @@ just a larger surface to be wrong on. So the near-term work is depth.
 
 ## Later: toward v1 — [milestone](https://github.com/radra23/otel-as-code-plugin/milestone/3)
 
-- **PHP, and the rest of Rust.** Rust phase 1 shipped in 0.8.15: axum 0.8, with the golden crate
-  run end-to-end in CI, and the weekly drift check watches its crate pins. Still to come for Rust
-  are actix-web and semconv-lint support for Rust attribute setters
-  ([#118](https://github.com/radra23/otel-as-code-plugin/issues/118)). PHP is at the design
-  stage ([#117](https://github.com/radra23/otel-as-code-plugin/issues/117)).
-- **Cardinality and cost budgets as generated policy**, not just as guardrail comments — a
-  structural spend ceiling, distinct from the deny-list guardrails that already ship. The
-  Collector is the right place to enforce it, and almost nobody does it, because writing the
-  config by hand is tedious. That is exactly the kind of tedium a generator should absorb.
-  Tracked: [#119](https://github.com/radra23/otel-as-code-plugin/issues/119).
+- **PHP, and the rest of Rust — Rust is now done.** Rust phase 1 shipped in 0.8.15: axum 0.8, with
+  the golden crate run end-to-end in CI, and the weekly drift check watches its crate pins.
+  actix-web 4.x shipped next, via the official `opentelemetry-instrumentation-actix-web` crate —
+  deliberately not the far more widely-known `tracing-actix-web`, whose default root span bakes
+  in pre-stable HTTP attribute names with no version fix, verified against its source. The one
+  gap: actix-web isn't in the e2e harness yet (static/hook-level verification only, the same bar
+  axum itself shipped at before its own e2e proof landed as a separate follow-up). semconv-lint
+  also now covers both frameworks' attribute-setter call shape (`KeyValue::new(`) and metric
+  instrument constructors (`u64_counter(`, etc.), closing
+  [#118](https://github.com/radra23/otel-as-code-plugin/issues/118). PHP is at the design stage
+  ([#117](https://github.com/radra23/otel-as-code-plugin/issues/117)).
+- **Cardinality and cost budgets as generated policy — shipped.** `/otel-collector
+  --cardinality-budget <N>` (gateway mode, `--experimental`) generates a proactive spend ceiling
+  via the `cardinality_guardian` processor (verified against the real binary — neither of the
+  components the original ask speculated about, `cardinalitylimit`/`groupbyattrs`, actually does
+  this), paired with a `filter` processor that drops what it flags — the upstream processor's own
+  reaggregation modes silently no-op for Cumulative Sums/Histograms, the OTel SDK default
+  temporality, so tagging + an explicit drop is the only mode that behaves consistently across
+  metric types. Closes [#119](https://github.com/radra23/otel-as-code-plugin/issues/119).
 - **Semconv migration assistance — shipped for the mechanical cases.**
   [#120](https://github.com/radra23/otel-as-code-plugin/issues/120) landed: `/otel-evaluate`
   reports deprecated attributes with stable finding IDs, and `/otel-instrument --fix <ids>` now
