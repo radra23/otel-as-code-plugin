@@ -61,7 +61,7 @@ CONTENT=$(cat "$FILE_PATH" 2>/dev/null || echo "")
 # A basename substring check (the old gate) only matched files literally named tracing/telemetry/
 # instrumentation/opentelemetry — the bootstrap/wiring file. Attributes are set in handlers and
 # services, which are never named that. Every official OTel package/namespace, in every one of
-# the six supported languages, contains the substring "opentelemetry" somewhere in its import path
+# the seven supported languages, contains the substring "opentelemetry" somewhere in its import path
 # or namespace (@opentelemetry/*, opentelemetry.*, io.opentelemetry.*, OpenTelemetry.*,
 # go.opentelemetry.io/*, OpenTelemetry::*) — so a single case-insensitive content check covers all
 # six without an enumerated per-language import-pattern list to keep in sync.
@@ -105,17 +105,20 @@ severe() {  # $1 = full message (may be multiline)
 # nodejs/java: span.setAttribute(  |  python/ruby: span.set_attribute(  |  dotnet: activity.SetTag(
 # / .AddTag(  |  go: attribute.String(/.Int(/.Int64(/.Float64(/.Bool(/.*Slice( — go's API builds a
 # KeyValue via the attribute package rather than passing the key straight to a span-attribute
-# setter, so the "setter" IS that constructor call.
+# setter, so the "setter" IS that constructor call  |  rust: KeyValue::new( — same shape as Go's,
+# the opentelemetry crate's KeyValue is the one way to build an attribute, for either a Resource
+# or a span (verified against the opentelemetry 0.33 Meter/Span API, not memory; #118).
 ATTR_SETTER_GENERAL='(setAttribute|set_attribute|SetTag|AddTag)\('
-# Rules 5/7 add Go's attribute-builder pattern. Rule 1 deliberately does NOT: Go's resource
-# construction (resource.WithAttributes(attribute.String(...))) uses the exact same
-# attribute.String(...) call as span-attribute construction, so there is no way for a regex to
-# tell the correct (resource) use from the wrong (span) one in Go — including it in Rule 1 (a
-# SEVERE, strict-mode-blocking rule) would false-block legitimate Go resource setup. Go is not
-# covered by Rule 1 as a result; every other language IS, since none of their resource-construction
-# APIs go through this same call shape (they use an object/dict literal or a dedicated
-# `.AddService(...)`-style helper instead).
-ATTR_SETTER_WITH_GO='(setAttribute|set_attribute|SetTag|AddTag|attribute\.(String|Int64?|Float64|Bool|StringSlice|Int64Slice|Float64Slice|BoolSlice))\('
+# Rules 5/7 add Go's and Rust's attribute-builder patterns. Rule 1 deliberately does NOT: Go's
+# resource construction (resource.WithAttributes(attribute.String(...))) uses the exact same
+# attribute.String(...) call as span-attribute construction, and Rust's is identical in shape
+# (Resource::builder()...KeyValue::new(...) vs span.set_attributes(vec![KeyValue::new(...)])) — so
+# there is no way for a regex to tell the correct (resource) use from the wrong (span) one in
+# either language — including them in Rule 1 (a SEVERE, strict-mode-blocking rule) would
+# false-block legitimate resource setup. Go and Rust are not covered by Rule 1 as a result; every
+# other language IS, since none of their resource-construction APIs go through this same call
+# shape (they use an object/dict literal or a dedicated `.AddService(...)`-style helper instead).
+ATTR_SETTER_AMBIGUOUS='(setAttribute|set_attribute|SetTag|AddTag|attribute\.(String|Int64?|Float64|Bool|StringSlice|Int64Slice|Float64Slice|BoolSlice)|KeyValue::new)\('
 
 # Rule 1 (severe): service.name / service.version / service.namespace / service.instance.id as a
 # span attribute (must be a Resource attribute instead). See the ATTR_SETTER_GENERAL comment above
@@ -157,9 +160,9 @@ fi
 
 # Rule 5: Custom attribute without namespace prefix.
 # Heuristic: an attribute-setter call with a single-word or camelCase key (no dots).
-if echo "$CONTENT" | grep -qE "${ATTR_SETTER_WITH_GO}['\"][a-zA-Z][a-zA-Z0-9]*['\"]"; then
+if echo "$CONTENT" | grep -qE "${ATTR_SETTER_AMBIGUOUS}['\"][a-zA-Z][a-zA-Z0-9]*['\"]"; then
   # Exclude known valid single-segment keys (standard span/event keys, not custom business attrs)
-  NON_NAMESPACED=$(echo "$CONTENT" | grep -oE "${ATTR_SETTER_WITH_GO}['\"][a-zA-Z][a-zA-Z0-9]*['\"]" | \
+  NON_NAMESPACED=$(echo "$CONTENT" | grep -oE "${ATTR_SETTER_AMBIGUOUS}['\"][a-zA-Z][a-zA-Z0-9]*['\"]" | \
     grep -oE "['\"][a-zA-Z][a-zA-Z0-9]*['\"]$" | \
     grep -vE "^['\"](id|name|error|exception|event|type|status|code|message|level|kind)['\"]$" || true)
   if [ -n "$NON_NAMESPACED" ]; then
@@ -207,7 +210,7 @@ HIGH_CARD_PATTERNS+=("${CAMEL_SNAKE_HIGH_CARD[@]}")
 # for why this is a lower tier than Rule 8 (a metric dimension), not the same finding.
 for attr in "${HIGH_CARD_PATTERNS[@]}"; do
   escaped_attr=$(printf '%s' "$attr" | sed 's/\./\\./g')
-  if echo "$CONTENT" | grep -qE "${ATTR_SETTER_WITH_GO}['\"]${escaped_attr}['\"]"; then
+  if echo "$CONTENT" | grep -qE "${ATTR_SETTER_AMBIGUOUS}['\"]${escaped_attr}['\"]"; then
     echo "⚠ otel-lint [$FILE_PATH]: High-cardinality attribute '$attr' detected as a span attribute."
     echo "  → Move to span events or structured logs. Or scope to a category (e.g. order.type)."
     WARNINGS=$((WARNINGS+1))
@@ -235,7 +238,12 @@ done
 # analysis or LLM judgment — exactly what /otel-evaluate's brownfield-auditor is for, and exactly
 # how it caught that case when this hook could not. Gated on an instrument CONSTRUCTOR appearing
 # somewhere in the file, so an unrelated .Add()/.Record() call in a non-metrics file cannot fire it.
-INSTRUMENT_CTOR_PATTERN='(createCounter|create_counter|CreateCounter|counterBuilder|createHistogram|create_histogram|CreateHistogram|histogramBuilder|createUpDownCounter|create_up_down_counter|CreateUpDownCounter)\('
+# rust (opentelemetry 0.33 Meter, verified against the real API, not memory; #118): type-prefixed
+# names, not a "create"-style verb — u64_counter(/f64_counter( for counters, u64_histogram(/
+# f64_histogram( for histograms, i64_up_down_counter(/f64_up_down_counter( for up-down counters.
+# Both builder methods return a builder requiring .build(), but the mutate-window check below
+# already matches .add(/.record( generically, so no change is needed there.
+INSTRUMENT_CTOR_PATTERN='(createCounter|create_counter|CreateCounter|counterBuilder|createHistogram|create_histogram|CreateHistogram|histogramBuilder|createUpDownCounter|create_up_down_counter|CreateUpDownCounter|u64_counter|f64_counter|u64_histogram|f64_histogram|i64_up_down_counter|f64_up_down_counter)\('
 if echo "$CONTENT" | grep -qE "$INSTRUMENT_CTOR_PATTERN"; then
   MUTATE_WINDOW=$(echo "$CONTENT" | grep -B1 -A3 -E '\.(Add|add|Record|record)\(' || true)
   for attr in "${HIGH_CARD_PATTERNS[@]}"; do

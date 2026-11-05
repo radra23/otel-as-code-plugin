@@ -244,6 +244,35 @@ else
   FAIL=$((FAIL+1))
 fi
 
+# Test 19b (#118): Rust's KeyValue::new(...) triggers Rule 5 (missing namespace prefix) — same
+# ambiguous-call-shape reasoning as Go's attribute.String(, verified against the real opentelemetry
+# 0.33 API (KeyValue is the one way to build an attribute for either a Resource or a span).
+printf 'use opentelemetry::KeyValue;\nspan.set_attributes(vec![KeyValue::new("widgetCount", 3)]);\n' \
+  > "$GATEDIR/rust-rule5.rs"
+OUTPUT=$(run_lint "$GATEDIR/rust-rule5.rs")
+if echo "$OUTPUT" | grep -qi "namespace prefix"; then
+  echo "PASS: #138 Rust's KeyValue::new( is recognized as an attribute setter (Rule 5)"
+  PASS=$((PASS+1))
+else
+  echo "FAIL: #138 Rust's KeyValue::new( was not recognized (Rule 5)"
+  FAIL=$((FAIL+1))
+fi
+
+# Test 19c (#118): Rust's KeyValue::new(...) used for legitimate Resource construction must NOT
+# trigger Rule 1 (severe) — the same call shape builds both a Resource attribute and a span
+# attribute, so Rule 1 deliberately excludes it (same reasoning, same exclusion, as Go).
+printf 'use opentelemetry::KeyValue;\nuse opentelemetry_sdk::Resource;\nlet resource = Resource::builder().with_attributes(vec![KeyValue::new("service.name", "checkout-api")]).build();\n' \
+  > "$GATEDIR/rust-rule1-exclusion.rs"
+OUTPUT=$(run_lint "$GATEDIR/rust-rule1-exclusion.rs")
+if ! echo "$OUTPUT" | grep -q "Resource attributes, not span attributes"; then
+  echo "PASS: #138 Rust's legitimate Resource::builder(...KeyValue::new...) does not false-fire Rule 1"
+  PASS=$((PASS+1))
+else
+  echo "FAIL: #138 Rust's legitimate Resource construction false-fired Rule 1"
+  echo "Output: $OUTPUT"
+  FAIL=$((FAIL+1))
+fi
+
 # Test 20: Python's span.set_attribute(...) with the dotted canonical form triggers Rule 7.
 printf "from opentelemetry import trace\nspan.set_attribute('user.id', uid)\n" > "$GATEDIR/python-rule7.py"
 OUTPUT=$(run_lint "$GATEDIR/python-rule7.py")
@@ -276,6 +305,21 @@ if echo "$OUTPUT" | grep -q "METRIC dimension" && echo "$OUTPUT" | grep -q "Remo
   PASS=$((PASS+1))
 else
   echo "FAIL: #138 a high-cardinality metric dimension was not caught with the correct remediation"
+  echo "Output: $OUTPUT"
+  FAIL=$((FAIL+1))
+fi
+
+# Test 21b (#118): Rust's type-prefixed instrument constructor (u64_counter(...).build(), not a
+# "create"-style verb) is recognized, and its .add( call carrying a high-cardinality dimension is
+# caught as Rule 8 — verified against the real opentelemetry 0.33 Meter API, not memory.
+printf 'use opentelemetry::{global, KeyValue};\nlet meter = global::meter("orders");\nlet counter = meter.u64_counter("orders.created").build();\ncounter.add(1, &[KeyValue::new("user.id", user_id.to_string())]);\n' \
+  > "$GATEDIR/rust-metric-dimension.rs"
+OUTPUT=$(run_lint "$GATEDIR/rust-metric-dimension.rs")
+if echo "$OUTPUT" | grep -q "METRIC dimension" && echo "$OUTPUT" | grep -q "Remove the tag entirely"; then
+  echo "PASS: #138 Rust's u64_counter(...).add( is caught as a high-cardinality metric dimension (Rule 8)"
+  PASS=$((PASS+1))
+else
+  echo "FAIL: #138 Rust's u64_counter(...).add( was not caught as a metric dimension"
   echo "Output: $OUTPUT"
   FAIL=$((FAIL+1))
 fi

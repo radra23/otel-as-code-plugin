@@ -359,21 +359,33 @@ found none.
      For `php` it is always `false`: the language is detected (`composer.json`) and stays
      `inScope: true`, but no generator exists yet (#117 PHP). Set the reason so the refusal names
      the language and the issue, not a generic "unsupported".
-     For `rust` it is `true` **only for an axum 0.8 binary with no OTel already wired** — the
-     generator adds `opentelemetry-instrumentation-tower`'s layer to an axum `Router`, and has no
-     path for any other server. ALL of these must hold (read `Cargo.toml` and the resolved
-     `runnableEntry`, usually `src/main.rs`):
-       - `axum` in `[dependencies]` with a requirement that resolves to 0.8 (`"0.8"`, `"0.8.x"`,
-         `"^0.8"`, `{ version = "0.8…" }`); `0.7` and older use a different route syntax and an
-         incompatible tower-http line;
-       - a binary target: `src/main.rs` or a `[[bin]]` table. A crate with only `src/lib.rs` is a
-         library — set `inScope: false` too (instrument the application that depends on it);
-       - an `axum::serve` call (the HTTP server actually starts here);
-       - no `opentelemetry` crate already in `[dependencies]` (that is a brownfield service —
-         `/otel-evaluate` audits it; generating would install a second global provider).
-     Anything else stays `false` with a reason naming the shape that was found: `actix-web`
-     ("actix-web is planned, not yet supported"), `rocket` / `warp` / `poem` / `salvo`, axum
-     older than 0.8, or no HTTP server at all (a CLI or worker).
+     For `rust` it is `true` for an axum 0.8 binary OR an actix-web 4.x binary, either with no
+     OTel already wired — the generator adds a framework-specific instrumentation crate
+     (`opentelemetry-instrumentation-tower` for axum, `opentelemetry-instrumentation-actix-web`
+     for actix-web) and has no path for any other server. Read `Cargo.toml` and the resolved
+     `runnableEntry` (usually `src/main.rs`) and check which shape applies:
+       - **axum**: ALL of these must hold —
+         - `axum` in `[dependencies]` with a requirement that resolves to 0.8 (`"0.8"`, `"0.8.x"`,
+           `"^0.8"`, `{ version = "0.8…" }`); `0.7` and older use a different route syntax and an
+           incompatible tower-http line;
+         - a binary target: `src/main.rs` or a `[[bin]]` table. A crate with only `src/lib.rs` is a
+           library — set `inScope: false` too (instrument the application that depends on it);
+         - an `axum::serve` call (the HTTP server actually starts here);
+         - no `opentelemetry` crate already in `[dependencies]` (that is a brownfield service —
+           `/otel-evaluate` audits it; generating would install a second global provider).
+         Set `framework: axum`.
+       - **actix-web**: ALL of these must hold —
+         - `actix-web` in `[dependencies]` with a requirement that resolves to 4.x (`"4"`,
+           `"4.x"`, `"^4"`, `{ version = "4…" }`); there is no known breaking change within the
+           4.x line relevant to this generator, so no finer version pin is required;
+         - a binary target (same rule as axum above);
+         - an `HttpServer::new(...)` call that reaches `.run()` (the HTTP server actually starts
+           here — the equivalent of axum's `axum::serve`);
+         - no `opentelemetry` crate already in `[dependencies]` (same brownfield exclusion as
+           axum).
+         Set `framework: actix-web`.
+     Anything else stays `false` with a reason naming the shape that was found: `rocket` / `warp`
+     / `poem` / `salvo`, axum older than 0.8, or no HTTP server at all (a CLI or worker).
      For `go` it is `true` **only when a `net/http` server is present AND no incompatible web
      framework is required** — the generator wraps `net/http`'s `Handler` interface directly
      (`otelhttp.NewHandler`) and has no per-framework middleware path yet. `gin`, `echo`, and
@@ -401,7 +413,7 @@ found none.
      or `"generatorSupported:false, inScope:false — runtime browser; browser/RUM is out of scope (ROADMAP: Not planned)"`,
      or `"generatorSupported:false — no net/http server evidence found (http.ListenAndServe / http.Server{} / http.Handle); go instrumentation targets net/http-compatible servers only; inScope:true (first-class OTel runtime)"` (a Go CLI/worker/library with no HTTP server),
      or `"generatorSupported:false — no php generator yet (#117); inScope:true (first-class OTel runtime, audit with /otel-evaluate)"`,
-     or `"generatorSupported:false — actix-web found; rust instrumentation covers axum 0.8 only (actix-web is planned, not yet supported); inScope:true"` (naming whichever rust shape was actually found: `axum 0.7`, `rocket`, `no axum::serve call`, `opentelemetry already in Cargo.toml — audit with /otel-evaluate`),
+     or `"generatorSupported:false — rocket found; rust instrumentation covers axum 0.8 and actix-web 4.x only; inScope:true"` (naming whichever rust shape was actually found: `rocket`, `warp`, `poem`, `salvo`, `axum 0.7`, `actix-web older than 4`, `no axum::serve / HttpServer::run call`, `opentelemetry already in Cargo.toml — audit with /otel-evaluate`),
      or `"generatorSupported:false, inScope:false — rust library crate (src/lib.rs, no binary target); instrument the application that depends on it"`,
      or `"generatorSupported:false — github.com/gin-gonic/gin required; go instrumentation only covers net/http-compatible frameworks today (chi, gorilla/mux); inScope:true"` (naming whichever of gin/echo/fiber was actually found),
      or `"generatorSupported:false — Spark batch job (spark-submit / SparkSession / org.apache.spark); the Java agent attaches to one process and misses executor JVMs, with no flush-before-exit generator yet; inScope:true, audit with /otel-evaluate"` (naming whichever batch signal was actually found: `spark-submit`, `SparkSession`, `org.apache.spark`, a `SparkApplication` CRD, or `kind: CronJob`/`kind: Job`).
