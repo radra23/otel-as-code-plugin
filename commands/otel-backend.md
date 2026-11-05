@@ -166,14 +166,17 @@ Pass to `otel-as-code:terraform-gen`:
 
 ## Step 6: Display the subagent's output
 
-The subagent handles all file writing, `terraform fmt`, and `terraform validate`.
+The subagent handles all file writing and validation — `terraform fmt`/`validate`, or
+`tofu fmt`/`validate` on a repo that uses OpenTofu (it detects which binary applies; see
+`terraform-gen`'s "Detect Terraform vs OpenTofu" section — this command does not need to know).
 Print its output verbatim including the next-steps block.
 
 If a `.claude/.otel-force` sentinel was created in Step 4, remove it now to restore the
 write-guard: `rm -f .claude/.otel-force`.
 
-After the subagent output, print:
+After the subagent output, print — using the SAME binary name (`terraform` or `tofu`) the
+subagent's own next-steps block above just printed, never assuming `terraform` independently:
 ```
-Note: /otel-backend does not run terraform apply. Credentials stay in your environment.
-To apply: cd <output_dir> && terraform init && terraform plan && terraform apply
+Note: /otel-backend does not run apply. Credentials stay in your environment.
+To apply: cd <output_dir> && <TF_BIN> init && <TF_BIN> plan && <TF_BIN> apply
 ```

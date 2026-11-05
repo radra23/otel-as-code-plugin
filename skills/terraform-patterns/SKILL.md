@@ -40,8 +40,11 @@ Header comment required in every `main.tf`:
 # Drift detection: v2 roadmap.
 ```
 
-Run `terraform fmt` and `terraform validate` immediately after writing the files.
-Emit the exact commands the user should run next (init, plan, apply) as a post-generation note.
+Run `terraform fmt` and `terraform validate` immediately after writing the files — or `tofu fmt`/
+`tofu validate` on an OpenTofu repo; see `terraform-gen`'s "Detect Terraform vs OpenTofu" section
+for how that's resolved. Never hard-code `terraform` (#166): a tofu-only host has no `terraform`
+binary at all. Emit the exact commands the user should run next (init, plan, apply) as a
+post-generation note, using the SAME resolved binary name.
 
 ### Service name → resource identifiers (sanitize, but ONLY in identifier positions)
 

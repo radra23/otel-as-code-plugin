@@ -114,8 +114,9 @@ its required arguments, is this argument deprecated) and keep using the skill fo
    Terraform MCP server provides provider docs and resource schemas straight from the registry —
    no provider download, no `terraform` binary). Resolve each resource type you are about to
    emit, at the provider version pinned in `required_providers`.
-2. **The `terraform` binary**, if present: after `init`, run
-   `terraform -chdir=<output_dir> providers schema -json` and read the resource blocks out of it.
+2. **The resolved `<TF_BIN>` binary** (terraform or tofu — see "Detect Terraform vs OpenTofu"
+   below), if present: after `init`, run `<TF_BIN> -chdir=<output_dir> providers schema -json`
+   and read the resource blocks out of it.
 3. **Neither** — generate from `terraform-patterns` alone.
 
 Apply the result:
@@ -133,7 +134,7 @@ silently fails.
 
 **This step is optional and must stay that way.** No lookup being available is a normal
 outcome, not an error: CI validates the golden snapshots offline, and a user with no Terraform
-MCP and no `terraform` binary must still get a module. Never block generation on it, never
+MCP and neither `terraform` nor `tofu` on PATH must still get a module. Never block generation on it, never
 require credentials for it, and never claim verification you did not perform — if you generated
 from the skill alone, say so in one line:
 
@@ -148,15 +149,38 @@ and when you did verify, say that instead, naming the source and version:
 Provider schema: verified against grafana/grafana 4.9.0 via the Terraform registry.
 ```
 
+## Detect Terraform vs OpenTofu, before anything else
+
+Resolve `<TF_BIN>` first, and use it everywhere this file otherwise says `terraform` — the
+generation steps below, the main.tf header's "Next steps", and the returned summary. Never
+hard-code `terraform`: a tofu-only host has no `terraform` binary at all, and improvising a
+switch to `tofu` silently (or not) makes the outcome depend on the model rather than this spec
+(#166).
+
+1. **Lock-file evidence wins when present.** If a `.terraform.lock.hcl` already exists (in
+   `<output_dir>` or elsewhere in the repo's infra directories, from a prior apply) and pins a
+   provider from `registry.opentofu.org` rather than `registry.terraform.io`, this repo is on
+   OpenTofu: `<TF_BIN> = tofu`, regardless of what happens to be on this session's PATH — a CI
+   runner or a teammate's machine may differ from this one, but the lock file is this repo's own
+   stated choice.
+2. **Otherwise, check what is actually on PATH**: `command -v terraform`, `command -v tofu`.
+   - Only `tofu` resolves → `<TF_BIN> = tofu`.
+   - Only `terraform` resolves → `<TF_BIN> = terraform` (today's default, unchanged).
+   - Both resolve, no lock-file evidence → `<TF_BIN> = terraform` (least surprising; a repo that
+     actually uses OpenTofu is the one with the lock-file signal above).
+   - Neither resolves → skip fmt/init/validate entirely (same "neither" fallback the optional
+     schema-verify step above already documents) and say so plainly: "terraform fmt/validate:
+     not run — neither terraform nor tofu is on PATH."
+
 ## Generation steps
 
 1. Create `<output_dir>/` if it does not exist.
 2. Write `<output_dir>/variables.tf` first (needed by main.tf references).
 3. Write `<output_dir>/main.tf`.
 4. Write `<output_dir>/outputs.tf`.
-5. Run: `terraform -chdir=<output_dir> fmt`
-6. Run: `terraform -chdir=<output_dir> init -backend=false`
-7. Run: `terraform -chdir=<output_dir> validate`
+5. Run: `<TF_BIN> -chdir=<output_dir> fmt`
+6. Run: `<TF_BIN> -chdir=<output_dir> init -backend=false`
+7. Run: `<TF_BIN> -chdir=<output_dir> validate`
 8. Report pass/fail. If validate fails, show the error and suggest a fix.
 
 ## Required header in every main.tf
@@ -169,10 +193,12 @@ Provider schema: verified against grafana/grafana 4.9.0 via the Terraform regist
 #
 # Next steps:
 #   cd <output_dir>
-#   terraform init
-#   terraform plan    # requires backend credentials in environment
-#   terraform apply   # apply only after reviewing the plan
+#   <TF_BIN> init
+#   <TF_BIN> plan    # requires backend credentials in environment
+#   <TF_BIN> apply   # apply only after reviewing the plan
 ```
+Replace `<TF_BIN>` with whatever "Detect Terraform vs OpenTofu" resolved (`terraform` or `tofu`)
+— never leave the literal placeholder in the written file.
 
 When `businessAttrsUnconfirmed` is `true`, add this line directly under the
 `# Re-run /otel-backend <backend> to regenerate.` line (omit it otherwise, so modules built from
@@ -320,18 +346,19 @@ before writing. Include: provider block, dashboard resource (generic panels **pl
 
 ## After writing and validating
 
-Return:
+Return (`<TF_BIN>` is whatever "Detect Terraform vs OpenTofu" resolved — never print the literal
+placeholder, and never print `terraform` when the resolved binary is `tofu`):
 ```
 Generated Terraform module: <output_dir>/
   main.tf      ✓
   variables.tf ✓
   outputs.tf   ✓
 
-terraform fmt:      ✓
-terraform validate: ✓ (or: ✗ <error>)
+<TF_BIN> fmt:      ✓
+<TF_BIN> validate: ✓ (or: ✗ <error>)
 
 Next steps:
   cd <output_dir>
-  terraform init
-  terraform plan -var="service_name=<name>" ...
+  <TF_BIN> init
+  <TF_BIN> plan -var="service_name=<name>" ...
 ```
