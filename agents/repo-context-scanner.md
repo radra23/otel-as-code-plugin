@@ -209,8 +209,8 @@ found none.
      disagreeing.)
    - `language`: `nodejs`, `python`, `go`, `java`, `dotnet`, `ruby`, `php`, `rust`, `other`
    - `framework`: `express`, `fastify`, `koa`, `nestjs`, `fastapi`, `django`, `flask`, `gin`,
-     `spring`, `rails`, `nextjs`, `nuxt`, `axum`, `actix-web`, `aspnetcore`, `minimal-api`,
-     `blazor`, `other`, `unknown`. Detect `fastify` and `koa` from a dependency literally named `fastify` / `koa` —
+     `spring`, `rails`, `nextjs`, `nuxt`, `axum`, `actix-web`, `aspnetcore`, `minimal-api`, `blazor`,
+     `other`, `unknown`. Detect `fastify` and `koa` from a dependency literally named `fastify` / `koa` —
      the npm package name IS the enum value, same as `express`. Detect `nestjs` from `@nestjs/core`
      (or any `@nestjs/platform-*` package) — NOT a literal `nestjs` dependency, which does not
      exist; Nest's packages are scoped. **Check `nestjs` FIRST, before `fastify`**: a Nest app
