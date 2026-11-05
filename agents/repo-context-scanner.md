@@ -533,6 +533,35 @@ found none.
      `Directory.Packages.props` (the .NET package id is `OpenTelemetry` — capitalised, no `/` or
      trailing `-`, so the Node/Python patterns miss it); plus `AddOpenTelemetry(`,
      `WithTracing`/`WithMetrics`/`WithLogging`, `new ActivitySource(`, or `new Meter(` in `*.cs`
+   - **.NET meters/sources registered BY NAME from a referenced package (#215).** A
+     `.AddMeter("X")` / `.AddSource("X")` call registers an instrument by its string name, not by
+     constructing it — the `Meter`/`ActivitySource` that actually creates `"X"` may live inside a
+     referenced NuGet package (a company-internal SDK), not this repo. If `"X"` does not also
+     appear as a `new Meter("X")` / `new ActivitySource("X")` literal anywhere in this repo's own
+     `*.cs` files, it is defined in a referenced package — detect, enrich, degrade (per
+     CLAUDE.md), never guess:
+     1. From the `.csproj` carrying the `AddMeter`/`AddSource` call, read its `PackageReference`
+        list.
+     2. For each referenced package, check whether `~/.nuget/packages/<id>/` (lowercased package
+        id; NuGet's own cache convention) exists on disk. If none of them do, skip straight to
+        step 4 — there is nothing local to check.
+     3. For each one that exists, find its DLL(s) under `~/.nuget/packages/<id>/<version>/lib/`
+        and search for the literal `"X"` with `grep -a -o '<X>' <dll>` — **`-a` is required, not
+        optional**: a `.dll` is a binary file, and plain `grep` with no binary override silently
+        returns nothing against it (confirmed empirically — do not "fix" a no-match result by
+        assuming the string is genuinely absent until you've checked `-a` was used). `strings
+        <dll> | grep -F '<X>'` is the equivalent if `grep -a` is unavailable. This reads literal
+        string constants out of the compiled IL/metadata — it is not decompiling anything, and it
+        can produce a false negative (a name built at runtime via string concatenation, not a
+        literal) but never a false positive you'd act on wrongly, since you're confirming a
+        literal match, not inferring one.
+     4. Record the outcome in `derived.notes`, by name, so it reads as a known gap rather than
+        silence: found → `"Meter/ActivitySource '<X>' confirmed defined in package <id> (local
+        NuGet cache)"`; package not cached locally → `"not checked: '<X>' registered via
+        AddMeter/AddSource, not defined in this repo's own source; likely from package <id>, not
+        present in the local NuGet cache"`; cached but the string wasn't found in it →
+        `"not checked: '<X>' not found in package <id>'s DLL either — may come from a different
+        referenced package, or be built from a non-literal string at runtime"`.
    - Hand-rolled: look for `NodeTracerProvider`, `TracerProvider`, `trace.getTracer` in source files
    - **OTel-based vendor SDKs** — a dependency that sets up its own global OTel `TracerProvider`
      internally, even though `@opentelemetry/*` is not a direct dep. These COLLIDE with a

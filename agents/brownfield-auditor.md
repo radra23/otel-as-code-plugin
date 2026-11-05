@@ -135,6 +135,15 @@ configured non-Node service as broken because it doesn't use the Node class name
 - Per-span (Simple) export to a **console** exporter is correct in every runtime — judge the
   pairing, not the class name.
 
+**Meters/sources defined inside a referenced package (#215).** You have no `Bash` tool, so you
+cannot inspect a NuGet-cached DLL yourself — the scanner already did this at scan time (its
+".NET meters/sources registered BY NAME" rule) and recorded the outcome in `derived.notes`.
+Surface whatever it found verbatim rather than re-attempting or second-guessing it: a confirmed
+match ("Meter/ActivitySource 'X' confirmed defined in package Y") is a plain fact worth noting,
+not a finding; an unchecked one ("not checked: 'X' ... not present in the local NuGet cache") is
+exactly the kind of known gap that belongs in the report instead of silence — say which name and
+which package, don't just say "some telemetry could not be verified."
+
 ### 5. Wiring — is any of it actually reached?
 Well-written instrumentation that nothing imports emits exactly as much telemetry as none at
 all, and reads as "instrumented" in every other dimension. Check reachability explicitly:
