@@ -74,8 +74,8 @@ pub fn init() -> TelemetryGuard {
         };
     }
 
-    // The tower layer extracts incoming `traceparent` headers through the global propagator,
-    // which is a no-op until one is set.
+    // The framework layer (axum's tower layer, or actix-web's RequestTracing) extracts incoming
+    // `traceparent` headers through the global propagator, which is a no-op until one is set.
     global::set_text_map_propagator(TraceContextPropagator::new());
     let resource = resource();
 
