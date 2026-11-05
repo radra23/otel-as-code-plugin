@@ -105,6 +105,9 @@ jobs:
       - name: Run auditor-tool contract (brownfield-auditor must not be told to run Bash it lacks; #222)
         run: bash tests/hooks/auditor-tool-contract.test.sh
 
+      - name: Run messaging.operation.type contract (enum values current for 1.45.0; #223)
+        run: bash tests/hooks/messaging-operation-type.test.sh
+
       - name: assert-traces unit test
         run: bash tests/e2e/assert-traces.test.sh
 

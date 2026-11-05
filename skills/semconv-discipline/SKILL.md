@@ -116,7 +116,15 @@ value) — see the HTTP table above for what a non-mechanical entry looks like:
 
 - `messaging.system` — REQUIRED (e.g. `kafka`, `rabbitmq`, `aws_sqs`)
 - `messaging.destination.name` — topic or queue name
-- `messaging.operation.type` — `publish`, `receive`, `process`
+- `messaging.operation.type` — `create`, `send`, `receive`, `process`, `settle` (#223 — verified
+  against the registry at the pinned `SEMCONV_VERSION`). Two older enum VALUES are deprecated —
+  this is a deprecated *value* of this one attribute, not a deprecated attribute key, so it does
+  not belong in the OLD→NEW attribute-rename table below (that table's checker in
+  `scripts/drift_check.py` looks up each cell as an attribute name in the registry; `publish` and
+  `send` are not attribute names, so a row there would silently fail to verify, or verify the
+  wrong thing):
+  - `publish` → use `send` instead
+  - `deliver` → use `process` instead
 
 ⚠ **Every `messaging.*` attribute is incubating** — exported ONLY from the package's
 `./incubating` entry point, not the stable root. A TypeScript/CommonJS project on
