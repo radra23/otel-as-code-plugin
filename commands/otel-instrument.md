@@ -43,11 +43,13 @@ Read the `otel-as-code:language-maturity` skill — apply all maturity gating ru
 Check `.claude/otel-context.json`. Apply the freshness rule from `/otel-init` Step 1
 (identity-input fingerprint, not `HEAD`). If stale or absent:
 - Run `/otel-init` logic inline — dispatch `otel-as-code:repo-context-scanner` **passing the
-  existing cache as `priorContext`** so confirmed answers survive, and write what it returns.
-  A refresh is a merge, never a replace (see `agents/repo-context-scanner.md`). Pass the same
-  `scanTime` + `pluginVersion` + `semconvVersion` + `semconvGuidancePath` inputs `/otel-init`
-  Step 2 does — the scanner has no clock, no way to read `plugin.json`, and no `Skill` tool, and
-  cannot read the guidance, the time, or its own installed version itself.
+  existing cache as `priorContext`** so confirmed answers survive, then write what it returns via
+  `scripts/write_context.py` exactly as `/otel-init` Step 4 does (#211) — never by transcribing
+  the JSON into a `Write` call. A refresh is a merge, never a replace (see
+  `agents/repo-context-scanner.md`). Pass the same `scanTime` + `pluginVersion` + `semconvVersion`
+  + `semconvGuidancePath` inputs `/otel-init` Step 2 does — the scanner has no clock, no way to
+  read `plugin.json`, and no `Skill` tool, and cannot read the guidance, the time, or its own
+  installed version itself.
 - Do NOT print the /otel-init success message; just run the scan silently.
 
 If the scan or the cache has **no services**, apply `/otel-init` Step 2's "Empty scan" rule:

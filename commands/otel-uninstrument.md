@@ -39,9 +39,10 @@ Check `.claude/otel-context.json`. Apply the freshness rule from `/otel-init` St
 (identity-input fingerprint, not `HEAD`). If stale or absent, dispatch
 `otel-as-code:repo-context-scanner` **passing the existing cache as `priorContext`, `scanTime`
 (the output of `date -u +%Y-%m-%dT%H:%M:%SZ`), and `pluginVersion` (the `version` field from
-`${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json`)** and write
-what it returns — a refresh is a merge, never a replace (see the cache ownership contract in
-`agents/repo-context-scanner.md`). The scanner records existing OTel on disk in
+`${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json`)** and write what it returns via
+`scripts/write_context.py`, exactly as `/otel-init` Step 4 does (#211) — never by transcribing the
+JSON into a `Write` call. A refresh is a merge, never a replace (see the cache ownership contract
+in `agents/repo-context-scanner.md`). The scanner records existing OTel on disk in
 `services[].existingOtel`, which is what this command needs to find what to remove.
 
 ## Step 2: Select the target and resolve its artifacts

@@ -115,9 +115,10 @@ refreshed from disk, user-owned fields (`businessAttrs`, `confirmedAt`, `namespa
 verbatim. A refresh is a MERGE, never a replace. Writing a bare scan over a confirmed cache
 silently discards every answer `/otel-business-attrs` collected, and the user is not told.
 
-Wait for the JSON response. Never write a scanner response whose user-owned fields are empty
-over a cache where they were not — if that happens the merge did not run; re-dispatch with
-`priorContext` rather than writing the result.
+Wait for the JSON response, then hand it to `scripts/write_context.py` in Step 4 — that script,
+not this step, is what refuses to write a result whose user-owned fields went empty over a cache
+where they were not (#211). If it refuses, the merge did not run; re-dispatch with `priorContext`
+rather than trying to patch the JSON by hand before retrying the write.
 
 **Empty scan (the shared rule).** If the subagent returns an empty `services` array — or a
 cache you loaded already has `services: []`:
@@ -194,7 +195,27 @@ Write `.claude/otel-services.json`. Run `date -u +%Y-%m-%dT%H:%M:%SZ` and use it
 }
 ```
 
-Write `.claude/otel-context.json` with the full (merged) scanner JSON output.
+**Write `.claude/otel-context.json` via `scripts/write_context.py` (#211) — never by transcribing
+the scanner's JSON into a `Write` call by hand.** The scanner's response is the full JSON string
+from Step 2; pipe it to the script on stdin rather than retyping it, since a hand transcription of
+~10 KB is exactly where a field gets silently dropped, reordered, or truncated:
+
+```bash
+echo '<the scanner's raw JSON response, verbatim>' | python3 "${CLAUDE_PLUGIN_ROOT}/scripts/write_context.py" \
+  --output .claude/otel-context.json \
+  --existing .claude/otel-context.json \
+  --plugin-root "${CLAUDE_PLUGIN_ROOT}"
+```
+
+The script re-derives, in code, the same checks this step used to ask the model to hold in its
+head while copying: it refuses (nonzero exit, nothing written) if the new JSON would empty a
+user-owned field the existing cache had non-empty, if `services` would go from non-empty to empty
+(#164 — pass `--allow-empty-services` only after confirming the deletion with the user), or if
+`scannedAt`/`pluginVersion` look invented rather than real (#177/#202). On refusal, do not retry by
+loosening a check — the refusal means Step 2 needs to be redone with the real `priorContext`,
+`scanTime`, or `pluginVersion`, not that the write step is wrong. Every other command that
+refreshes the cache invokes this same script the same way; they cross-reference this step rather
+than restating the invocation.
 
 **Update `.gitignore`.** `.claude/otel-context.json` and `.claude/.otel-force` are ephemeral and
 must be ignored; `.claude/otel-services.json` is the shared service map and must stay
