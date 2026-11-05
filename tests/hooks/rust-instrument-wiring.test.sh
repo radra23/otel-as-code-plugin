@@ -69,7 +69,7 @@ check "golden main.rs = fixture main.rs + the three printed wiring lines" \
   'grep -qx "mod telemetry;" "$GOLD/src/main.rs" \
    && grep -qx "    let _otel = telemetry::init();" "$GOLD/src/main.rs" \
    && grep -qx "        .layer(opentelemetry_instrumentation_tower::http::server::Layer::new());" "$GOLD/src/main.rs" \
-   && sed -e "1{/^mod telemetry;$/d}" -e "2{/^$/d}" "$GOLD/src/main.rs" \
+   && sed -e "1{/^mod telemetry;$/d;}" -e "2{/^$/d;}" "$GOLD/src/main.rs" \
       | grep -vx "    let _otel = telemetry::init();" \
       | grep -vx "        .layer(opentelemetry_instrumentation_tower::http::server::Layer::new());" \
       | sed "/^        .route(\"\/healthz\"/s/\$/;/" \
