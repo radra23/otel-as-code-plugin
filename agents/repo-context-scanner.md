@@ -132,6 +132,23 @@ it must be the attribute keys themselves — never a severity value like `"cardi
 producer emits that, and a consumer filtering on it silently matches nothing). Empty list if you
 found none.
 
+**Carry forward `"source": "auditor"` entries across a rescan — union, never replace (#226).**
+Your own heuristics re-derive `conformanceIssues`/`highCardinalityAttributes` fresh every scan,
+which is correct for entries YOU can find — but `brownfield-auditor` finds things your heuristics
+structurally cannot (it reads the actual file content with a broader lens than a fixed rule set).
+If a bare rescan simply overwrites `derived` with only what you re-detected, every auditor-sourced
+entry vanishes the moment anything else triggers a rescan — leaving the NEXT `/otel-evaluate` run
+with nothing to pass the auditor as `cachedJudgements` for that finding, so it can never be
+re-verified, confirmed, or formally refuted again; it just silently disappears. When `priorContext`
+is supplied: for each service, take the UNION of (a) what you freshly re-derived and (b) every
+`priorContext` entry carrying `"source": "auditor"` that your fresh pass did NOT also produce —
+keep both id-for-id, don't drop the auditor-sourced ones just because your own pass didn't happen
+to also find them. Dedup `conformanceIssues` by `(file, violation)` and `highCardinalityAttributes`
+by the key itself, same as `/otel-evaluate` Step 5 does when it first merges an auditor finding in.
+An entry carrying `"refuted": true` (set by `/otel-evaluate` when a later audit disproves it, #226)
+is carried forward the SAME way — it is retained history a later audit re-confirms or reverses,
+not something a rescan should quietly erase either.
+
 ## Instructions
 
 1. Read the following files if they exist (use Read tool; skip if absent):

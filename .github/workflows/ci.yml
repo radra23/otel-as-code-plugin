@@ -108,6 +108,9 @@ jobs:
       - name: Run messaging.operation.type contract (enum values current for 1.45.0; #223)
         run: bash tests/hooks/messaging-operation-type.test.sh
 
+      - name: Run auditor-report contract (deterministic IDs, severity mapping, richer fields, real scanTime; #226)
+        run: bash tests/hooks/auditor-report-contract.test.sh
+
       - name: assert-traces unit test
         run: bash tests/e2e/assert-traces.test.sh
 

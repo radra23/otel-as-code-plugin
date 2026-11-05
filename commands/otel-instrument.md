@@ -14,15 +14,17 @@ Generate OTel SDK bootstrap and OTLP wiring for one service.
   Step 2 prompt.
 - `--fix <ids>` — apply only the findings with these IDs from the most recent
   `/otel-evaluate` report. IDs are the `<CAT>-<id>` form that report emits (e.g.
-  `--fix CV-a1b2,SH-2a55`), and in a multi-service repo they are service-qualified
-  (`--fix bot:CV-a1b2`) — see the finding-ID scheme in `agents/brownfield-auditor.md`. Scopes
+  `--fix CV-tra12-serv,SH-tra0-simp`), and in a multi-service repo they are service-qualified
+  (`--fix bot:CV-tra12-serv`) — see the finding-ID scheme in `agents/brownfield-auditor.md`. Scopes
   regeneration to those findings
   instead of rewriting whole files. See Step 5. A `CV` (semconv violation) finding is only
   actually rewritten when the auditor tagged it `mechanical` (a straight OLD→NEW key rename, per
   the `semconv-discipline` skill's `Fix` column) — a `manual` one (the value itself has to change
   shape, e.g. `http.target` splitting into `url.path` + `url.query`) is reported back as skipped,
-  naming why, rather than guessed at. Pair with `--dry-run` to review exactly what a `--fix` would
-  change before it's written.
+  naming why, rather than guessed at. A finding the report annotated `fix: config` or
+  `fix: infra` (#226) is reported back as skipped too, for the same reason — this command only
+  ever edits application source, never a deployment value or infrastructure file. Pair with
+  `--dry-run` to review exactly what a `--fix` would change before it's written.
 - `--experimental` — unlock pre-Stable signals (e.g. logs for Python and Node.js). Passed to
   both `language-maturity` and `semconv-discipline` skills.
 - `--force` — overwrite existing generated artifacts. Required if the write-guard hook blocks

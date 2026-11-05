@@ -43,6 +43,12 @@ You DO NOT write any files.
    dimension 8 below. A file missing from the map means the command could not resolve it either —
    report that file's tracked/gitignored status as unknown, never guessed from the path alone
    (a `.env.example` name looks gitignored; whether it actually is depends on this repo's rules).
+9. `scanTime` — the output of `date -u +%Y-%m-%dT%H:%M:%SZ`, run by the dispatching command right
+   before dispatch (#226). You have no clock. Stamp the report's `Scanned:` line with this value
+   VERBATIM — never a remembered or invented date. If it was not provided, print
+   `Scanned: <not provided — command did not pass scanTime>` rather than guessing one; a report
+   that silently invents a plausible-looking date is indistinguishable from one that stamped the
+   real time, and a wrong "Scanned:" line misleads anyone diffing two audits to see what changed.
 
 ## Cached judgements are claims, not findings
 
@@ -59,6 +65,12 @@ launders a guess into a confirmed finding.
   every route opting in", count the registrations and the wrapped handlers before repeating the
   implication; a wrong denominator produces a confident, wrong conclusion. If counting is not
   feasible, say the number is unknown rather than carrying the old one forward.
+- A `conformanceIssues`/`highCardinalityAttributes` entry you are handed with `"refuted": true`
+  (#226) is a claim a PRIOR audit already disproved and the command deliberately kept, specifically
+  so it survives a scanner rescan instead of silently vanishing with nothing left to re-verify —
+  it is retained history, not something you must re-litigate from scratch every run. Re-confirm it
+  stays refuted unless the source has genuinely changed since; do not re-report it as a live
+  finding just because it is present in the cache you were handed.
 
 ## Analysis Steps
 
@@ -76,6 +88,17 @@ the single-source-of-truth property. Report it as an **unverified** observation 
 table as the reason it could not be confirmed ("`<attr>` is not in the semconv-discipline OLD→NEW
 table; flagging as unverified rather than asserting a replacement"). If it genuinely should be
 covered, that is a gap to add to the skill, not a finding to improvise.
+
+**A zero-match search needs a positive control before you trust it (#226).** `Grep`'s regex
+flavor, a glob that doesn't do what you expect, or a path typo can all return zero matches
+silently — indistinguishable from "this pattern genuinely does not occur here." Before reporting
+any dimension clean on the strength of a search that found nothing, re-run the SAME tool/pattern
+style against something you already know is true from input 2's read list (e.g. grep the file for
+its own known import line, or for a string you just read with `Read`). If the control ALSO comes
+back empty, the search mechanism itself is broken for this file set — withdraw the "clean" verdict
+and report that dimension as **"not independently confirmed — search could not be verified"**,
+naming which control failed, never as a pass. Do this once per distinct search pattern/tool
+combination you rely on for a clean verdict, not once per file.
 
 For each service in the context:
 
@@ -306,92 +329,145 @@ Every finding carries a **severity**, a **status**, and a **stable ID**.
   *local (uncommitted)* credential, `SimpleSpanProcessor` on a network exporter.
 - **MINOR** ⚪ — style/convention: an unprefixed house attribute in an unreserved namespace.
 
+**Cardinality tier → severity mapping (#226).** Dimension 3 classifies a cardinality finding by
+POSITION using `semconv-discipline`'s own vocabulary (`error` / `warning` / `acceptable`), which
+is a DIFFERENT scale from the four above — map it once, here, rather than guessing per finding:
+`error` (metric dimension) → **HIGH** (not CRITICAL: costly and effectively irreversible once
+series exist, but it does not crash or render the app); `warning` (span attribute) → **MEDIUM**;
+`acceptable` (span event / log record) → not a finding at all, do not emit one.
+
 **Status** — one of `new` (found this run), `confirmed` (a cached judgement re-verified against
 source), `refuted` (a cached claim you DISPROVED — render these ONLY in the "Cached judgements
 re-checked" block, never as a live finding, or a non-incident gets re-raised), `corrected` (a
 cached claim whose detail you fixed).
 
-**Stable ID** — `<CAT>-<id>`, where CAT is the two-letter category and `<id>` is a short hash of
-the finding's identity (file + rule/attribute), NOT a sequence number — so inserting a finding
-does not renumber the rest, and an ID means the same thing across runs (what
-`/otel-instrument --fix` relies on). In a multi-service repo, qualify it with the service:
-`<serviceId>:<CAT>-<id>`. Categories: `SC` signal coverage, `CV` semconv violation, `CR`
-cardinality risk, `PI` PII in a value, `CD` credential exposure, `CF` telemetry configuration,
-`SH` SDK health, `WR` wiring, `MB` maturity (an instrumentation package below Stable — see
-dimension 9), `EX` existing observability-as-code (committed dashboard/alert JSON another system
-provisions — see dimension 10). `/otel-instrument --fix <ids>` consumes these, so every finding
-carries one.
+**Stable ID** — `<CAT>-<id>`, where CAT is the two-letter category and `<id>` is built
+MECHANICALLY from facts already in front of you — never a sequence number (inserting a finding
+would renumber the rest) and never a cryptographic/arithmetic hash (**you have no tool to compute
+one, and an LLM "computing a hash" in its head is not actually deterministic across runs — this
+was the exact #226 bug: an ID that looked hash-like but wasn't reproducible**). The construction
+is pure substring-copying, so two readers (or two runs) always land on the same string:
+1. Take the first 3 lowercase alphanumeric characters of the finding's basename (the file's
+   basename with no extension; for a file-less finding like `MB` package maturity, use the
+   package's own name instead).
+2. Append the line number if the finding is anchored to one, else `0`.
+3. Append `-` and the first 4 lowercase alphanumeric characters of the finding's distinguishing
+   keyword (the attribute name, the config var, the signal name, or the package's last dotted
+   segment — whichever is what actually makes this finding different from a neighboring one in
+   the same file).
+Examples: `tracing.js:12`, attribute `service.name` → `tra12-serv`. `tracing.js:15`, attribute
+`http.method` → `tra15-http`. `DTLBot.cs:103`, attribute `user.id` → `dtl103-user`. A package-only
+`MB` finding for `OpenTelemetry.Instrumentation.EntityFrameworkCore` → `ope0-enti`. **Exception:**
+a `SC` (signal coverage) finding has no file and no secondary attribute at all — the missing
+signal's own name already IS its complete, stable identity, so skip the two-part formula and use
+the signal name directly: `SC-metrics`, `SC-logs`. In a
+multi-service repo, qualify it with the service: `<serviceId>:<CAT>-<id>`. Categories: `SC`
+signal coverage, `CV` semconv violation, `CR` cardinality risk, `PI` PII in a value, `CD`
+credential exposure, `CF` telemetry configuration, `SH` SDK health, `WR` wiring, `MB` maturity
+(an instrumentation package below Stable — see dimension 9), `EX` existing observability-as-code
+(committed dashboard/alert JSON another system provisions — see dimension 10).
+`/otel-instrument --fix <ids>` consumes these, so every finding carries one, and the SAME finding
+must produce the SAME id on a re-audit — that reproducibility, not cleverness, is the point of a
+mechanical rule over a hash you cannot actually compute.
+
+**Annotations (#226).** Append whichever of these apply, after the finding's own description —
+they are not severities or statuses, they narrow what kind of fix is possible and how sure you are:
+- **`fix: code` / `fix: config` / `fix: infra`** — where the remediation actually happens: a
+  source-code change, a deployment-config value, or infrastructure (Terraform/Helm/CI) the
+  service doesn't own directly. `/otel-instrument --fix` only ever touches `fix: code` findings —
+  say so when a finding is `fix: config`/`fix: infra` instead, so no one expects `--fix` to reach it.
+- **`latent` / `live`** — `live` means this is happening right now in every deployed environment
+  you checked; `latent` means the gap is only reachable under a supported-but-currently-unset
+  configuration (e.g. a code path that would misbehave if a flag were flipped, but the flag is
+  off everywhere today). Both are real findings; conflating them makes a theoretical risk read as
+  an active incident, or an active incident read as hypothetical.
+- **`unverifiable from source`** — you could not confirm this one way or the other by reading
+  (e.g. `bootstrapHealth.checked: false` — dependencies not installed, so the import-and-check
+  never ran). State this plainly rather than reporting a guess as a fact in either direction.
+- **`deliberate decision confirmed`** — you checked a pattern that looks like a gap (a `none`
+  exporter, an excluded liveness-probe route, a handler wrapper for a runtime with no inbound
+  HTTP server) and concluded it is intentional and correct for this service, not an oversight.
+  Say so explicitly — this is what tells `/otel-evaluate`'s closing `--force` caveat which
+  decisions a full regeneration would destroy.
 
 ```
 ## OTel Coverage Audit — <service.name>
-Scanned: <timestamp>
+Scanned: <the real scanTime input, verbatim — never an invented or remembered date (#226)>
 Semconv: <semconvVersion (the value passed in; never a remembered version)>
 
 ### Signal Coverage
 ✓ Traces          — @opentelemetry/sdk-trace-node@1.21.0
-✗ [SC-1] Metrics  — not instrumented; recommended: @opentelemetry/sdk-metrics
-✗ [SC-2] Logs     — not instrumented; recommended: @opentelemetry/sdk-logs + winston transport
+✗ [SC-metrics] Metrics — not instrumented; recommended: @opentelemetry/sdk-metrics — fix: code
+✗ [SC-logs] Logs  — not instrumented; recommended: @opentelemetry/sdk-logs + winston transport — fix: code
 
 ### Semconv Violations
-❌ [CV-1] tracing.js:12 — service.name set as span attribute
+❌ [CV-tra12-serv] tracing.js:12 — service.name set as span attribute — fix: code, live
    → Must be a Resource attribute. Move to Resource({ [ATTR_SERVICE_NAME]: '...' })
-❌ [CV-2] tracing.js:15 — http.method is deprecated (semconv 1.23+)
+❌ [CV-tra15-http] tracing.js:15 — http.method is deprecated (semconv 1.23+) — fix: code, live
    → Replace with http.request.method (mechanical)
-❌ [CV-4] tracing.js:19 — http.target is deprecated (semconv 1.23+)
+❌ [CV-tra19-http] tracing.js:19 — http.target is deprecated (semconv 1.23+) — fix: code, live
    → Split into url.path + url.query (manual — value must be parsed apart, not renamed;
      /otel-instrument --fix will name this and leave it for you rather than guess)
-⚠  [CV-3] tracing.js:18 — Custom attribute 'orderId' has no namespace prefix
+⚠  [CV-tra18-orde] tracing.js:18 — Custom attribute 'orderId' has no namespace prefix — fix: code
    → Rename to com.<your-org>.order.id (or your namespace)
 
 ### Cardinality Risks
-🟠 [CR-9f3a] status:new — DTLBot.cs:103 — 'user.id' as a METRIC dimension (unbounded series)
-   → error: remove the tag; the Collector span drop-list cannot clean a metric series.
+🟠 [CR-dtl103-user] status:new — DTLBot.cs:103 — 'user.id' as a METRIC dimension (unbounded
+   series) — fix: code, live
+   → error tier: remove the tag; the Collector span drop-list cannot clean a metric series.
 
 ### PII
-🟠 [PI-4c1e] status:new — telemetry.ts:44 — 'user.email' set as a span-event attribute value
+🟠 [PI-tel44-user] status:new — telemetry.ts:44 — 'user.email' set as a span-event attribute
+   value — fix: code, live
    → Drop or hash at the source. (This is a privacy finding, not just cardinality — relocating
      it to a log record does not stop the value leaving the process.)
 
 ### Credential Exposure
-🟡 [CD-7b20] status:new — appsettings.Development.json:12 — New Relic ingest key in plaintext
+🟡 [CD-app12-lice] status:new — appsettings.Development.json:12 — New Relic "LicenseKey" in
+   plaintext — fix: config, live
    → Real key, but git-tracked:no / gitignored:yes (from gitFileStatus) / ever-committed: not
      checked by this report. So: ROTATE this local key and move it to a secret store — this
      report cannot confirm it was never committed; see the command's output below this report
      for that check.
 
 ### SDK Health
-🟡 [SH-2a55] status:new — tracing.js — SimpleSpanProcessor with an OTLP exporter
+🟡 [SH-tra0-simp] status:new — tracing.js — SimpleSpanProcessor with an OTLP exporter — fix: code
    → Switch to BatchSpanProcessor.
 
 ### Wiring
-🔴 [WR-1d8c] status:new — telemetry.js exports withServerSpan() but is imported by 0 files
+🔴 [WR-tel0-with] status:new — telemetry.js exports withServerSpan() but is imported by 0 files
+   — fix: code, live
    → 0 of 22 handlers wrapped. The instrumentation is well-formed and entirely unreachable.
-🟠 [WR-6f91] status:new — instrumentation.ts exports onRequestError, but frameworkVersion is
-   "^14.2.0" — the hook doesn't exist until Next.js 15, so it never fires on this build.
+🟠 [WR-ins0-onre] status:new — instrumentation.ts exports onRequestError, but frameworkVersion
+   is "^14.2.0" — the hook doesn't exist until Next.js 15, so it never fires on this build —
+   fix: code, unverifiable from source until frameworkVersion is bumped and re-checked.
 
 ### Existing Observability-as-code
-⚪ [EX-5a10] status:new — observability/grafana/dashboards/overview.json — already covers request
-   rate, 5xx ratio and p99 latency on http_server_request_duration_seconds_* for this service.
+⚪ [EX-ove0-over] status:new — observability/grafana/dashboards/overview.json — already covers
+   request rate, 5xx ratio and p99 latency on http_server_request_duration_seconds_* for this
+   service — fix: infra.
    → Informational: /otel-backend grafana would otherwise generate an overlapping dashboard here.
-⚪ [EX-8c2f] status:new — observability/grafana/alerts/api.json — an alert-rule group already
-   fires on the same 5xx ratio condition.
+⚪ [EX-api0-aler] status:new — observability/grafana/alerts/api.json — an alert-rule group already
+   fires on the same 5xx ratio condition — fix: infra.
    → Review before running /otel-backend; applying a second alert on the same condition
      double-pages.
 
 ### Telemetry Configuration
-🔴 [CF-3e07] status:new — config.ts:8 — reads REACT_APP_OTEL_OTLP_ENDPOINT, which throws when
-   unset; the variable is set in no environment (workflow / .env / Terraform), and the throw is in
-   a module the bootstrap imports → the app does not render in any deployed environment.
-🟠 [CF-a244] status:new — deployment.environment defaults to a truthy "unknown"; its env var is
-   set nowhere, so every environment reports "unknown".
-🟠 [CF-9d41] status:new — tracing.py: setup() raises ModuleNotFoundError (opentelemetry.sdk._logs
-   is imported as opentelemetry.sdk.logs) and the bootstrap's own except Exception swallows it —
-   bootstrapHealth reports traces/metrics/logs all false. Every signal is on the OTel API's no-op
-   default; the app runs and nothing in the source looks wrong. → fix the import, then re-run
-   /otel-evaluate to confirm bootstrapHealth flips to true before trusting this bootstrap again.
-🟠 [CF-7b2a] status:new — no OTEL_SEMCONV_STABILITY_OPT_IN set anywhere checked;
-   instrumentation-http@0.57.2 still emits http.method/http.status_code (old), while this
-   plugin's own Grafana queries only http_server_request_duration_seconds_count /
+🔴 [CF-con8-reac] status:new — config.ts:8 — reads REACT_APP_OTEL_OTLP_ENDPOINT, which throws
+   when unset; the variable is set in no environment (workflow / .env / Terraform), and the throw
+   is in a module the bootstrap imports — fix: config, live
+   → The app does not render in any deployed environment until this is provisioned.
+🟠 [CF-con14-depl] status:new — config.ts:14 — deployment.environment defaults to a truthy
+   "unknown"; its env var is set nowhere, so every environment reports "unknown" — fix: config, live
+🟠 [CF-tra5-modu] status:new — tracing.py:5 — setup() raises ModuleNotFoundError
+   (opentelemetry.sdk._logs is imported as opentelemetry.sdk.logs) and the bootstrap's own
+   except Exception swallows it — bootstrapHealth reports traces/metrics/logs all false — fix:
+   code, live. Every signal is on the OTel API's no-op default; the app runs and nothing in the
+   source looks wrong. → fix the import, then re-run /otel-evaluate to confirm bootstrapHealth
+   flips to true before trusting this bootstrap again.
+🟠 [CF-ote0-otel] status:new — no OTEL_SEMCONV_STABILITY_OPT_IN set anywhere checked — fix:
+   config, live. instrumentation-http@0.57.2 still emits http.method/http.status_code (old),
+   while this plugin's own Grafana queries only http_server_request_duration_seconds_count /
    http_response_status_code (stable) → the error-rate alert and SLO sit in permanent NoData,
    indistinguishable from healthy.
 
@@ -401,18 +477,20 @@ non-incident gets re-reported as one.)
 refuted — "a New Relic licence key is committed in appsettings.Development.json": `gitFileStatus`
   shows the file is untracked and gitignored, so "committed" cannot be true as stated; the
   ever-committed question itself is for the dispatching command to settle via `git log -S` (#222),
-  not this report. Not an incident; see CD-7b20 for the real (rotate-me) status.
+  not this report. Not an incident; see CD-app12-lice for the real (rotate-me) status.
 refuted — "exception.message set as a log-record attribute is a violation": it is the prescribed
   representation for the logs signal. Cache entry should be removed.
 corrected — cached note implied 18 route registrations; discovery.ts registers 12, not 8, so the
   real figure is 22.
 
 ### Recommended Additions (proposed, not applied)
-1. [SC-1] Add metrics instrumentation:
+1. [SC-metrics] Add metrics instrumentation:
    npm install @opentelemetry/sdk-metrics @opentelemetry/exporter-metrics-otlp-grpc
-2. [SH-3] Add graceful shutdown: process.on('SIGTERM', () => sdk.shutdown())
-3. [WR-1] Wrap the 22 handlers with withServerSpan()
-4. [CV-1..3] Fix the 3 semconv violations listed above
+2. Add graceful shutdown: process.on('SIGTERM', () => sdk.shutdown()) (general practice, not
+   tied to a specific finding above — no bracketed id, since it doesn't trace to one)
+3. [WR-tel0-with] Wrap the 22 handlers with withServerSpan()
+4. [CV-tra12-serv, CV-tra15-http, CV-tra18-orde] Fix the 3 MECHANICAL semconv violations above
+   (CV-tra19-http needs a manual fix — see its own entry, not this bulk --fix)
 ```
 
 Report a dimension clean, with the evidence for why, rather than padding it. "No cardinality

@@ -189,6 +189,10 @@ to the auditor in Step 4.
 Pass to `otel-as-code:brownfield-auditor`:
 - `context`: loaded context JSON
 - the list of read OTel source files, with their paths
+- `scanTime`: run `date -u +%Y-%m-%dT%H:%M:%SZ` right before this dispatch and pass its output
+  (#226). The auditor has no clock — without this it stamps its report's `Scanned:` line from
+  memory, which reads as a plausible date but isn't the real one, exactly the #202/#177 failure
+  shape this plugin avoids everywhere else a subagent needs the current time.
 - `semconvVersion`: the `SEMCONV_VERSION` from the `semconv-discipline` skill (read it here — the
   auditor has no `Skill` tool, and without this it stamps a version from memory: a report that
   read `1.27.0` while the pin was `1.44.0` is exactly the failure to prevent).
@@ -249,7 +253,19 @@ saying there was nothing even moments after the audit named it (#214, #193). App
 statuses, scoped to `CV` (semconv violation) and `CR` (cardinality risk) findings — the other
 categories (`SC`, `PI`, `CD`, `SH`, `WR`, `CF`, `MB`) have no `derived.*` field to land in yet:
 
-- `refuted` — remove the matching entry from `services[i].derived.conformanceIssues` (unchanged).
+- `refuted` on a **`CV`** (conformanceIssues) finding — **set `"refuted": true` and
+  `"refutedAt": "<the real date -u output>"` on the matching entry; do NOT delete it (#226).**
+  Deleting it drops the only record that this claim was ever considered — the next scanner
+  rescan has nothing to carry forward (see the scanner's own carry-forward rule in
+  `agents/repo-context-scanner.md`), and the next audit has nothing in `cachedJudgements` to
+  re-confirm, so the same false claim can resurface with no memory it was already settled. A
+  `refuted: true` entry is EXCLUDED from any "how many conformance issues" count or warning
+  surfaced elsewhere (it is retained history, not an active finding) — only `brownfield-auditor`'s
+  "Cached judgements re-checked" block ever renders it, never as a live finding.
+- `refuted` on a **`CR`** (highCardinalityAttributes) finding — remove the key from the list
+  (unchanged): this list is bare attribute-name strings, not objects, so there is no per-entry
+  shape to attach a retained refutation to without a larger schema change this issue does not
+  need; a cardinality false-positive is cheap to re-derive fresh on the next scan if it recurs.
 - `new` — add it. A `CV` finding appends to `conformanceIssues`: `file`, `line`, `violation`,
   `severity`, and `"source": "auditor"` (see the cache ownership contract in
   `agents/repo-context-scanner.md` — this is how a reader tells it apart from a scanner-found
