@@ -107,6 +107,90 @@ check "--allow-empty-services overrides the #164 refusal" \
   'python3 "$SCRIPT" --output "$TMPD/out11.json" --existing "$TMPD/existing_attrs.json" \
      --plugin-root "$(pwd)" --allow-empty-services < "$TMPD/empty_services.json"'
 
+# --- critique follow-up: refuse-not-crash on I/O failures (never a traceback instead of REFUSED) ---
+check "a bad --output path (nonexistent parent dir) is refused cleanly, not a traceback" \
+  'OUT=$(python3 "$SCRIPT" --output "$TMPD/no/such/dir/out.json" < "$TMPD/good.json" 2>&1); \
+   rc=$?; [ "$rc" -ne 0 ] && echo "$OUT" | grep -qF "REFUSED:" && ! echo "$OUT" | grep -qF "Traceback"'
+
+mkdir -p "$TMPD/badplugin/.claude-plugin"
+echo "{not valid json" > "$TMPD/badplugin/.claude-plugin/plugin.json"
+check "a malformed plugin.json is refused cleanly, not a traceback" \
+  'OUT=$(python3 "$SCRIPT" --output "$TMPD/out_badplugin.json" --plugin-root "$TMPD/badplugin" \
+       < "$TMPD/good.json" 2>&1); rc=$?; \
+   [ "$rc" -ne 0 ] && echo "$OUT" | grep -qF "REFUSED:" && ! echo "$OUT" | grep -qF "Traceback" \
+   && test ! -f "$TMPD/out_badplugin.json"'
+
+# --- cache ownership contract: conflicts[] resolution and user-added services must survive a refresh ---
+python3 -c "
+import json
+json.dump({
+    'schemaVersion': '1.0', 'scannedAt': '$NOW', 'pluginVersion': '$REAL_VERSION',
+    'services': [
+        {'id': 'svc1', 'name': 'checkout-api'},
+        {'id': 'manual-svc', 'name': 'manual-service', 'nameSource': 'user-added'},
+    ],
+    'conflicts': [
+        {'serviceId': 'svc1', 'attribute': 'service.name', 'sources': [],
+         'resolvedValue': 'checkout-api', 'resolvedSource': 'user', 'resolvedAt': '$NOW'}
+    ],
+}, open('$TMPD/existing_full.json', 'w'))
+"
+
+python3 -c "
+import json
+d = json.load(open('$TMPD/existing_full.json'))
+d['services'] = [s for s in d['services'] if s['id'] != 'manual-svc']
+json.dump(d, open('$TMPD/drop_user_added.json', 'w'))
+"
+check "a refresh that drops a user-added service is refused" \
+  '! (python3 "$SCRIPT" --output "$TMPD/out12.json" --existing "$TMPD/existing_full.json" \
+       --plugin-root "$(pwd)" < "$TMPD/drop_user_added.json") \
+     && test ! -f "$TMPD/out12.json"'
+
+check "the same refresh succeeds once the user-added service is carried over" \
+  'python3 "$SCRIPT" --output "$TMPD/out13.json" --existing "$TMPD/existing_full.json" \
+     --plugin-root "$(pwd)" < "$TMPD/existing_full.json"'
+
+python3 -c "
+import json
+d = json.load(open('$TMPD/existing_full.json'))
+d['conflicts'][0]['resolvedValue'] = None
+d['conflicts'][0]['resolvedSource'] = None
+d['conflicts'][0]['resolvedAt'] = None
+json.dump(d, open('$TMPD/reset_conflict.json', 'w'))
+"
+check "a refresh that resets a resolved conflict's resolvedValue is refused" \
+  '! (python3 "$SCRIPT" --output "$TMPD/out14.json" --existing "$TMPD/existing_full.json" \
+       --plugin-root "$(pwd)" < "$TMPD/reset_conflict.json") \
+     && test ! -f "$TMPD/out14.json"'
+
+python3 -c "
+import json
+d = json.load(open('$TMPD/existing_full.json'))
+d['conflicts'] = []
+json.dump(d, open('$TMPD/drop_conflict.json', 'w'))
+"
+check "a refresh that drops a resolved conflict entry entirely is refused" \
+  '! (python3 "$SCRIPT" --output "$TMPD/out15.json" --existing "$TMPD/existing_full.json" \
+       --plugin-root "$(pwd)" < "$TMPD/drop_conflict.json") \
+     && test ! -f "$TMPD/out15.json"'
+
+check "an UNRESOLVED conflict (resolvedValue already null) may be dropped without refusal" \
+  'python3 -c "
+import json
+d = json.load(open(\"$TMPD/existing_full.json\"))
+d[\"conflicts\"][0][\"resolvedValue\"] = None
+d[\"conflicts\"][0][\"resolvedSource\"] = None
+d[\"conflicts\"][0][\"resolvedAt\"] = None
+json.dump(d, open(\"$TMPD/existing_unresolved.json\", \"w\"))
+d[\"conflicts\"] = []
+print(json.dumps(d))
+" | python3 "$SCRIPT" --output "$TMPD/out16.json" --existing "$TMPD/existing_unresolved.json" --plugin-root "$(pwd)"'
+
+# --- --help renders the numbered-list docstring readably (not collapsed run-on prose) ---
+check "--help preserves the docstring's numbered-list line breaks" \
+  'python3 "$SCRIPT" --help | grep -qF "2. services going from non-empty to empty"'
+
 echo
 echo "write-context-helper: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

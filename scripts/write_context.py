@@ -5,12 +5,13 @@ The scanner (agents/repo-context-scanner.md) is read-only and returns its result
 JSON string in its final message. Before this script existed, the dispatching command had to
 transcribe that string into a Write call by hand -- a long verbatim copy by a model, exactly
 where silent truncation, re-ordering, or a dropped field happens. This script takes over the
-actual write, and enforces in code the three rules a transcription can't reliably check:
+actual write, and enforces in code the rules a transcription can't reliably check:
 
   1. A refresh must never EMPTY a user-owned field that the prior cache had non-empty
      (businessAttrs, confirmedAt, namespace, deploymentEnvironment, per-service
-     namespace/team when user-confirmed, scopeOverride) -- the cache ownership contract in
-     repo-context-scanner.md, enforced here rather than trusted to be followed.
+     namespace/team when user-confirmed, scopeOverride, a resolved conflicts[] entry, a
+     user-added service) -- the cache ownership contract in repo-context-scanner.md, enforced
+     here rather than trusted to be followed.
   2. services going from non-empty to empty is refused by default (#164) -- a legitimate full
      deletion is possible, but it must be an explicit, confirmed decision, not an artifact of a
      scan that happened to come back empty. Pass --allow-empty-services to override once the
@@ -22,9 +23,11 @@ actual write, and enforces in code the three rules a transcription can't reliabl
      installed plugin.json actually declares, when --plugin-root is given.
 
 Exit 0 and a written file on success. Exit 1 with a one-line reason and NOTHING written on any
-safety-rule failure -- refusing to write is always safer than writing something wrong, the same
-principle this plugin applies everywhere else (instrumentation-gen's "emitting wrong code is
-worse than emitting none").
+safety-rule failure, including an I/O or parse error encountered while enforcing a rule --
+refusing to write is always safer than writing something wrong, or crashing with a traceback
+instead of the one-line reason this script exists to produce, the same principle this plugin
+applies everywhere else (instrumentation-gen's "emitting wrong code is worse than emitting
+none").
 
 Usage:
     <scanner JSON on stdin> | python3 scripts/write_context.py \\
@@ -95,6 +98,45 @@ def check_per_service_user_owned(old, new):
             )
 
 
+def check_conflicts_resolution(old, new):
+    old_conflicts = {
+        (c.get("serviceId"), c.get("attribute")): c for c in old.get("conflicts", [])
+    }
+    new_conflicts = {
+        (c.get("serviceId"), c.get("attribute")): c for c in new.get("conflicts", [])
+    }
+    for key, old_c in old_conflicts.items():
+        was_resolved = not is_empty(old_c.get("resolvedValue")) or bool(old_c.get("conflict_resolved"))
+        if not was_resolved:
+            continue
+        new_c = new_conflicts.get(key)
+        service_id, attribute = key
+        if new_c is None:
+            fail(
+                f"conflicts[serviceId={service_id!r}, attribute={attribute!r}] was resolved "
+                f"(resolvedValue={old_c.get('resolvedValue')!r}) and is missing entirely from "
+                f"this refresh -- a resolved conflict must be carried forward, matched by "
+                f"(serviceId, attribute), per the cache ownership contract."
+            )
+        elif is_empty(new_c.get("resolvedValue")) and not new_c.get("conflict_resolved"):
+            fail(
+                f"conflicts[serviceId={service_id!r}, attribute={attribute!r}].resolvedValue "
+                f"was {old_c.get('resolvedValue')!r} and would be reset by this refresh -- a "
+                f"resolved conflict must survive a rescan."
+            )
+
+
+def check_user_added_services(old, new):
+    new_ids = {s.get("id") for s in new.get("services", [])}
+    for svc in old.get("services", []):
+        if svc.get("nameSource") == "user-added" and svc.get("id") not in new_ids:
+            fail(
+                f"services[id={svc.get('id')!r}] was added manually by the user "
+                f"(nameSource: \"user-added\") and is absent from this refresh -- a user-added "
+                f"service must be kept, not silently dropped, per the cache ownership contract."
+            )
+
+
 def check_empty_services(old, new, allow_empty_services):
     old_services = old.get("services", []) if old else []
     new_services = new.get("services", [])
@@ -114,7 +156,6 @@ def check_scanned_at(new):
         parsed = datetime.strptime(scanned_at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
     except ValueError:
         fail(f"scannedAt {scanned_at!r} is not a real UTC timestamp (YYYY-MM-DDTHH:MM:SSZ).")
-        return
     now = datetime.now(timezone.utc)
     skew = abs(now - parsed)
     if skew > MAX_SCANNEDAT_SKEW:
@@ -149,7 +190,8 @@ def check_plugin_version(new, plugin_root):
             manifest = json.load(f)
     except OSError as e:
         fail(f"could not read {manifest_path} to verify pluginVersion: {e}")
-        return
+    except json.JSONDecodeError as e:
+        fail(f"{manifest_path} is not valid JSON ({e}) -- cannot verify pluginVersion against it.")
     real_version = manifest.get("version")
     if version != real_version:
         fail(
@@ -160,7 +202,9 @@ def check_plugin_version(new, plugin_root):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("--output", required=True, help="Path to write .claude/otel-context.json to")
     parser.add_argument("--existing", help="Path to the existing cache, if any, for merge-safety checks")
     parser.add_argument("--plugin-root", help="${CLAUDE_PLUGIN_ROOT}, to verify pluginVersion against")
@@ -174,7 +218,6 @@ def main():
     except json.JSONDecodeError as e:
         fail(f"stdin is not valid JSON ({e}) -- nothing written. This is exactly the failure mode "
              f"this script exists to catch before it reaches disk.")
-        return
 
     if not isinstance(new.get("services"), list):
         fail("'services' is missing or not a list -- not a valid context object.")
@@ -198,11 +241,16 @@ def main():
     if old is not None:
         check_top_level_user_owned(old, new)
         check_per_service_user_owned(old, new)
+        check_user_added_services(old, new)
+        check_conflicts_resolution(old, new)
         check_empty_services(old, new, args.allow_empty_services)
 
-    with open(args.output, "w", encoding="utf-8") as f:
-        json.dump(new, f, indent=2)
-        f.write("\n")
+    try:
+        with open(args.output, "w", encoding="utf-8") as f:
+            json.dump(new, f, indent=2)
+            f.write("\n")
+    except OSError as e:
+        fail(f"could not write {args.output}: {e}")
     print(f"OK: wrote {args.output} ({len(new.get('services', []))} service(s))")
 
 
