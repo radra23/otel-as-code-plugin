@@ -1,6 +1,6 @@
 {
   "name": "otel-as-code",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "OpenTelemetry instrumentation and observability-as-code for any stack",
   "author": {
     "name": "radra.gwent",
