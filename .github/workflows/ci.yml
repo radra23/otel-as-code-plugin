@@ -595,16 +595,54 @@ jobs:
     name: Guard against unbumped plugin version
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      # On a pull_request, base/head come from the PR object. On a push (including straight to
+      # main, which this guard did not used to cover at all), github.event.before is the only
+      # equivalent, and it has two failure shapes of its own: it is all zeros on a brand new
+      # branch's first push, and it can point at a commit no longer in history after a force
+      # push. Either way there is no usable "before" to diff against, so fall back to the latest
+      # v* tag reachable from this commit and say so, rather than silently diffing against
+      # nothing or crashing.
+      - name: Resolve the commit range to check
+        id: range
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+            HEAD="${{ github.event.pull_request.head.sha }}"
+          else
+            BASE="${{ github.event.before }}"
+            HEAD="${{ github.sha }}"
+            if [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+              REASON="push event's 'before' is the all-zero SHA (new branch, no prior commit to diff against)"
+              NEEDS_FALLBACK=1
+            elif ! git cat-file -e "$BASE" 2>/dev/null; then
+              REASON="push event's 'before' SHA ($BASE) is not reachable in this checkout's history (likely a force push rewrote it)"
+              NEEDS_FALLBACK=1
+            else
+              NEEDS_FALLBACK=0
+            fi
+            if [ "$NEEDS_FALLBACK" = "1" ]; then
+              FALLBACK_TAG=$(git describe --tags --abbrev=0 --match 'v*' "$HEAD" 2>/dev/null || git tag -l 'v*' --sort=-v:refname | head -1)
+              if [ -z "$FALLBACK_TAG" ]; then
+                echo "::error::$REASON, and no v* tag exists to fall back to. Cannot determine a commit range to check."
+                exit 1
+              fi
+              echo "$REASON. Falling back to comparing against the latest tag $FALLBACK_TAG."
+              BASE="$FALLBACK_TAG"
+            fi
+          fi
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          echo "head=$HEAD" >> "$GITHUB_OUTPUT"
+
       - name: Fail if commands/skills/agents/hooks changed without a version bump
         run: |
-          BASE="${{ github.event.pull_request.base.sha }}"
-          HEAD="${{ github.event.pull_request.head.sha }}"
+          BASE="${{ steps.range.outputs.base }}"
+          HEAD="${{ steps.range.outputs.head }}"
           CHANGED=$(git diff --name-only "$BASE" "$HEAD" -- commands/ agents/ skills/ hooks/)
           if [ -z "$CHANGED" ]; then
             echo "No behavior-affecting paths changed; skipping version check."
@@ -613,31 +651,36 @@ jobs:
           BASE_VERSION=$(git show "$BASE:.claude-plugin/plugin.json" | python3 -c "import json,sys; print(json.load(sys.stdin)['version'])")
           HEAD_VERSION=$(git show "$HEAD:.claude-plugin/plugin.json" | python3 -c "import json,sys; print(json.load(sys.stdin)['version'])")
           if [ "$BASE_VERSION" = "$HEAD_VERSION" ]; then
-            echo "::error::commands/, agents/, skills/, or hooks/ changed but .claude-plugin/plugin.json 'version' ($BASE_VERSION) was not bumped. Installed users' cache is keyed on this string and will never see this change (#128)."
+            # On a push, this job cannot block the commit (it already landed on main) -- it can
+            # only fail loudly, the same way a PR check does, so the gap is visible rather than
+            # silent. Name the range explicitly since there is no PR UI to show it otherwise.
+            echo "::error::commands/, agents/, skills/, or hooks/ changed between $BASE and $HEAD but .claude-plugin/plugin.json 'version' ($BASE_VERSION) was not bumped. Installed users' cache is keyed on this string and will never see this change (#128)."
+            echo "Commit range: $BASE..$HEAD"
             echo "Changed files:"
             echo "$CHANGED"
             exit 1
           fi
-          echo "Version bumped $BASE_VERSION -> $HEAD_VERSION alongside behavior changes."
+          echo "Version bumped $BASE_VERSION -> $HEAD_VERSION alongside behavior changes ($BASE..$HEAD)."
 
       # The bump above is only half the drift. ROADMAP.md opens with a "Current release" line
       # that nothing checked, and it sat at 0.2.0 while the plugin shipped 0.8.0 — six minors
       # of a public-facing doc quietly contradicting the manifest. Fires only when the version
-      # actually moved in this PR, so it never nags a PR that didn't touch the version.
+      # actually moved in this range, so it never nags a run that didn't touch the version.
       #
       # Advisory, not blocking: the roadmap is explicitly a draft and its currency is the
       # maintainer's call, not CI's. The step therefore always exits 0. To stay useful rather
       # than decorative it writes to the job summary as well as the log — a ::warning:: alone
-      # scrolls past, and an unread warning is how this drifted in the first place.
+      # scrolls past, and an unread warning is how this drifted in the first place. Runs on both
+      # event types, same as the step above.
       - name: Warn if a version bump leaves ROADMAP.md's current release behind
         if: always()
         run: |
-          BASE="${{ github.event.pull_request.base.sha }}"
-          HEAD="${{ github.event.pull_request.head.sha }}"
+          BASE="${{ steps.range.outputs.base }}"
+          HEAD="${{ steps.range.outputs.head }}"
           BASE_VERSION=$(git show "$BASE:.claude-plugin/plugin.json" | python3 -c "import json,sys; print(json.load(sys.stdin)['version'])")
           HEAD_VERSION=$(git show "$HEAD:.claude-plugin/plugin.json" | python3 -c "import json,sys; print(json.load(sys.stdin)['version'])")
           if [ "$BASE_VERSION" = "$HEAD_VERSION" ]; then
-            echo "Version unchanged in this PR; nothing to keep in step."
+            echo "Version unchanged in this range; nothing to keep in step."
             exit 0
           fi
           ROADMAP_VERSION=$(sed -n 's/^Current release: \*\*\([0-9][^*]*\)\*\*.*/\1/p' ROADMAP.md | head -1)
@@ -653,7 +696,7 @@ jobs:
           if [ -z "$ROADMAP_VERSION" ]; then
             note "No 'Current release: **<version>**' line found in ROADMAP.md (plugin.json is now $HEAD_VERSION). Restore the line, or update this guard if it was deliberately renamed."
           elif [ "$ROADMAP_VERSION" != "$HEAD_VERSION" ]; then
-            note "plugin.json is $HEAD_VERSION but ROADMAP.md says 'Current release: $ROADMAP_VERSION'. Worth updating in this PR."
+            note "plugin.json is $HEAD_VERSION but ROADMAP.md says 'Current release: $ROADMAP_VERSION'. Worth updating alongside this change."
           else
             echo "ROADMAP.md current release ($ROADMAP_VERSION) matches plugin.json."
           fi
