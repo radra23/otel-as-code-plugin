@@ -210,3 +210,37 @@ subagent's own next-steps block above just printed, never assuming `terraform` i
 Note: /otel-backend does not run apply. Credentials stay in your environment.
 To apply: cd <output_dir> && <TF_BIN> init && <TF_BIN> plan && <TF_BIN> apply
 ```
+
+## Step 7: Offer optional live verification via a connected vendor MCP
+
+**Enrichment only, never required — the Terraform above is already complete and correct on its
+own.** This mirrors the "detect, enrich, degrade" rule for optional external sources: an
+unavailable or unconnected MCP is never a finding, never blocks anything, and this command's own
+output never depends on it.
+
+Check whether an MCP server matching the SELECTED `backend` is connected — search available
+tools for a name containing the vendor (`grafana`, `datadog`, `newrelic`/`new relic`, `dash0`),
+not a coincidental match on an unrelated tool. Then:
+
+- **A matching MCP is connected:** print one line naming what it could confirm once the
+  Terraform above is actually applied — this command never runs `apply` itself (Step 6's note
+  above), so nothing exists in the vendor account yet and there is nothing to verify THIS run.
+  Offer it as a next step, do not attempt it now:
+  ```
+  Tip: a <Vendor> MCP is connected. After you apply, ask me to confirm the <resource> exists and
+  matches what was generated.
+  ```
+  Name the concrete resource per vendor — Grafana: "the dashboard (`<uid>`) / alert rules";
+  Datadog: "the monitor(s) / dashboard"; New Relic: "the alert policy / dashboard"; Dash0: "the
+  SLO / dashboard". Use whatever this run actually generated (`--kind`), not a generic word.
+- **No matching MCP is connected:** print one line suggesting it as optional, phrased so it
+  cannot read as a requirement:
+  ```
+  Tip: connecting a <Vendor> MCP lets me confirm these resources exist in your account after you
+  apply. Not required — the Terraform above is already complete.
+  ```
+- **Never claim a verification happened that did not.** Do not call any MCP tool in this step
+  under any circumstance — detection only. The offer is for a LATER turn, after the user has
+  actually run `apply`; attempting to verify now would either find nothing (correctly, since
+  nothing was applied) and read as a false failure, or query stale state from a previous run and
+  get attributed to this one.
