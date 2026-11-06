@@ -740,19 +740,35 @@ not something a rescan should quietly erase either.
      `[]` and don't pad it with deployment files. `/otel-init` Step 1 treats an in-scope service
      with no identity input under its `rootDir` as always stale, so its `deployment.configFiles`
      get re-read on every run (#150).
-   - `identityFingerprint`: a hash over those files' contents. **Use the same shell-neutral
-     definition `/otel-init` Step 1 recomputes it with (#225) — one canonical form, not a
-     bash-only one here and a different one there:**
+   - `identityFingerprint`: a hash over those files' contents. **This is the SAME lockstep
+     relationship as `identityInputs` just above, extended to the fingerprint step (#225, #226
+     review) — not a new duplication to prune, but the same twin-computation contract this file
+     already keeps for the regex.** `/otel-init` Step 1 independently recomputes this fingerprint
+     every run to decide staleness BEFORE it ever dispatches you; you independently compute it
+     here as part of producing your scan output. Neither side can simply hand the other a
+     precomputed value the way `scanTime`/`pluginVersion` are handed to you (Input §9, §2) —
+     those are facts about the world you have no way to observe yourself (no clock, no way to
+     read `plugin.json`); THIS is a deterministic function of files you are independently reading
+     anyway, so a `Read`-able reference path would add an indirection without removing the actual
+     requirement, which is that both computations use the identical algorithm. Use the exact
+     command `/otel-init` Step 1 defines:
      ```
      git hash-object --stdin-paths | python3 -c "import sys,hashlib; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest()[:16])"
      ```
      (SHA-256 over the raw bytes `git hash-object` printed for the sorted path list, truncated to
      16 hex characters; `python3` replaces `sha256sum`/`cut`, which do not exist on Windows
      PowerShell.) For a non-git repo, read and concatenate the files' own bytes in the same sorted
-     order and SHA-256 that instead — there is no git blob to hash without a repo. **This, not
-     `gitHash`, is what makes a cache stale.** Commits that touch only application code cannot
-     change service identity, and re-scanning on every commit costs minutes per command for
-     nothing.
+     order and SHA-256 that instead — there is no git blob to hash without a repo.
+     `tests/hooks/freshness-contract.test.sh` keeps this command text identical on both sides, the
+     same mechanism that already guards the `identityInputs` regex above — if `/otel-init`'s
+     definition legitimately changes, update this copy in the same commit; that update IS the
+     point of the parity check, not a sign the duplication should be collapsed into a
+     `Read`-able path (a short, executable, bit-for-bit algorithm both sides independently run is
+     a different shape of problem than the canonical-reference-document guidance
+     `semconvGuidancePath`/`languageMaturityPath` solve — those point at interpreted content you
+     look UP, not at a command you run). **This, not `gitHash`, is what makes a cache stale.**
+     Commits that touch only application code cannot change service identity, and re-scanning on
+     every commit costs minutes per command for nothing.
    - `gitDirty`: `true` if `git status --porcelain` lists any change to a path in
      `identityInputs`; otherwise `false`.
 

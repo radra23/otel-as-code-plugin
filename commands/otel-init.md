@@ -104,6 +104,16 @@ costs minutes per command for nothing.
    `python3` are both real executables piped between identically on POSIX shells and PowerShell —
    it is specifically `sha256sum`/`cut` (coreutils with no PowerShell equivalent) that this
    replaces, not the piping itself.
+
+   `agents/repo-context-scanner.md` keeps this SAME command text (not a reference to it) for the
+   same reason the `identityExclude`/filename regex just above is also kept as two copies in
+   lockstep rather than one file pointing at the other: both are short, deterministic algorithms
+   each side must independently execute bit-for-bit, not reference content one side looks up and
+   interprets (that's what `semconvGuidancePath`-style `Read`-able paths are for). The command and
+   the scanner each run this fingerprint over files they are independently reading anyway — a
+   path-reference would add indirection without removing the actual requirement, which is that
+   both sides use the identical command. `tests/hooks/freshness-contract.test.sh` polices the
+   parity; if this command text legitimately changes, update both copies in the same commit.
    If the recomputed fingerprint differs from the stored one, the cache is STALE (a manifest
    changed). If it matches, the cache is CURRENT even when `HEAD` has moved.
 4. If this is not a git repo (`git rev-parse` fails), fall back to the same `python3` hash over
@@ -227,10 +237,12 @@ from Step 2; pipe it to the script on stdin rather than retyping it, since a han
 ~10 KB is exactly where a field gets silently dropped, reordered, or truncated:
 
 ```bash
-echo '<the scanner's raw JSON response, verbatim>' | python3 "${CLAUDE_PLUGIN_ROOT}/scripts/write_context.py" \
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/write_context.py" \
   --output .claude/otel-context.json \
   --existing .claude/otel-context.json \
-  --plugin-root "${CLAUDE_PLUGIN_ROOT}"
+  --plugin-root "${CLAUDE_PLUGIN_ROOT}" <<'JSON'
+<the scanner's raw JSON response, verbatim>
+JSON
 ```
 
 The script re-derives, in code, the same checks this step used to ask the model to hold in its

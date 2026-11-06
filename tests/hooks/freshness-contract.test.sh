@@ -202,6 +202,21 @@ else
   echo "FAIL: the non-git-repo fallback definition is missing on one side (#225)"; fail=$((fail+1))
 fi
 
+# #226 review: the fingerprint command's duplication-with-parity-test is deliberate (mirrors the
+# pre-existing identityInputs regex lockstep just above it), not a smell to collapse into a
+# Read-able path reference -- both files must say so explicitly, or a later editor "fixes" it
+# into an inconsistency with its own sibling rule.
+if grep -qF "the SAME lockstep" "$SCANNER" && grep -qF "not a new duplication to prune" "$SCANNER"; then
+  echo "PASS: scanner explains the fingerprint duplication mirrors the identityInputs lockstep, on purpose"; pass=$((pass+1))
+else
+  echo "FAIL: scanner no longer explains why the fingerprint duplication is intentional"; fail=$((fail+1))
+fi
+if grep -qF "kept as two copies in" "$INIT" && grep -qF "not a reference to it" "$INIT"; then
+  echo "PASS: otel-init explains the fingerprint duplication mirrors the identityInputs lockstep, on purpose"; pass=$((pass+1))
+else
+  echo "FAIL: otel-init no longer explains why the fingerprint duplication is intentional"; fail=$((fail+1))
+fi
+
 # Teeth: prove the python3 replacement is actually byte-identical to the old sha256sum|cut
 # pipeline it replaces, not just plausible-sounding prose.
 OLD_HASH="$(git hash-object CLAUDE.md AGENTS.md | sha256sum | cut -c1-16)"
