@@ -385,29 +385,48 @@ MECHANICALLY from facts already in front of you — never a sequence number (ins
 would renumber the rest) and never a cryptographic/arithmetic hash (**you have no tool to compute
 one, and an LLM "computing a hash" in its head is not actually deterministic across runs — this
 was the exact #226 bug: an ID that looked hash-like but wasn't reproducible**). The construction
-is pure substring-copying, so two readers (or two runs) always land on the same string:
-1. Take the first 3 lowercase alphanumeric characters of the finding's basename (the file's
-   basename with no extension; for a file-less finding like `MB` package maturity, use the
-   package's own name instead).
+is pure substring-copying — the FULL strings, never truncated (truncating to a fixed-width prefix
+would reintroduce non-determinism's twin problem, collisions: semconv namespaces are prefix-heavy,
+e.g. `http.method`/`http.mime` share a 4-character prefix, so a truncated scheme can silently
+collide two unrelated findings onto the same ID; nothing downstream parses a fixed-width ID, so
+there is no reason to shorten it) — so two readers (or two runs) always land on the same string:
+1. Take the finding's basename: the file's basename with its last extension removed, lowercased,
+   non-alphanumeric characters stripped.
 2. Append the line number if the finding is anchored to one, else `0`.
-3. Append `-` and the first 4 lowercase alphanumeric characters of the finding's distinguishing
-   keyword (the attribute name, the config var, the signal name, or the package's last dotted
-   segment — whichever is what actually makes this finding different from a neighboring one in
-   the same file).
-Examples: `tracing.js:12`, attribute `service.name` → `tra12-serv`. `tracing.js:15`, attribute
-`http.method` → `tra15-http`. `DTLBot.cs:103`, attribute `user.id` → `dtl103-user`. A package-only
-`MB` finding for `OpenTelemetry.Instrumentation.EntityFrameworkCore` → `ope0-enti`. **Exception:**
-a `SC` (signal coverage) finding has no file and no secondary attribute at all — the missing
-signal's own name already IS its complete, stable identity, so skip the two-part formula and use
-the signal name directly: `SC-metrics`, `SC-logs`. In a
-multi-service repo, qualify it with the service: `<serviceId>:<CAT>-<id>`. Categories: `SC`
+3. Append `-` and the finding's distinguishing keyword, in full: the attribute name, the config
+   var, or the package's last dotted segment — whichever is what actually makes this finding
+   different from a neighboring one in the same file — lowercased, non-alphanumeric stripped.
+Examples: `tracing.js:12`, attribute `service.name` → `tracing12-servicename`. `tracing.js:15`,
+attribute `http.method` → `tracing15-httpmethod`. `DTLBot.cs:103`, attribute `user.id` →
+`dtlbot103-userid`.
+
+**Three exceptions, for findings the two-part formula above doesn't fit:**
+- **No file at all, but one clear distinguishing name exists** (a `MB` package-maturity finding,
+  or a `CF` finding about a config var provisioned nowhere, with no single file to anchor to):
+  skip the two-part formula entirely and use that name directly, in full, lowercased and
+  non-alphanumeric stripped — e.g. a package-only `MB` finding for
+  `OpenTelemetry.Instrumentation.EntityFrameworkCore` → `MB-opentelemetryinstrumentationentityframeworkcore`;
+  a `CF` finding with no `OTEL_SEMCONV_STABILITY_OPT_IN` set anywhere checked →
+  `CF-otelsemconvstabilityoptin`.
+- **No file and no secondary attribute at all** (a `SC` signal-coverage finding — the missing
+  signal's own name already IS its complete, stable identity): skip the two-part formula and use
+  the signal name directly: `SC-metrics`, `SC-logs`.
+- **`EX` (existing observability-as-code) findings**: the file (a dashboard/alert JSON) has no
+  attribute of its own to serve as a keyword — use the PARENT DIRECTORY name as the keyword half
+  instead, since that's what actually distinguishes one piece of existing coverage from another
+  (a dashboard vs. an alert-rule group), which the bare basename alone doesn't convey:
+  `observability/grafana/dashboards/overview.json` → `EX-overview0-dashboards`;
+  `observability/grafana/alerts/api.json` → `EX-api0-alerts`.
+
+In a multi-service repo, qualify it with the service: `<serviceId>:<CAT>-<id>`. Categories: `SC`
 signal coverage, `CV` semconv violation, `CR` cardinality risk, `PI` PII in a value, `CD`
 credential exposure, `CF` telemetry configuration, `SH` SDK health, `WR` wiring, `MB` maturity
 (an instrumentation package below Stable — see dimension 9), `EX` existing observability-as-code
 (committed dashboard/alert JSON another system provisions — see dimension 10).
 `/otel-instrument --fix <ids>` consumes these, so every finding carries one, and the SAME finding
 must produce the SAME id on a re-audit — that reproducibility, not cleverness, is the point of a
-mechanical rule over a hash you cannot actually compute.
+mechanical rule over a hash you cannot actually compute. Every exception above is named here
+explicitly so a finding never needs an undocumented fourth rule invented on the spot.
 
 **Annotations (#226).** Append whichever of these apply, after the finding's own description —
 they are not severities or statuses, they narrow what kind of fix is possible and how sure you are:
@@ -440,73 +459,78 @@ Semconv: <semconvVersion (the value passed in; never a remembered version)>
 ✗ [SC-logs] Logs  — not instrumented; recommended: @opentelemetry/sdk-logs + winston transport — fix: code
 
 ### Semconv Violations
-❌ [CV-tra12-serv] tracing.js:12 — service.name set as span attribute — fix: code, live
+❌ [CV-tracing12-servicename] tracing.js:12 — service.name set as span attribute — fix: code, live
    → Must be a Resource attribute. Move to Resource({ [ATTR_SERVICE_NAME]: '...' })
-❌ [CV-tra15-http] tracing.js:15 — http.method is deprecated (semconv 1.23+) — fix: code, live
+❌ [CV-tracing15-httpmethod] tracing.js:15 — http.method is deprecated (semconv 1.23+) — fix: code, live
    → Replace with http.request.method (mechanical)
-❌ [CV-tra19-http] tracing.js:19 — http.target is deprecated (semconv 1.23+) — fix: code, live
+❌ [CV-tracing19-httptarget] tracing.js:19 — http.target is deprecated (semconv 1.23+) — fix: code, live
    → Split into url.path + url.query (manual — value must be parsed apart, not renamed;
      /otel-instrument --fix will name this and leave it for you rather than guess)
-⚠  [CV-tra18-orde] tracing.js:18 — Custom attribute 'orderId' has no namespace prefix — fix: code
+⚪ [CV-tracing18-orderid] tracing.js:18 — Custom attribute 'orderId' has no namespace prefix — fix: code
    → Rename to com.<your-org>.order.id (or your namespace)
 
 ### Cardinality Risks
-🟠 [CR-dtl103-user] status:new — DTLBot.cs:103 — 'user.id' as a METRIC dimension (unbounded
+🟠 [CR-dtlbot103-userid] status:new — DTLBot.cs:103 — 'user.id' as a METRIC dimension (unbounded
    series) — fix: code, live
    → error tier: remove the tag; the Collector span drop-list cannot clean a metric series.
 
 ### PII
-🟠 [PI-tel44-user] status:new — telemetry.ts:44 — 'user.email' set as a span-event attribute
-   value — fix: code, live
+🟠 [PI-telemetry44-useremail] status:new — telemetry.ts:44 — 'user.email' set as a span-event
+   attribute value — fix: code, live
    → Drop or hash at the source. (This is a privacy finding, not just cardinality — relocating
      it to a log record does not stop the value leaving the process.)
 
 ### Credential Exposure
-🟡 [CD-app12-lice] status:new — appsettings.Development.json:12 — New Relic "LicenseKey" in
-   plaintext — fix: config, live
+🟡 [CD-appsettingsdevelopment12-licensekey] status:new — appsettings.Development.json:12 — New
+   Relic "LicenseKey" in plaintext — fix: config, live
    → Real key, but git-tracked:no / gitignored:yes (from gitFileStatus) / ever-committed: not
      checked by this report. So: ROTATE this local key and move it to a secret store — this
      report cannot confirm it was never committed; see the command's output below this report
      for that check.
 
 ### SDK Health
-🟡 [SH-tra0-simp] status:new — tracing.js — SimpleSpanProcessor with an OTLP exporter — fix: code
+🟡 [SH-tracing0-simplespanprocessor] status:new — tracing.js — SimpleSpanProcessor with an OTLP
+   exporter — fix: code
    → Switch to BatchSpanProcessor.
 
 ### Wiring
-🔴 [WR-tel0-with] status:new — telemetry.js exports withServerSpan() but is imported by 0 files
-   — fix: code, live
+🔴 [WR-telemetry0-withserverspan] status:new — telemetry.js exports withServerSpan() but is
+   imported by 0 files — fix: code, live
    → 0 of 22 handlers wrapped. The instrumentation is well-formed and entirely unreachable.
-🟠 [WR-ins0-onre] status:new — instrumentation.ts exports onRequestError, but frameworkVersion
-   is "^14.2.0" — the hook doesn't exist until Next.js 15, so it never fires on this build —
-   fix: code, unverifiable from source until frameworkVersion is bumped and re-checked.
+🟠 [WR-instrumentation0-onrequesterror] status:new — instrumentation.ts exports onRequestError,
+   but frameworkVersion is "^14.2.0" — the hook doesn't exist until Next.js 15, so it never fires
+   on this build — fix: code, unverifiable from source until frameworkVersion is bumped and
+   re-checked.
 
 ### Existing Observability-as-code
-⚪ [EX-ove0-over] status:new — observability/grafana/dashboards/overview.json — already covers
-   request rate, 5xx ratio and p99 latency on http_server_request_duration_seconds_* for this
-   service — fix: infra.
+⚪ [EX-overview0-dashboards] status:new — observability/grafana/dashboards/overview.json —
+   already covers request rate, 5xx ratio and p99 latency on
+   http_server_request_duration_seconds_* for this service — fix: infra.
    → Informational: /otel-backend grafana would otherwise generate an overlapping dashboard here.
-⚪ [EX-api0-aler] status:new — observability/grafana/alerts/api.json — an alert-rule group already
-   fires on the same 5xx ratio condition — fix: infra.
+⚪ [EX-api0-alerts] status:new — observability/grafana/alerts/api.json — an alert-rule group
+   already fires on the same 5xx ratio condition — fix: infra.
    → Review before running /otel-backend; applying a second alert on the same condition
      double-pages.
 
 ### Telemetry Configuration
-🔴 [CF-con8-reac] status:new — config.ts:8 — reads REACT_APP_OTEL_OTLP_ENDPOINT, which throws
-   when unset; the variable is set in no environment (workflow / .env / Terraform), and the throw
-   is in a module the bootstrap imports — fix: config, live
+🔴 [CF-config8-reactappotelotlpendpoint] status:new — config.ts:8 — reads
+   REACT_APP_OTEL_OTLP_ENDPOINT, which throws when unset; the variable is set in no environment
+   (workflow / .env / Terraform), and the throw is in a module the bootstrap imports — fix:
+   config, live
    → The app does not render in any deployed environment until this is provisioned.
-🟠 [CF-con14-depl] status:new — config.ts:14 — deployment.environment defaults to a truthy
-   "unknown"; its env var is set nowhere, so every environment reports "unknown" — fix: config, live
-🟠 [CF-tra5-modu] status:new — tracing.py:5 — setup() raises ModuleNotFoundError
-   (opentelemetry.sdk._logs is imported as opentelemetry.sdk.logs) and the bootstrap's own
-   except Exception swallows it — bootstrapHealth reports traces/metrics/logs all false — fix:
-   code, live. Every signal is on the OTel API's no-op default; the app runs and nothing in the
-   source looks wrong. → fix the import, then re-run /otel-evaluate to confirm bootstrapHealth
-   flips to true before trusting this bootstrap again.
-🟠 [CF-ote0-otel] status:new — no OTEL_SEMCONV_STABILITY_OPT_IN set anywhere checked — fix:
-   config, live. instrumentation-http@0.57.2 still emits http.method/http.status_code (old),
-   while this plugin's own Grafana queries only http_server_request_duration_seconds_count /
+🟠 [CF-config14-deploymentenvironment] status:new — config.ts:14 — deployment.environment
+   defaults to a truthy "unknown"; its env var is set nowhere, so every environment reports
+   "unknown" — fix: config, live
+🟠 [CF-tracing5-modulenotfounderror] status:new — tracing.py:5 — setup() raises
+   ModuleNotFoundError (opentelemetry.sdk._logs is imported as opentelemetry.sdk.logs) and the
+   bootstrap's own except Exception swallows it — bootstrapHealth reports traces/metrics/logs
+   all false — fix: code, live. Every signal is on the OTel API's no-op default; the app runs and
+   nothing in the source looks wrong. → fix the import, then re-run /otel-evaluate to confirm
+   bootstrapHealth flips to true before trusting this bootstrap again.
+🟠 [CF-otelsemconvstabilityoptin] status:new — no OTEL_SEMCONV_STABILITY_OPT_IN set anywhere
+   checked (file-less exception — no single file to anchor to) — fix: config, live.
+   instrumentation-http@0.57.2 still emits http.method/http.status_code (old), while this
+   plugin's own Grafana queries only http_server_request_duration_seconds_count /
    http_response_status_code (stable) → the error-rate alert and SLO sit in permanent NoData,
    indistinguishable from healthy.
 
@@ -516,7 +540,8 @@ non-incident gets re-reported as one.)
 refuted — "a New Relic licence key is committed in appsettings.Development.json": `gitFileStatus`
   shows the file is untracked and gitignored, so "committed" cannot be true as stated; the
   ever-committed question itself is for the dispatching command to settle via `git log -S` (#222),
-  not this report. Not an incident; see CD-app12-lice for the real (rotate-me) status.
+  not this report. Not an incident; see CD-appsettingsdevelopment12-licensekey for the real
+  (rotate-me) status.
 refuted — "exception.message set as a log-record attribute is a violation": it is the prescribed
   representation for the logs signal. Cache entry should be removed.
 corrected — cached note implied 18 route registrations; discovery.ts registers 12, not 8, so the
@@ -527,9 +552,10 @@ corrected — cached note implied 18 route registrations; discovery.ts registers
    npm install @opentelemetry/sdk-metrics @opentelemetry/exporter-metrics-otlp-grpc
 2. Add graceful shutdown: process.on('SIGTERM', () => sdk.shutdown()) (general practice, not
    tied to a specific finding above — no bracketed id, since it doesn't trace to one)
-3. [WR-tel0-with] Wrap the 22 handlers with withServerSpan()
-4. [CV-tra12-serv, CV-tra15-http, CV-tra18-orde] Fix the 3 MECHANICAL semconv violations above
-   (CV-tra19-http needs a manual fix — see its own entry, not this bulk --fix)
+3. [WR-telemetry0-withserverspan] Wrap the 22 handlers with withServerSpan()
+4. [CV-tracing12-servicename, CV-tracing15-httpmethod, CV-tracing18-orderid] Fix the 3 MECHANICAL
+   semconv violations above (CV-tracing19-httptarget needs a manual fix — see its own entry, not
+   this bulk --fix)
 ```
 
 Report a dimension clean, with the evidence for why, rather than padding it. "No cardinality

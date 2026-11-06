@@ -31,32 +31,49 @@ INSTR="commands/otel-instrument.md"
 check "auditor explains it has no tool to compute a real hash, so the ID is mechanical substring-copying" \
   'grep -qF "you have no tool to compute" "$AUDITOR" \
    && grep -qF "pure substring-copying" "$AUDITOR"'
-check "auditor's ID construction is a numbered, reproducible 3-step procedure" \
-  'grep -qF "first 3 lowercase alphanumeric characters of the finding" "$AUDITOR" \
+check "auditor's ID construction is a numbered, reproducible 3-step procedure using FULL strings (no truncation)" \
+  'grep -qF "Take the finding'"'"'s basename: the file'"'"'s basename with its last extension removed" "$AUDITOR" \
    && grep -qF "Append the line number if the finding is anchored to one, else \`0\`" "$AUDITOR" \
-   && grep -qF "first 4 lowercase alphanumeric characters of the finding" "$AUDITOR"'
+   && grep -qF "the finding'"'"'s distinguishing keyword, in full" "$AUDITOR"'
+check "the no-truncation choice is explained as a deliberate collision-avoidance decision" \
+  'grep -qiF "never truncated" "$AUDITOR" && grep -qiF "collisions" "$AUDITOR" \
+   && grep -qF "http.method\`/\`http.mime\`" "$AUDITOR"'
 check "worked example no longer uses sequence-looking IDs (SC-1/SC-2/CV-1..4) that contradict the rule" \
   '! grep -qF "[SC-1] Metrics" "$AUDITOR" && ! grep -qF "[CV-1] tracing.js" "$AUDITOR" \
    && ! grep -qF "[CV-2] tracing.js" "$AUDITOR" && ! grep -qF "[CV-4] tracing.js" "$AUDITOR"'
-check "worked example uses the mechanical ID for the same tracing.js:12 service.name finding" \
-  'grep -qF "[CV-tra12-serv] tracing.js:12" "$AUDITOR"'
+check "worked example no longer uses the old truncated IDs either" \
+  '! grep -qF "[CV-tra12-serv]" "$AUDITOR" && ! grep -qF "[CR-dtl103-user]" "$AUDITOR"'
+check "worked example uses the full (untruncated) mechanical ID for the tracing.js:12 service.name finding" \
+  'grep -qF "[CV-tracing12-servicename] tracing.js:12" "$AUDITOR"'
 check "SC (signal coverage) findings use the signal-name exception, not the file+line formula" \
   'grep -qF "SC-metrics\`, \`SC-logs\`" "$AUDITOR" \
    && grep -qF "[SC-metrics] Metrics" "$AUDITOR"'
-check "otel-instrument's --fix example IDs match the new mechanical scheme" \
-  'grep -qF "CV-tra12-serv,SH-tra0-simp" "$INSTR"'
+check "a third exception covers other file-less findings (MB/CF with a distinguishing name but no file)" \
+  'grep -qiF "No file at all, but one clear distinguishing name exists" "$AUDITOR" \
+   && grep -qF "CF-otelsemconvstabilityoptin" "$AUDITOR"'
+check "EX findings use the parent directory name as the keyword, consistently across both worked examples" \
+  'grep -qiF "use the PARENT DIRECTORY name as the keyword" "$AUDITOR" \
+   && grep -qF "EX-overview0-dashboards" "$AUDITOR" && grep -qF "EX-api0-alerts" "$AUDITOR"'
+check "otel-instrument's --fix example IDs match the new untruncated mechanical scheme" \
+  'grep -qF "CV-tracing12-servicename,SH-tracing0-simplespanprocessor" "$INSTR"'
 
-# Teeth: independently recompute the worked tracing.js:12/service.name ID from the stated
-# procedure and confirm it matches what the doc actually shows -- proves the formula is both
-# stated AND internally consistent, not just plausible-sounding prose.
-check "teeth: the stated mechanical procedure, applied by hand, reproduces the doc's own worked ID" \
+# Teeth: extract the Semconv Violations worked example's file/line/attribute AND its shown ID
+# directly from the doc (not hardcoded test literals), independently recompute the ID per the
+# stated procedure, and confirm they match -- this is tied to the actual file under test, so it
+# would catch the worked example and the stated ID drifting apart from each other, not just
+# re-assert a fixed assumption about what the doc currently says.
+check "teeth: the stated mechanical procedure, applied to values extracted from the doc itself, reproduces the doc's own worked ID" \
   'python3 -c "
 import re
-basename = \"tracing\"[:3]
-line = 12
-keyword = re.sub(r\"[^a-z0-9]\", \"\", \"service.name\".lower())[:4]
-computed = f\"{basename}{line}-{keyword}\"
-assert computed == \"tra12-serv\", computed
+text = open(\"$AUDITOR\").read()
+# Extract the worked Semconv Violations example line for the service.name finding.
+m = re.search(r\"\[CV-([a-z0-9-]+)\] (\S+):(\d+) [^\n]*?(service\.name) set as span attribute\", text)
+assert m, \"could not find the tracing.js:12 service.name worked example in the doc\"
+shown_id, file_part, line_part, attr = m.group(1), m.group(2), m.group(3), m.group(4)
+basename = re.sub(r\"[^a-z0-9]\", \"\", file_part.rsplit(\".\", 1)[0].lower())
+keyword = re.sub(r\"[^a-z0-9]\", \"\", attr.lower())
+computed = f\"{basename}{line_part}-{keyword}\"
+assert computed == shown_id, f\"computed {computed!r} != doc'"'"'s own shown id {shown_id!r}\"
 print(\"ok\")
 "'
 

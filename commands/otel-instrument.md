@@ -14,8 +14,9 @@ Generate OTel SDK bootstrap and OTLP wiring for one service.
   Step 2 prompt.
 - `--fix <ids>` — apply only the findings with these IDs from the most recent
   `/otel-evaluate` report. IDs are the `<CAT>-<id>` form that report emits (e.g.
-  `--fix CV-tra12-serv,SH-tra0-simp`), and in a multi-service repo they are service-qualified
-  (`--fix bot:CV-tra12-serv`) — see the finding-ID scheme in `agents/brownfield-auditor.md`. Scopes
+  `--fix CV-tracing12-servicename,SH-tracing0-simplespanprocessor`), and in a multi-service repo
+  they are service-qualified (`--fix bot:CV-tracing12-servicename`) — see the finding-ID scheme
+  in `agents/brownfield-auditor.md`. Scopes
   regeneration to those findings
   instead of rewriting whole files. See Step 5. A `CV` (semconv violation) finding is only
   actually rewritten when the auditor tagged it `mechanical` (a straight OLD→NEW key rename, per
