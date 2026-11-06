@@ -1261,9 +1261,11 @@ check "#184 the module docstring lists .NET alongside the other ecosystems it ch
   'grep -qF ".NET OTel SDK packages" "$DRIFTPY"'
 check "#184 no .NET pin location still reads the stale 1.18.0" \
   '! grep -q "1\.18\.0" agents/instrumentation-gen.md tests/snapshots/instrument/dotnet/checkout-api.csproj'
-check "#184 the .NET pin is current (1.20.1) in both the generator and its golden, in lockstep" \
-  '[ "$(grep -c "1\.20\.1" agents/instrumentation-gen.md)" -ge 4 ] \
-     && [ "$(grep -c "1\.20\.1" tests/snapshots/instrument/dotnet/checkout-api.csproj)" -eq 4 ]'
+check "#184 the .NET pins are current (1.20.1 / Http at 1.20.2) in both the generator and its golden, in lockstep" \
+  '[ "$(grep -c "1\.20\.1" agents/instrumentation-gen.md)" -ge 3 ] \
+     && [ "$(grep -c "1\.20\.1" tests/snapshots/instrument/dotnet/checkout-api.csproj)" -eq 3 ] \
+     && grep -qF "OpenTelemetry.Instrumentation.Http        # 1.20.2" agents/instrumentation-gen.md \
+     && grep -qF "OpenTelemetry.Instrumentation.Http\" Version=\"1.20.2\"" tests/snapshots/instrument/dotnet/checkout-api.csproj'
 
 # --- #205: .NET OTel call sites in a sibling Domain/Infrastructure project were missed ----------
 SIBLINGFX="fixtures/dotnet-sibling-projects"

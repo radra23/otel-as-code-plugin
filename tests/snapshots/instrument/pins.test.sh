@@ -71,7 +71,7 @@ check "node pins match generator" 'pins_match tests/snapshots/instrument/nodejs/
 # a name-only check (the bug this fix addresses) would silently pass here too.
 check "pin guard catches version drift (teeth check)" '
   tmp=$(mktemp -d)
-  sed -E "s/(\"@opentelemetry\/sdk-node\": \")\^0\.300\.0\"/\1^9.999.0\"/" tests/snapshots/instrument/nodejs/package.json > "$tmp/package.json"
+  sed -E "s/(\"@opentelemetry\/sdk-node\": \")\^0\.301\.0\"/\1^9.999.0\"/" tests/snapshots/instrument/nodejs/package.json > "$tmp/package.json"
   drift_injected=0
   grep -qF "\"@opentelemetry/sdk-node\": \"^9.999.0\"" "$tmp/package.json" && drift_injected=1
   guard_caught_drift=0
@@ -116,7 +116,7 @@ check ".NET pins match generator" 'pins_match_dotnet tests/snapshots/instrument/
 # drift into a throwaway copy of the golden csproj and assert the guard reports failure.
 check ".NET pin guard catches version drift (teeth check)" '
   tmp=$(mktemp -d)
-  sed -E "s/(Include=\"OpenTelemetry.Instrumentation.Http\" Version=\")1\.20\.1\"/\1""9.999.0\"/" \
+  sed -E "s/(Include=\"OpenTelemetry.Instrumentation.Http\" Version=\")1\.20\.2\"/\1""9.999.0\"/" \
     tests/snapshots/instrument/dotnet/checkout-api.csproj > "$tmp/x.csproj"
   drift_injected=0
   grep -qF "Include=\"OpenTelemetry.Instrumentation.Http\" Version=\"9.999.0\"" "$tmp/x.csproj" && drift_injected=1

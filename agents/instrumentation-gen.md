@@ -423,9 +423,9 @@ itself from the env vars, so they are not listed here. (These minimums track the
 JS release trains — the stable packages are on the 1.x/2.x line, the SDK on the 0.x line; bump
 to the latest at generation time rather than copying these verbatim if newer releases exist):
 ```json
-"@opentelemetry/sdk-node": "^0.300.0",
-"@opentelemetry/resources": "^3.0.0",
-"@opentelemetry/auto-instrumentations-node": "^0.82.0",
+"@opentelemetry/sdk-node": "^0.301.0",
+"@opentelemetry/resources": "^3.1.0",
+"@opentelemetry/auto-instrumentations-node": "^0.83.0",
 "@opentelemetry/semantic-conventions": "^1.44.0"
 ```
 
@@ -1208,7 +1208,7 @@ which `pins.test.sh` diffs against this file):
 ```
 dotnet add package OpenTelemetry.Extensions.Hosting          # 1.20.1
 dotnet add package OpenTelemetry.Instrumentation.AspNetCore  # 1.20.1
-dotnet add package OpenTelemetry.Instrumentation.Http        # 1.20.1
+dotnet add package OpenTelemetry.Instrumentation.Http        # 1.20.2
 dotnet add package OpenTelemetry.Exporter.OpenTelemetryProtocol  # 1.20.1
 ```
 
