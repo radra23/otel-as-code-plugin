@@ -36,7 +36,7 @@ check "scanner: axum and actix-web are both framework enum values (prose and sch
 
 # --- command ---
 check "otel-instrument lists rust as supported and no longer as coming in v1" \
-  'grep -q "go, ruby,$" "$CMD" && grep -q "rust. v1 will add: php." "$CMD" && ! grep -q "v1 will add: php, rust" "$CMD"'
+  'grep -q "go, ruby,$" "$CMD" && grep -qF "rust, php." "$CMD" && ! grep -q "v1 will add" "$CMD"'
 check "otel-instrument documents cargo check as the Rust smoke check" \
   'grep -q "For \*\*Rust\*\* the equivalent check is \`cargo check\`" "$CMD"'
 

@@ -55,8 +55,8 @@ jobs:
 
       - name: Run Go instrument-wiring contract (command recognizes go, generator defines it)
         run: bash tests/hooks/go-instrument-wiring.test.sh
-      - name: Run PHP refusal test (detected, in scope, refused with a reason)
-        run: bash tests/hooks/php-refusal.test.sh
+      - name: Run PHP instrument-wiring contract (Laravel/Symfony placement, generator defines it; #117)
+        run: bash tests/hooks/php-instrument-wiring.test.sh
       - name: Run Grafana SLO pattern contract (skill text names every block the validated golden carries; #165)
         run: bash tests/hooks/grafana-slo-pattern.test.sh
       - name: Run Dash0 SLO pattern contract (dash0_slo's fixed 28d window, Occurrences budgeting; #174)

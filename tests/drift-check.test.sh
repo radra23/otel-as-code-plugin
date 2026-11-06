@@ -47,6 +47,18 @@ golden_dotnet = dict(_re.findall(r'Include="(OpenTelemetry[^"]*)" Version="([^"]
 check(f"dotnet golden csproj matches the generator pins ({len(golden_dotnet)})", golden_dotnet and golden_dotnet == dp)
 if golden_dotnet != dp:
     print("  generator:", dp); print("  golden:   ", golden_dotnet)
+php_p = dict(d.php_pins())
+check("php pins parsed (open-telemetry/sdk)", "open-telemetry/sdk" in php_p and php_p["open-telemetry/sdk"][0].isdigit())
+# Same idea as the node/python/dotnet checks above: the golden composer.json must pin exactly
+# what the generator pins, scoped to the packages the golden actually carries (the generator
+# doc also lists symfony's auto package, which this Laravel-flavored golden doesn't need).
+golden_composer = json.load(open("tests/snapshots/instrument/php/composer.json"))
+expected_php = {k: v.lstrip("^") for k, v in golden_composer["require"].items() if k.startswith("open-telemetry/")}
+php_subset = {k: v for k, v in php_p.items() if k in expected_php}
+check(f"php golden composer.json matches the generator pins ({len(expected_php)})", expected_php and php_subset == expected_php)
+if php_subset != expected_php:
+    print("  generator:", php_subset); print("  golden:   ", expected_php)
+
 rp = dict(d.rust_pins())
 check("rust pins parsed from the generator's marked block (tower with features, plain, table forms)",
       rp.get("opentelemetry") == "0.33" and rp.get("opentelemetry-instrumentation-tower") == "0.19"

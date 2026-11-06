@@ -32,7 +32,7 @@ conflating them is how a Vite + React SPA (`language: nodejs`, `runtime: browser
 | `go`      | yes       | Go row below (manual `net/http` SDK wiring)                       |
 | `ruby`    | yes       | Ruby row below (opentelemetry-instrumentation-all)                |
 | `rust`    | yes       | Rust row below (axum 0.8 or actix-web 4.x; SDK wiring + framework layer) |
-| `php`     | not yet   | v1 additions table at the end                                     |
+| `php`     | yes       | PHP row below (Laravel/Symfony placement, or framework-agnostic)  |
 
 ### Browser / RUM — out of scope, deliberately
 
@@ -66,7 +66,7 @@ substitute for checking the specific installed package when something looks pinn
 siblings; verify against the installed version or its own README before asserting a per-package
 maturity this table does not itself enumerate.
 
-## Supported Languages (Node.js, Python, Java, .NET, Go, Ruby, Rust)
+## Supported Languages (Node.js, Python, Java, .NET, Go, Ruby, Rust, PHP)
 
 ### Node.js
 | Signal  | Status | Package                                              |
@@ -212,6 +212,54 @@ bakes in pre-stable HTTP attribute names (`http.method`, `http.status_code`, `ht
 literal field keys in its own macro — not a pin that bumps away, and not something this plugin
 attempts to patch with an unverified hand-written `RootSpanBuilder`.
 
+### PHP
+
+| Signal  | Maturity | Package                                                       |
+|---------|----------|----------------------------------------------------------------|
+| Traces  | Stable | `open-telemetry/sdk` (1.16.1) + `open-telemetry/exporter-otlp` (1.5.0) |
+| Metrics | Stable | same SDK/exporter packages                                     |
+| Logs    | Stable | `open-telemetry/sdk` + `open-telemetry/opentelemetry-logger-monolog` (1.3.1) bridge |
+| Auto    | Stable (mechanism); per-package maturity varies | PECL `opentelemetry` extension (1.4.2) + `open-telemetry/opentelemetry-auto-<framework>` |
+
+Verified against opentelemetry.io/docs/languages/php/'s own status table, which lists Traces,
+Metrics, and Logs all as **Stable** — unlike Node (Logs: Development) or Ruby (Metrics+Logs:
+Development), **PHP needs no `--experimental` gating for any of the three core signals.** The
+opentelemetry-php README publishes no separate status table of its own; opentelemetry.io's page
+is the controlling source. Design: #117.
+
+**"Auto" here names a mechanism's maturity, not a blanket per-package guarantee** — the same
+caveat the "Auto" row note above already states generally. PHP's auto-instrumentation is a
+TWO-LAYER system: the PECL `ext-opentelemetry` extension (`zend_observer`-based, PHP 8.2+ for
+full built-in-function observation) is a hook mechanism that does **not** generate traces by
+itself (verified: opentelemetry.io/docs/zero-code/php/auto/, "Installing the OpenTelemetry
+extension by itself does not generate traces") — it needs an explicit per-framework composer
+package layered on top (`open-telemetry/opentelemetry-auto-laravel` 1.10.0,
+`-auto-symfony` 1.7.0), each independently versioned and independently maturity-rated by its own
+README, same as any other per-package exception this note already asks you to check for.
+
+**Transport default is HTTP/protobuf on `:4318`, not gRPC** — verified from the official
+zero-code getting-started example (`OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf`) and from
+`open-telemetry/transport-grpc`'s own Packagist listing, which requires a second composer
+package plus `ext-grpc`. Same posture as Ruby and Rust's gRPC-avoidance, for the same reason
+(heavier dependency tree), departing from this plugin's gRPC-first default for Node/Python/.NET.
+
+**Critical gotcha, verified directly from source** (`src/SDK/Common/Configuration/Defaults.php`
+on the `open-telemetry/opentelemetry-php` main branch, not docs prose): the SDK's own compiled
+defaults are `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318` and
+`OTEL_{TRACES,METRICS,LOGS}_EXPORTER=otlp` — **"otlp enabled + localhost" is the SDK's own
+baked-in default, the opposite of Go/Node/Rust/.NET's no-op-until-configured guarantee**, the
+same trap Ruby's SDK has (see the Ruby section above). The generated bootstrap must replicate
+Ruby's explicit `none`-unless-configured guard or a PHP service ships silently attempting export
+to `localhost` in every environment until configured.
+
+**Framework priority is install-base-derived, not community-confirmed** — issue #117 has zero
+comments, so there is no community signal to defer to. Packagist install counts (verified live
+at implementation time): `opentelemetry-auto-laravel` ~4.56M installs vs. `-auto-symfony` ~2.58M
+vs. `-auto-slim` ~1.30M. Laravel first, Symfony second, a framework-agnostic PSR-15/PSR-18 path
+as the fallback for anything else — **PHP has no framework-refusal case**, unlike Rust's
+axum/actix-web gate; `generatorSupported` stays `true` for any PHP service with no OTel already
+wired, the same shape as Ruby's `opentelemetry-instrumentation-all`.
+
 ## Feature Gating Rules
 
 When generating code for a signal:
@@ -230,12 +278,9 @@ Never block an entire SDK generation request because one signal is Development-l
 
 | Language | Traces  | Metrics | Logs        |
 |----------|---------|---------|-------------|
-| PHP      | Stable  | Stable  | Stable      |
 | Swift    | Stable  | Development | Development |
 
-**PHP** (verified against opentelemetry.io's status data; the opentelemetry-php README publishes no
-status table of its own). Traces, Metrics and Logs are all Stable, so PHP logs need no
-`--experimental`. Design: #117.
+PHP shipped (#117) — see the PHP row under "Supported Languages" above, not this stub table.
 
 **Swift** (verified against opentelemetry.io and the opentelemetry-swift README). Traces are Stable.
 Metrics are Development: the README says they implement an outdated spec and will change. The README

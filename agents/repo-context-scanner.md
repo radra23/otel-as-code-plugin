@@ -311,7 +311,7 @@ not something a rescan should quietly erase either.
    - `language`: `nodejs`, `python`, `go`, `java`, `dotnet`, `ruby`, `php`, `rust`, `other`
    - `framework`: `express`, `fastify`, `koa`, `nestjs`, `fastapi`, `django`, `flask`, `gin`,
      `spring`, `rails`, `nextjs`, `nuxt`, `axum`, `actix-web`, `aspnetcore`, `minimal-api`, `blazor`,
-     `other`, `unknown`. Detect `fastify` and `koa` from a dependency literally named `fastify` / `koa` —
+     `laravel`, `symfony`, `other`, `unknown`. Detect `fastify` and `koa` from a dependency literally named `fastify` / `koa` —
      the npm package name IS the enum value, same as `express`. Detect `nestjs` from `@nestjs/core`
      (or any `@nestjs/platform-*` package) — NOT a literal `nestjs` dependency, which does not
      exist; Nest's packages are scoped. **Check `nestjs` FIRST, before `fastify`**: a Nest app
@@ -350,8 +350,15 @@ not something a rescan should quietly erase either.
        - `minimal-api` — `Microsoft.NET.Sdk.Web` plus a `WebApplication.CreateBuilder` call and at
          least one `app.Map(Get|Post|Put|Delete|Patch)(` call, with NO `AddControllers(`/
          `MapControllers(` — routes are declared inline, there is no controller class to wrap.
-     Do not collapse any of these ten to `other` — the four above, the three .NET shapes, and
-     `fastify`/`koa`/`nestjs`.
+     Detect `laravel` from a `laravel/framework` entry in `composer.json`'s `require` block, and
+     `symfony` from `symfony/framework-bundle` or a bare `symfony/symfony` entry (the full-stack
+     meta-package some older apps still require) — because, like Rails, PHP's generator needs a
+     framework-specific bootstrap PLACEMENT (see the PHP section in `agents/instrumentation-gen.md`)
+     even though the bootstrap's SDK content is identical across PHP frameworks. A plain PHP
+     service (PSR-15/PSR-18 middleware, or no framework at all) stays `other`/`unknown` — PHP has
+     no framework-refusal case, unlike Rust's axum/actix-web gate (#117).
+     Do not collapse any of these twelve to `other` — the four above, the three .NET shapes,
+     `fastify`/`koa`/`nestjs`, and `laravel`/`symfony`.
    - `frameworkVersion`: the framework's own version string (NOT `languageVersion`), when directly
      readable from a manifest — e.g. Next.js from the `next` dependency in `package.json`. Record
      the stated string as-is (`"^14.2.0"`, not a resolved `"14.2.0"`); do not attempt semver
@@ -461,9 +468,15 @@ not something a rescan should quietly erase either.
      the No-candidates / multi-candidate UX distinguish a real target from an untargetable
      console/test project up front. `instrumentation-gen` keeps the identical refusal as a
      backstop for a stale cache or a forced `--service`.
-     For `php` it is always `false`: the language is detected (`composer.json`) and stays
-     `inScope: true`, but no generator exists yet (#117 PHP). Set the reason so the refusal names
-     the language and the issue, not a generic "unsupported".
+     For `php` it is `true` unconditionally for any `runtime: php` service with no OTel already
+     wired (#117) — **there is no framework refusal case**, the same shape as Ruby's
+     `opentelemetry-instrumentation-all`: `framework: laravel`/`symfony` decides bootstrap
+     PLACEMENT only (see the PHP section in `agents/instrumentation-gen.md`), and anything else
+     (plain PHP, a PSR-15/18 app, `other`/`unknown`) still gets the framework-agnostic bootstrap.
+     The one exclusion is brownfield: an `open-telemetry/sdk` (or any `open-telemetry/*`) entry
+     already in `composer.json`'s `require` block means OTel is already wired — set
+     `generatorSupported: false` with a reason naming this, and point at `/otel-evaluate` instead
+     (same brownfield exclusion Rust's axum/actix-web gate already applies).
      For `rust` it is `true` for an axum 0.8 binary OR an actix-web 4.x binary, either with no
      OTel already wired — the generator adds a framework-specific instrumentation crate
      (`opentelemetry-instrumentation-tower` for axum, `opentelemetry-instrumentation-actix-web`
@@ -510,9 +523,10 @@ not something a rescan should quietly erase either.
    - `inScope` — is this service a candidate for observability work at all? `false` ONLY for a
      genuinely out-of-scope runtime (a `browser` bundle — per ROADMAP "Not planned") or a Rust
      library crate (it runs inside someone else's binary, which owns the providers); `true`
-     otherwise, INCLUDING a runtime merely outside today's codegen (`php` — a first-class
-     OTel runtime on the roadmap, and often already instrumented by hand). `/otel-evaluate` is
-     read-only and language-agnostic and must never be filtered out by a missing generator.
+     otherwise. `/otel-evaluate` is read-only and language-agnostic and must never be filtered out
+     by a missing generator — relevant for any runtime whose generator refuses a specific shape
+     (e.g. a brownfield PHP service already carrying `open-telemetry/sdk`, or a Go CLI with no
+     `net/http` server).
      **Then apply `services[].scopeOverride` from `priorContext` (#207)**: if it is `"out"` for
      this service, set `inScope: false` here regardless of the above — see the cache ownership
      contract's User-owned list for the exact `instrumentableReason` wording.
@@ -531,7 +545,7 @@ not something a rescan should quietly erase either.
      `"generatorSupported:false — no ASP.NET Core / Generic Host builder found; .NET instrumentation requires an IServiceCollection to extend; inScope:true"` (a console / library / test `dotnet` project),
      or `"generatorSupported:false, inScope:false — runtime browser; browser/RUM is out of scope (ROADMAP: Not planned)"`,
      or `"generatorSupported:false — no net/http server evidence found (http.ListenAndServe / http.Server{} / http.Handle); go instrumentation targets net/http-compatible servers only; inScope:true (first-class OTel runtime)"` (a Go CLI/worker/library with no HTTP server),
-     or `"generatorSupported:false — no php generator yet (#117); inScope:true (first-class OTel runtime, audit with /otel-evaluate)"`,
+     or `"generatorSupported:false — open-telemetry/sdk already in composer.json; PHP instrumentation is brownfield here, audit with /otel-evaluate; inScope:true"` (a PHP service that already carries OTel),
      or `"generatorSupported:false — rocket found; rust instrumentation covers axum 0.8 and actix-web 4.x only; inScope:true"` (naming whichever rust shape was actually found: `rocket`, `warp`, `poem`, `salvo`, `axum 0.7`, `actix-web older than 4`, `no axum::serve / HttpServer::run call`, `opentelemetry already in Cargo.toml — audit with /otel-evaluate`),
      or `"generatorSupported:false, inScope:false — rust library crate (src/lib.rs, no binary target); instrument the application that depends on it"`,
      or `"generatorSupported:false — github.com/gin-gonic/gin required; go instrumentation only covers net/http-compatible frameworks today (chi, gorilla/mux); inScope:true"` (naming whichever of gin/echo/fiber was actually found),
@@ -618,6 +632,9 @@ not something a rescan should quietly erase either.
 5. Check for existing OTel and record **which files hold it**:
    - Node.js: `@opentelemetry/` in any `package.json` dependencies
    - Python: `opentelemetry-` in any `pyproject.toml` or `requirements.txt`
+   - PHP: `open-telemetry/` in `composer.json`'s `require` block (the Packagist vendor
+     namespace IS the enum-style prefix, same role as `@opentelemetry/` for Node) — a match here
+     is what sets `generatorSupported: false` (brownfield, #117) above
    - .NET: `<PackageReference Include="OpenTelemetry` in any `*.csproj`/`*.fsproj` or
      `Directory.Packages.props` (the .NET package id is `OpenTelemetry` — capitalised, no `/` or
      trailing `-`, so the Node/Python patterns miss it); plus `AddOpenTelemetry(`,

@@ -111,9 +111,9 @@ is not Node at all.
    `/otel-evaluate` already routes the first case this way; a user is more likely to start here.
    Exit. Emitting wrong code is worse than emitting none — do not fall back to a near-match.
 4. Derive `language` from the selected service. If it is not `nodejs`, `python`, `java`,
-   `dotnet`, `go`, `ruby`, or `rust`:
+   `dotnet`, `go`, `ruby`, `rust`, or `php`:
    - Print: "⚠ <language> is not supported yet. Supported: nodejs, python, java, dotnet, go, ruby,
-     rust. v1 will add: php."
+     rust, php."
    - Exit.
 
 If `context.services` has no `runtime` field at all, the cache predates schema 2 — re-scan
@@ -328,6 +328,18 @@ For **Rust** the equivalent check is `cargo check` — the generated `src/teleme
 `cargo` is present (it fetches the crates itself); otherwise print the wiring steps from the
 subagent summary and note verification was deferred. A compile error is a failure to fix, not to
 paper over. (Runtime span emission is the e2e follow-up, as with Go.)
+
+For **PHP** the equivalent check is `composer validate && php -l telemetry.php` (or the
+framework-specific path) — `composer validate` confirms the appended `require` block is
+well-formed JSON with resolvable constraints, `php -l` confirms the generated file has no syntax
+error. This is a SYNTAX check only, not the compile-and-link guarantee Go/Rust/.NET's checks give
+— PHP has no build step to catch a wrong class/namespace reference the way those do. Run it only
+if `composer`/`php` are present; otherwise print the wiring steps (`composer install` → the host
+PECL-extension step from the subagent summary → `composer validate && php -l telemetry.php`) and
+note verification was deferred. A syntax error is a failure to fix, not to paper over. (Runtime
+span emission is the e2e follow-up, as with every other language — and PHP's has not been
+runtime-verified at all yet, since no PHP toolchain was available at generation time; say so
+plainly rather than implying it was.)
 
 Run the smoke only if the SDK dependencies are installed (`node_modules` / the venv present). If
 they are not, DO NOT fail — print the exact command for the user to run after `npm install` /

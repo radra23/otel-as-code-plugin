@@ -730,8 +730,14 @@ check "#122c note stamps the versions it was checked against, with a re-check in
   'nuxt_note | grep -qiE "nitropack 2\.13\.4" && nuxt_note | grep -qiE "Re-check on a bump"'
 
 # --- PHP / Swift maturity rows match upstream ---------------------------------------------------
-check "PHP maturity row is Stable on all three signals" \
-  'grep -qE "^\| PHP +\| Stable +\| Stable +\| Stable +\|" "$MATURITY"'
+# PHP shipped a real generator (#117) and moved out of the v1-additions stub table into its own
+# "### PHP" section (Signal/Maturity/Package columns, like Go/Ruby/Rust) — Traces/Metrics/Logs
+# are all Stable there. Swift is still a v1-additions stub (no generator), so it keeps the old
+# Language/Traces/Metrics/Logs table shape.
+check "PHP maturity row (real section) is Stable on Traces, Metrics, and Logs" \
+  'grep -qE "^\| Traces +\| Stable +\| \`open-telemetry/sdk\`" "$MATURITY" \
+   && grep -qE "^\| Metrics +\| Stable +\| same SDK/exporter packages" "$MATURITY" \
+   && grep -qE "^\| Logs +\| Stable +\| \`open-telemetry/sdk\`" "$MATURITY"'
 check "Swift maturity row is Traces Stable, Metrics and Logs Development" \
   'grep -qE "^\| Swift +\| Stable +\| Development +\| Development +\|" "$MATURITY"'
 
@@ -1184,7 +1190,7 @@ check "#177 otel-collector.md reads plugin.json itself (direct write, no subagen
      && grep -qF "ACTUAL installed version" commands/otel-collector.md'
 check "#177 golden snapshots show the CURRENT installed plugin version, not a stale literal" \
   'PLUGVER=$(python3 -c "import json; print(json.load(open(\".claude-plugin/plugin.json\"))[\"version\"])"); \
-   [ "$(grep -rl "otel-as-code v${PLUGVER}" tests/snapshots/ | wc -l)" -eq 14 ]'
+   [ "$(grep -rl "otel-as-code v${PLUGVER}" tests/snapshots/ | wc -l)" -eq 15 ]'
 
 # --- #191: the printed "docker run" omits the endpoint otelcol-contrib refuses to start without -
 COLLECTOR_CMD="commands/otel-collector.md"
@@ -1209,7 +1215,7 @@ check "#188 nestjs is detected from @nestjs/core, never a literal nestjs depende
 check "#188 nestjs is checked BEFORE fastify (platform-fastify must not win)" \
   'grep -qiE "Check \`nestjs\` FIRST, before \`fastify\`" "$SCANNER"'
 check "#188 the don't-collapse count was updated to include all three new values" \
-  'grep -qF "these ten to \`other\`" "$SCANNER" && grep -qF "fastify\`/\`koa\`/\`nestjs\`" "$SCANNER"'
+  'grep -qF "these twelve to \`other\`" "$SCANNER" && grep -qF "fastify\`/\`koa\`/\`nestjs\`" "$SCANNER"'
 check "#188 schema framework enum carries fastify/koa/nestjs too" \
   'grep -qF "<express|fastify|koa|nestjs|fastapi" "$SCANNER"'
 

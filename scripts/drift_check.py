@@ -7,6 +7,8 @@ reports what is behind:
   - Node OTel SDK packages   (agents/instrumentation-gen.md pins vs the npm registry)
   - Python OTel SDK packages (agents/instrumentation-gen.md pins vs PyPI)
   - .NET OTel SDK packages   (agents/instrumentation-gen.md pins vs NuGet)
+  - Rust OTel crates          (agents/instrumentation-gen.md pins vs crates.io)
+  - PHP OTel packages         (agents/instrumentation-gen.md pins vs Packagist)
   - Terraform providers       (snapshot required_providers major vs the Terraform registry)
   - OTel Collector (contrib)  (tests/collector-validate.sh pin vs the collector-releases GitHub release)
   - Semconv GUIDANCE          (the OLD->NEW table vs the upstream attribute registry at the pin)
@@ -43,6 +45,17 @@ def latest_npm(pkg):
 
 def latest_pypi(pkg):
     return fetch_json(f"https://pypi.org/pypi/{pkg}/json")["info"]["version"]
+
+
+def latest_packagist(pkg):
+    """Highest stable version on Packagist. The p2 API returns versions descending with no
+    separate stable/dev split, but dev branches (`dev-main`) sort first alphabetically despite
+    not being releases — filter those out before taking the first real one (#117)."""
+    versions = fetch_json(f"https://repo.packagist.org/p2/{pkg}.json")["packages"][pkg]
+    for v in versions:
+        if not v["version"].startswith("dev-"):
+            return v["version"]
+    return None
 
 
 def latest_crate(name):
@@ -240,6 +253,13 @@ def dotnet_pins():
         _read("agents/instrumentation-gen.md"))
 
 
+def php_pins():
+    """(package, version) for each `"open-telemetry/<pkg>": "^<version>"` line in the PHP
+    section of instrumentation-gen.md — the Packagist vendor namespace IS the distinctive
+    prefix, same role @opentelemetry/ plays for node_pins() above (#117)."""
+    return re.findall(r'"(open-telemetry/[^"]+)":\s*"\^?([0-9][^"]*)"', _read("agents/instrumentation-gen.md"))
+
+
 def rust_pins():
     """(crate, requirement) for each line of the marked Cargo.toml block in the Rust section of
     instrumentation-gen.md, which is the one place the Rust pins are written down."""
@@ -316,6 +336,9 @@ def main():
     for crate, pinned in rust_pins():
         latest, err = safe(latest_crate, crate)
         add(f"crates.io {crate}", pinned, latest, err, cmp=behind_compatible)
+    for pkg, pinned in php_pins():
+        latest, err = safe(latest_packagist, pkg)
+        add(f"packagist {pkg}", pinned, latest, err)
     for source, pinned in tf_pins():
         latest, err = safe(latest_tf, source)
         add(f"tf {source}", pinned, latest, err, cmp=behind_major)
