@@ -349,3 +349,41 @@ So when the audit confirmed local decisions as correct, name them here, e.g.:
 ```
 
 The write-guard hook will still prevent an accidental overwrite without `--force`.
+
+## Step 7: Offer optional live verification via a connected vendor MCP
+
+**Enrichment only, never required.** Same rule as `/otel-backend` Step 7: an unavailable or
+unconnected MCP is never a finding and never blocks anything here either. The difference from
+that step is what gets offered. `/otel-backend` can only offer to confirm a Terraform resource
+exists, since it never applies; this audit runs against a service that may ALREADY be exporting
+telemetry right now, so the useful check is whether data is actually arriving, not whether a
+dashboard was created.
+
+**Only offer this when there is a specific vendor to name, never generically.** Determine the
+vendor the same way dimension 10 and `/otel-backend`'s own output convention do: look for
+`infra/observability/<vendor>/` (any vendor in `backends.txt`) anywhere in the repo. If none
+exists, skip this step entirely. There is no vendor to name, and a generic "connect some MCP"
+suggestion with nothing concrete behind it is exactly the noise this rule exists to avoid.
+
+**Also require a real signal that telemetry could be flowing right now.** If every audited
+service's `existingOtel.endpointConfigured` is `false` or `null`, skip this step too. The
+report above already surfaces that gap as a finding, and offering to "confirm data is arriving"
+for a service with nowhere to send it to would be confusing, not useful.
+
+When both hold (a vendor directory exists AND at least one audited service has
+`endpointConfigured: true`), check whether an MCP matching that vendor is connected, then:
+
+- **A matching MCP is connected:**
+  ```
+  Tip: a <Vendor> MCP is connected. Want me to check whether <service>'s telemetry is actually
+  arriving at <Vendor> right now, not just configured to?
+  ```
+  Name the real service(s) with `endpointConfigured: true`, not a generic placeholder.
+- **No matching MCP is connected:**
+  ```
+  Tip: connecting a <Vendor> MCP would let me confirm <service>'s telemetry is actually arriving
+  at <Vendor>, not just configured to. Not required.
+  ```
+
+**Never call any MCP tool in this step.** Detection only, exactly as `/otel-backend` Step 7
+requires. The offer is for a later turn the user explicitly asks for, never attempted here.
