@@ -308,3 +308,39 @@ in a 300s epoch exceeds <N>; the paired filter processor then drops those flagge
 own logs for drops before trusting this in production, and re-run with a higher <N> if legitimate
 metrics start getting cut.
 ```
+
+## Step 7: Offer optional live verification via a connected vendor MCP
+
+Same rule as `/otel-backend` Step 7 and `/otel-evaluate` Step 7: enrichment only, never
+required, and never attempted in this step. The generated config is already complete and
+correct on its own whether or not any of this fires.
+
+**This command has no vendor flag and the generated exporter is deliberately vendor-agnostic**
+(Step 1's flag note above: "the plugin deliberately does not pick header names per vendor").
+There is no reliable way to name a vendor from the config alone, and inventing one from the
+exporter's endpoint hostname would mean asserting an unverified vendor-to-hostname mapping from
+memory, exactly what this plugin's own discipline refuses to do everywhere else. So this step
+reuses `/otel-evaluate` Step 7's detection instead of guessing: look for
+`infra/observability/<vendor>/` (any vendor in `backends.txt`) anywhere in the repo. If none
+exists, skip this step. A generated Terraform module for a vendor is evidence this repo's
+telemetry is actually headed there; nothing else here is.
+
+**Also require the generated exporter to actually carry credentials.** If Step 6 printed the
+"exporter sends no credentials" note above, skip this step too. An unauthenticated hop (a local
+network, an internal gateway) is evidence this Collector is NOT the one talking to a named
+vendor's ingest endpoint directly, so there is nothing a vendor MCP could meaningfully confirm
+about it.
+
+When both hold (a vendor directory exists AND the generated exporter has `headers:` or `auth:`
+configured), check whether an MCP matching that vendor is connected, then:
+
+- **A matching MCP is connected:**
+  ```
+  Tip: a <Vendor> MCP is connected. After this Collector is running and forwarding real traffic,
+  ask me to confirm telemetry is actually arriving at <Vendor>.
+  ```
+- **No matching MCP is connected:**
+  ```
+  Tip: connecting a <Vendor> MCP would let me confirm telemetry is actually arriving at <Vendor>
+  once this Collector is running. Not required.
+  ```
