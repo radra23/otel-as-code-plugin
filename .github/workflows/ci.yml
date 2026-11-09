@@ -114,6 +114,9 @@ jobs:
       - name: Run auditor-guidance-gaps contract (node_modules evidence, PII list, per-package maturity, serverless SDK health; #227)
         run: bash tests/hooks/auditor-guidance-gaps.test.sh
 
+      - name: Run vendor-mcp-offer contract (otel-backend/otel-evaluate/otel-collector enrichment step stays consistent)
+        run: bash tests/hooks/vendor-mcp-offer.test.sh
+
       - name: assert-traces unit test
         run: bash tests/e2e/assert-traces.test.sh
 

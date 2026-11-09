@@ -332,7 +332,9 @@ vendor's ingest endpoint directly, so there is nothing a vendor MCP could meanin
 about it.
 
 When both hold (a vendor directory exists AND the generated exporter has `headers:` or `auth:`
-configured), check whether an MCP matching that vendor is connected, then:
+configured), check whether an MCP matching that vendor is connected the same way `/otel-backend`
+Step 7 does (search available tools for a name containing the vendor, not a coincidental match
+on an unrelated tool), then:
 
 - **A matching MCP is connected:**
   ```

@@ -371,7 +371,9 @@ report above already surfaces that gap as a finding, and offering to "confirm da
 for a service with nowhere to send it to would be confusing, not useful.
 
 When both hold (a vendor directory exists AND at least one audited service has
-`endpointConfigured: true`), check whether an MCP matching that vendor is connected, then:
+`endpointConfigured: true`), check whether an MCP matching that vendor is connected the same way
+`/otel-backend` Step 7 does (search available tools for a name containing the vendor, not a
+coincidental match on an unrelated tool), then:
 
 - **A matching MCP is connected:**
   ```
