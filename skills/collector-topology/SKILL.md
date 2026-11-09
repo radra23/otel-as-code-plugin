@@ -252,7 +252,7 @@ The guardrail above is reactive: it deny-lists attribute NAMES already known to 
 high-cardinality. A **budget** is proactive: a growth-rate ceiling on label VALUES, so a new
 high-cardinality dimension nobody named yet still gets caught before it hits the bill.
 
-**Verified against the real `otelcol-contrib` 0.164.0 binary (`otelcol-contrib components`), not
+**Verified against the real `otelcol-contrib` 0.165.0 binary (`otelcol-contrib components`), not
 memory or guesswork** — neither of the two components the issue speculated about is right:
 `cardinalitylimit` does not exist anywhere in contrib, and `groupbyattrs` only regroups data
 points by attribute, it does not limit or drop anything. The real component is

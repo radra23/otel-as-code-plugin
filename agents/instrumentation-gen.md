@@ -426,7 +426,7 @@ to the latest at generation time rather than copying these verbatim if newer rel
 "@opentelemetry/sdk-node": "^0.301.0",
 "@opentelemetry/resources": "^3.1.0",
 "@opentelemetry/auto-instrumentations-node": "^0.83.0",
-"@opentelemetry/semantic-conventions": "^1.44.0"
+"@opentelemetry/semantic-conventions": "^1.45.0"
 ```
 
 **Brownfield regeneration — keep installed versions, never silently bump them.** When
@@ -1207,7 +1207,7 @@ which `pins.test.sh` diffs against this file):
 
 ```
 dotnet add package OpenTelemetry.Extensions.Hosting          # 1.20.1
-dotnet add package OpenTelemetry.Instrumentation.AspNetCore  # 1.20.1
+dotnet add package OpenTelemetry.Instrumentation.AspNetCore  # 1.20.2
 dotnet add package OpenTelemetry.Instrumentation.Http        # 1.20.2
 dotnet add package OpenTelemetry.Exporter.OpenTelemetryProtocol  # 1.20.1
 ```

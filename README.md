@@ -27,7 +27,7 @@ built in and the semconv version pinned.
 | **Languages** | Node.js, Python, Java, .NET, Go, Ruby, Rust (axum, actix-web) — all but Rust's actix-web path proven end to end in CI |
 | **Backends** | Grafana, Datadog, New Relic, Dash0 (Terraform: dashboard, alerts, SLO) |
 | **Agents** | Claude Code (plugin), Codex (skills) |
-| **Semconv** | pinned to 1.44.0, drift-checked weekly |
+| **Semconv** | pinned to 1.45.0, drift-checked weekly |
 
 ```bash
 claude plugin marketplace add https://github.com/radra23/otel-as-code-plugin

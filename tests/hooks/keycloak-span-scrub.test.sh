@@ -20,7 +20,7 @@ check "skill has the credentials section, citing the issue" \
 check "skill names the credential-bearing query keys" \
   'sk "key=<token>" && sk "code=" && sk "session_state="'
 check "skill grounds the claim in the spec version it was checked against, and says who reproduced it" \
-  'sk "semantic-conventions v1.44.0" && sk "Reported and reproduced in #197"'
+  'sk "semantic-conventions v1.45.0" && sk "Reported and reproduced in #197"'
 check "skill makes the scrub a precondition of the diff, ahead of enabling tracing" \
   'sk "precondition of the diff" && sk "before tracing is switched on" && sk "must not be applied until"'
 check "skill covers the already-enabled case as a live exposure" \
