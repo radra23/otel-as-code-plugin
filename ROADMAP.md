@@ -8,7 +8,7 @@
 > of the same shape, and every concrete line item that isn't done yet has a linked tracking issue —
 > comment there rather than only in this file if you want to weigh in.
 
-Current release: **0.9.4**. Node.js, Python, Java, .NET, Go, Ruby, and Rust (axum, actix-web) instrumentation, Terraform
+Current release: **0.9.5**. Node.js, Python, Java, .NET, Go, Ruby, and Rust (axum, actix-web) instrumentation, Terraform
 for Grafana, Datadog, New Relic, and Dash0, semconv pinned at 1.45.0. Since 0.2.0 the command set
 has grown past generation: `/otel-uninstrument` rolls instrumentation back behind an ownership
 marker, `/otel-remediate` proposes a deployment-config diff for services that have no application
