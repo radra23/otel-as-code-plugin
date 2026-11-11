@@ -1215,6 +1215,15 @@ dotnet add package OpenTelemetry.Exporter.OpenTelemetryProtocol  # 1.20.1
 Do not assert in a comment which types these packages export (per the version-claims rule) —
 `dotnet build` is the check, run in `/otel-instrument` Step 7.
 
+**Why these stay on the 1.20 line (#229).** OpenTelemetry 1.21.0 dropped its `net8.0`/`net9.0`
+assets (both frameworks left Microsoft support on 2026-11-10). On a `net8.0` project 1.21.0 still
+restores and builds — NuGet silently falls back to the `.NETStandard2.x` build — but that build
+sets no HTTP/2 version policy, so the OTLP exporter sends gRPC over HTTP/1.1 and exports nothing,
+with no error anywhere the app can see. 1.20.x is the last line with a native `net8.0` asset.
+Bump to 1.21+ only together with moving the golden `<TargetFramework>` to `net10.0`, re-proven by
+the live e2e trace-flow job; the drift report marks such a release *do not bump* until then. A
+build that prints `<package> doesn't support net8.0` is the compile-time tell.
+
 ### Logs (Stable — optional, printed as an add-on)
 
 .NET logs are Stable, but logging is wired on `builder.Logging`, not `builder.Services`, so it

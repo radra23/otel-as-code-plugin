@@ -6,7 +6,8 @@ reports what is behind:
   - OTel semconv spec        (SEMCONV_VERSION vs the semantic-conventions GitHub release)
   - Node OTel SDK packages   (agents/instrumentation-gen.md pins vs the npm registry)
   - Python OTel SDK packages (agents/instrumentation-gen.md pins vs PyPI)
-  - .NET OTel SDK packages   (agents/instrumentation-gen.md pins vs NuGet)
+  - .NET OTel SDK packages   (agents/instrumentation-gen.md pins vs NuGet, and whether a newer
+                              release still ships the golden project's TargetFramework — #229)
   - Rust OTel crates          (agents/instrumentation-gen.md pins vs crates.io)
   - PHP OTel packages         (agents/instrumentation-gen.md pins vs Packagist)
   - Terraform providers       (snapshot required_providers major vs the Terraform registry)
@@ -37,6 +38,16 @@ def fetch_json(url):
     if out.returncode != 0:
         raise RuntimeError(f"curl exit {out.returncode}")
     return json.loads(out.stdout)
+
+
+def fetch_text(url):
+    out = subprocess.run(
+        ["curl", "-fsSL", "--max-time", "20", "-H", "User-Agent: otel-as-code-drift-check", url],
+        capture_output=True, text=True, timeout=30,
+    )
+    if out.returncode != 0:
+        raise RuntimeError(f"curl exit {out.returncode}")
+    return out.stdout
 
 
 def latest_npm(pkg):
@@ -82,6 +93,65 @@ def latest_collector():
 
 def latest_semconv():
     return fetch_json("https://api.github.com/repos/open-telemetry/semantic-conventions/releases/latest")["tag_name"].lstrip("v")
+
+
+# --- .NET target-framework support (#229) -----------------------------------
+# A version comparison cannot see this failure. OpenTelemetry 1.21.0 dropped its net8.0/net9.0
+# assets (both frameworks left support on 2026-11-10), so a net8.0 project restores the
+# .NETStandard2.x build instead. That compiles — NuGet's nearest-TFM fallback is silent, and
+# the only build-time signal is the SDK's "doesn't support net8.0" warning on the transitive
+# Microsoft.Extensions 11.0 packages — but the asset was compiled with different `#if NET`
+# branches: the OTLP exporter sets HTTP/2 `RequestVersionExact` only under `#if NET`, so on
+# .NET 8 the netstandard build sends gRPC over HTTP/1.1 and every export fails without a word.
+# A routine drift bump shipped exactly that; the e2e trace-flow job caught it. So a release that
+# no longer ships the golden's TargetFramework is reported as *do not bump*, not plain BEHIND.
+_NATIVE_TFM = re.compile(r"^\.?(?:net|netcoreapp)(\d+)\.(\d+)$", re.I)
+
+
+def nuget_tfm_groups(pkg, version):
+    """Target frameworks one package version declares dependency groups for (`net8.0`,
+    `.NETStandard2.0`, ...), from the flat-container nuspec — the document NuGet itself
+    restores from. The OTel packages declare one group per lib/ TFM, empty groups included."""
+    import xml.etree.ElementTree as ET
+    root = ET.fromstring(fetch_text(
+        f"https://api.nuget.org/v3-flatcontainer/{pkg.lower()}/{version}/{pkg.lower()}.nuspec"))
+    return sorted({el.get("targetFramework") for el in root.iter()
+                   if el.tag.rsplit("}", 1)[-1] == "group" and el.get("targetFramework")})
+
+
+def dotnet_tfm():
+    """The golden project's TargetFramework — what the generated output is verified against."""
+    m = re.search(r"<TargetFramework>(net\d+\.\d+)</TargetFramework>",
+                  _read("tests/snapshots/instrument/dotnet/checkout-api.csproj"))
+    return m.group(1) if m else None
+
+
+def supports_tfm(groups, tfm):
+    """True when a project targeting `tfm` selects a native .NET asset from a package that
+    declares `groups`; False when it would fall back to .NETStandard/.NETFramework; None when
+    there is nothing to judge (no groups, or a TFM shape this does not model). NuGet picks the
+    NEAREST compatible group, so any native `netN.M` at or below the project's counts."""
+    want = _NATIVE_TFM.match(tfm or "")
+    if not want or not groups:
+        return None
+    w = (int(want.group(1)), int(want.group(2)))
+    for g in groups:
+        m = _NATIVE_TFM.match(g or "")
+        if m and (int(m.group(1)), int(m.group(2))) <= w:
+            return True
+    return False
+
+
+def tfm_verdict(pkg, version, tfm, groups_fn=None):
+    """'ok' | 'drops' | 'unchecked: <why>' for one package version against the golden TFM.
+    Unavailable data is 'unchecked' — reported as not checked, never as a finding."""
+    groups, err = safe(groups_fn or nuget_tfm_groups, pkg, version)
+    if err:
+        return f"unchecked: {err}"
+    v = supports_tfm(groups, tfm)
+    if v is None:
+        return "unchecked: no dependency groups"
+    return "ok" if v else "drops"
 
 
 # --- semconv attribute registry (first-party, pinned) -----------------------
@@ -312,12 +382,14 @@ def semconv_pin():
 def main():
     rows, warnings = [], []
 
-    def add(component, pinned, latest, err, cmp=behind):
+    def add(component, pinned, latest, err, cmp=behind, note=""):
+        # `note` qualifies a BEHIND verdict (the .NET TFM check below); it is appended to the
+        # status cell and the warning line so the summary and the issue carry the same message.
         if err or latest is None:
             status = f"? ({err or 'no data'})"
         elif pinned and cmp(pinned, latest):
-            status = "BEHIND"
-            warnings.append(f"{component}: pinned {pinned}, latest {latest}")
+            status = "BEHIND" + note
+            warnings.append(f"{component}: pinned {pinned}, latest {latest}{note}")
         else:
             status = "current"
         rows.append((component, pinned or "?", latest or "?", status))
@@ -330,9 +402,26 @@ def main():
     for pkg, pinned in python_pins():
         latest, err = safe(latest_pypi, pkg)
         add(f"pypi {pkg}", pinned, latest, err)
+    tfm = dotnet_tfm()
     for pkg, pinned in dotnet_pins():
         latest, err = safe(latest_nuget, pkg)
-        add(f"nuget {pkg}", pinned, latest, err)
+        note = ""
+        if tfm and not err and latest and pinned and behind(pinned, latest):
+            verdict = tfm_verdict(pkg, latest, tfm)
+            if verdict == "drops":
+                note = f" — {latest} drops {tfm}; do not bump (#229)"
+            elif verdict.startswith("unchecked"):
+                note = f" ({tfm} support {verdict})"
+        add(f"nuget {pkg}", pinned, latest, err, note=note)
+        # The PIN is judged too: this is the exact state the drift bump left the repo in, and
+        # it must read as a finding on the very next run rather than as "current".
+        if tfm and pinned and tfm_verdict(pkg, pinned, tfm) == "drops":
+            c, p, l, st = rows[-1]
+            rows[-1] = (c, p, l, f"PINNED {pinned} drops {tfm} (#229)")
+            warnings.append(
+                f"nuget {pkg}: pinned {pinned} ships no {tfm} asset — a {tfm} project restores the "
+                f"netstandard build, whose OTLP/gRPC export fails silently (#229); pin the last "
+                f"release with a {tfm} group, or move the golden TargetFramework")
     for crate, pinned in rust_pins():
         latest, err = safe(latest_crate, crate)
         add(f"crates.io {crate}", pinned, latest, err, cmp=behind_compatible)
@@ -371,8 +460,14 @@ def main():
                  "`tracing-opentelemetry` sits one minor ahead. Bump them together, once all have "
                  "released, then regenerate `tests/snapshots/instrument/rust/Cargo.lock`._"
                  if any(w.startswith("crates.io") for w in warnings) else "")
+    tfm_note = ("\n\n_A NuGet row marked **drops " + (dotnet_tfm() or "the golden TFM") + "** is not a bump "
+                "target: that release ships no asset for the golden project's TargetFramework, and the "
+                ".NETStandard fallback compiles but exports nothing over OTLP/gRPC (#229). It stays listed so "
+                "the gap is visible; it clears when the golden TargetFramework moves to a framework that "
+                "release supports, re-proven by the live e2e trace-flow job._"
+                if any("drops" in w for w in warnings) else "")
     summary = (f"**{len(warnings)} item(s) need attention.** Bump the pins, regenerate the "
-               f"affected snapshots, correct any guidance finding, and re-validate.{rust_note}") if warnings \
+               f"affected snapshots, correct any guidance finding, and re-validate.{rust_note}{tfm_note}") if warnings \
         else "**All pinned versions are current and the semconv guidance matches the registry.**"
     body = ("## otel-as-code upstream drift\n\n" + table
             + "\n\n### Semconv guidance vs registry\n\n" + guidance_md

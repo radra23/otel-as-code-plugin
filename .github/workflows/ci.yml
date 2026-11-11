@@ -211,9 +211,11 @@ jobs:
         run: cargo +${{ matrix.toolchain }} check --locked
 
   # #182: a real `dotnet build` of a solution-at-the-root layout, with OpenTelemetry.cs where the old
-  # rule put it (must fail) and where the new rule puts it (must build).
+  # rule put it (must fail) and where the new rule puts it (must build). #229: that build must also
+  # restore native net8.0 assets — a pin that dropped the TFM compiles via the .NETStandard fallback
+  # and then exports nothing, which only the heavier e2e trace-flow job could see before.
   dotnet-placement:
-    name: .NET OpenTelemetry.cs placement (#182)
+    name: .NET OpenTelemetry.cs placement (#182) + TFM assets (#229)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

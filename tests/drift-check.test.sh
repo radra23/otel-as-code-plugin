@@ -47,6 +47,52 @@ golden_dotnet = dict(_re.findall(r'Include="(OpenTelemetry[^"]*)" Version="([^"]
 check(f"dotnet golden csproj matches the generator pins ({len(golden_dotnet)})", golden_dotnet and golden_dotnet == dp)
 if golden_dotnet != dp:
     print("  generator:", dp); print("  golden:   ", golden_dotnet)
+# --- .NET target-framework support (#229, offline) ---------------------------------------
+# A version comparison alone said "BEHIND, bump it" for OpenTelemetry 1.21.0, which dropped its
+# net8.0/net9.0 assets; the bump compiled (NuGet fell back to the .NETStandard build) and every
+# trace export then failed silently. These prove the guard that turns that row into "do not bump".
+check("dotnet golden TargetFramework parsed (net8.0)", d.dotnet_tfm() == "net8.0")
+G120 = ["net10.0", ".NETFramework4.6.2", "net8.0", "net9.0", ".NETStandard2.0", ".NETStandard2.1"]  # 1.20.1
+G121 = ["net10.0", "net11.0", ".NETFramework4.6.2", ".NETStandard2.0", ".NETStandard2.1"]           # 1.21.0
+check("supports_tfm: 1.20.1-shaped groups serve net8.0 natively", d.supports_tfm(G120, "net8.0") is True)
+check("supports_tfm: 1.21.0-shaped groups drop net8.0 (netstandard fallback)", d.supports_tfm(G121, "net8.0") is False)
+check("supports_tfm: the same 1.21.0 groups serve net10.0", d.supports_tfm(G121, "net10.0") is True)
+check("supports_tfm: a lower native TFM counts (net9.0 project, net8.0 asset)",
+      d.supports_tfm(["net8.0", ".NETStandard2.0"], "net9.0") is True)
+check("supports_tfm: .NETCoreApp is native; .NETFramework/.NETStandard are not",
+      d.supports_tfm([".NETCoreApp3.1"], "net8.0") is True
+      and d.supports_tfm([".NETFramework4.6.2", ".NETStandard2.0"], "net8.0") is False)
+check("supports_tfm: nothing to judge -> None (no groups / unmodelled TFM), never a finding",
+      d.supports_tfm([], "net8.0") is None and d.supports_tfm(G121, "netstandard2.0") is None)
+_STUB = {("OpenTelemetry", "1.20.1"): G120, ("OpenTelemetry", "1.21.0"): G121}
+def _groups(pkg, ver):
+    if (pkg, ver) not in _STUB:
+        raise RuntimeError("curl exit 22")
+    return _STUB[(pkg, ver)]
+check("tfm_verdict: ok for a release that ships the TFM",
+      d.tfm_verdict("OpenTelemetry", "1.20.1", "net8.0", _groups) == "ok")
+check("tfm_verdict: drops for a release that does not",
+      d.tfm_verdict("OpenTelemetry", "1.21.0", "net8.0", _groups) == "drops")
+check("tfm_verdict: an unavailable nuspec is 'unchecked', not a finding",
+      d.tfm_verdict("OpenTelemetry", "9.9.9", "net8.0", _groups).startswith("unchecked"))
+# The nuspec parser against the real document shape (namespaced XML, an EMPTY group for net11.0
+# exactly as 1.21.0 publishes it), fetched through a stub so this stays offline.
+_NUSPEC = """<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+  <metadata><id>OpenTelemetry</id><version>1.21.0</version>
+    <dependencies>
+      <group targetFramework="net10.0"><dependency id="OpenTelemetry.Api" version="1.21.0" /></group>
+      <group targetFramework="net11.0" />
+      <group targetFramework=".NETStandard2.0"><dependency id="OpenTelemetry.Api" version="1.21.0" /></group>
+    </dependencies>
+  </metadata>
+</package>"""
+_real_fetch_text = d.fetch_text
+d.fetch_text = lambda url: _NUSPEC
+check("nuget_tfm_groups parses nuspec dependency groups, including an empty one",
+      d.nuget_tfm_groups("OpenTelemetry", "1.21.0") == [".NETStandard2.0", "net10.0", "net11.0"])
+d.fetch_text = _real_fetch_text
+
 php_p = dict(d.php_pins())
 check("php pins parsed (open-telemetry/sdk)", "open-telemetry/sdk" in php_p and php_p["open-telemetry/sdk"][0].isdigit())
 # Same idea as the node/python/dotnet checks above: the golden composer.json must pin exactly
