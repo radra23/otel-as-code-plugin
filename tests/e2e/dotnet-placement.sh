@@ -6,6 +6,11 @@
 #   2. the file where the new rule puts it: the first directory at or above runnableEntry that
 #      holds a *.csproj                                                -> must BUILD
 # Uses the golden OpenTelemetry.cs and csproj (the instrumented state /otel-instrument leaves).
+# Also proves #229: the successful build must select NATIVE assets for the golden TargetFramework.
+# NuGet's nearest-TFM fallback silently restores a .NETStandard build when a pin drops the
+# project's framework (OpenTelemetry 1.21.0 dropped net8.0); that still builds with 0 errors, but
+# the netstandard OTLP exporter speaks HTTP/1.1 to the gRPC port and exports nothing. The SDK's
+# "<package> doesn't support net8.0" warning is the one compile-time signal, so here it is a failure.
 # Needs the .NET SDK (preinstalled on GitHub's ubuntu runners) and access to nuget.org.
 set -uo pipefail
 cd "$(dirname "$0")/../.."
@@ -46,5 +51,12 @@ if grep -q '0 Error' <<<"$out"; then
   echo "PASS: with the file beside the project (${target#"$WORK/repo/"}), the solution builds"
 else
   echo "FAIL: the solution does not build with the file placed by the new rule" >&2; rc=1
+fi
+# #229: a clean build is not enough — it must not be a netstandard-fallback build.
+if grep -q "doesn.t support net" <<<"$out"; then
+  echo "FAIL: a pinned package has no asset for the golden TargetFramework (NuGet fell back to .NETStandard; OTLP/gRPC export breaks silently — #229):" >&2
+  grep -o "warning : [^ ]* [^ ]* doesn.t support [^ ]*" <<<"$out" | sort -u >&2; rc=1
+else
+  echo "PASS: every package restored a native asset for the golden TargetFramework (no TFM-support warnings; #229)"
 fi
 exit $rc
