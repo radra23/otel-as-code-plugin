@@ -10,7 +10,7 @@
 # NuGet's nearest-TFM fallback silently restores a .NETStandard build when a pin drops the
 # project's framework (OpenTelemetry 1.21.0 dropped net8.0); that still builds with 0 errors, but
 # the netstandard OTLP exporter speaks HTTP/1.1 to the gRPC port and exports nothing. The SDK's
-# "<package> doesn't support net8.0" warning is the one compile-time signal, so here it is a failure.
+# "<package> doesn't support <tfm>" warning is the one compile-time signal, so here it is a failure.
 # Needs the .NET SDK (preinstalled on GitHub's ubuntu runners) and access to nuget.org.
 set -uo pipefail
 cd "$(dirname "$0")/../.."

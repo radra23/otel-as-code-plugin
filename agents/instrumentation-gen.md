@@ -1200,29 +1200,40 @@ The exact golden output is `tests/snapshots/instrument/dotnet/OpenTelemetry.cs`;
 ### Packages (print, do not edit the `.csproj`)
 
 Emit these `dotnet add package` commands, written as `dotnet add <path/to/Project.csproj> package
-<name>` whenever the project is not in the current directory (a solution-level layout). Versions
-resolve at add time; the pins below are the
-verified-current stable line — keep them in step with `tests/snapshots/instrument/dotnet/checkout-api.csproj`,
-which `pins.test.sh` diffs against this file):
+<name>` whenever the project is not in the current directory (a solution-level layout). The pins
+below are the verified-current stable line for the golden's `<TargetFramework>` (`net10.0`) — keep
+them in step with `tests/snapshots/instrument/dotnet/checkout-api.csproj`, which `pins.test.sh`
+diffs against this file:
 
 ```
-dotnet add package OpenTelemetry.Extensions.Hosting          # 1.20.1
+dotnet add package OpenTelemetry.Extensions.Hosting          # 1.21.0
 dotnet add package OpenTelemetry.Instrumentation.AspNetCore  # 1.20.2
 dotnet add package OpenTelemetry.Instrumentation.Http        # 1.20.2
-dotnet add package OpenTelemetry.Exporter.OpenTelemetryProtocol  # 1.20.1
+dotnet add package OpenTelemetry.Exporter.OpenTelemetryProtocol  # 1.21.0
 ```
+
+**Read the project's `<TargetFramework>` before printing — the version line depends on it (#229).**
+OpenTelemetry 1.21.0 dropped its `net8.0` and `net9.0` assets (both frameworks left Microsoft
+support on 2026-11-10). On such a project a bare `dotnet add package` still resolves 1.21.x,
+because NuGet silently falls back to the `.NETStandard2.x` build: it restores, it builds with
+0 errors, and the OTLP exporter then sends gRPC over HTTP/1.1 (that build sets no HTTP/2 version
+policy) and exports nothing, with no error anywhere the app can see. Confirmed on the wire, not
+inferred. So:
+
+- `net10.0` or newer: the commands above, as written.
+- `net8.0` / `net9.0`: print every line with an explicit `--version` on the last line that still
+  ships a native asset for that framework — `OpenTelemetry.Extensions.Hosting --version 1.20.1`,
+  `OpenTelemetry.Exporter.OpenTelemetryProtocol --version 1.20.1`,
+  `OpenTelemetry.Instrumentation.AspNetCore --version 1.20.2`,
+  `OpenTelemetry.Instrumentation.Http --version 1.20.2` — and say in the summary that the framework
+  is out of support, that 1.20.x is the last OTel line targeting it, and that moving to `net10.0`
+  unlocks the current pins. Never print the unversioned form for these frameworks.
+- Any `dotnet build` output containing `<package> doesn't support net` means the fallback
+  happened regardless of what was printed: report it as a failure in Step 7, not as a pass with
+  warnings.
 
 Do not assert in a comment which types these packages export (per the version-claims rule) —
 `dotnet build` is the check, run in `/otel-instrument` Step 7.
-
-**Why these stay on the 1.20 line (#229).** OpenTelemetry 1.21.0 dropped its `net8.0`/`net9.0`
-assets (both frameworks left Microsoft support on 2026-11-10). On a `net8.0` project 1.21.0 still
-restores and builds — NuGet silently falls back to the `.NETStandard2.x` build — but that build
-sets no HTTP/2 version policy, so the OTLP exporter sends gRPC over HTTP/1.1 and exports nothing,
-with no error anywhere the app can see. 1.20.x is the last line with a native `net8.0` asset.
-Bump to 1.21+ only together with moving the golden `<TargetFramework>` to `net10.0`, re-proven by
-the live e2e trace-flow job; the drift report marks such a release *do not bump* until then. A
-build that prints `<package> doesn't support net8.0` is the compile-time tell.
 
 ### Logs (Stable — optional, printed as an add-on)
 

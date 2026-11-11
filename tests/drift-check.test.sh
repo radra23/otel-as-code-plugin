@@ -51,7 +51,7 @@ if golden_dotnet != dp:
 # A version comparison alone said "BEHIND, bump it" for OpenTelemetry 1.21.0, which dropped its
 # net8.0/net9.0 assets; the bump compiled (NuGet fell back to the .NETStandard build) and every
 # trace export then failed silently. These prove the guard that turns that row into "do not bump".
-check("dotnet golden TargetFramework parsed (net8.0)", d.dotnet_tfm() == "net8.0")
+check("dotnet golden TargetFramework parsed (net10.0)", d.dotnet_tfm() == "net10.0")
 G120 = ["net10.0", ".NETFramework4.6.2", "net8.0", "net9.0", ".NETStandard2.0", ".NETStandard2.1"]  # 1.20.1
 G121 = ["net10.0", "net11.0", ".NETFramework4.6.2", ".NETStandard2.0", ".NETStandard2.1"]           # 1.21.0
 check("supports_tfm: 1.20.1-shaped groups serve net8.0 natively", d.supports_tfm(G120, "net8.0") is True)
