@@ -117,8 +117,8 @@ services:
 
   dotnet-app:
     # SDK image (not runtime) because the container restores + builds the source inline, like the
-    # other apps. Tag matches the golden csproj's <TargetFramework>net8.0</TargetFramework>.
-    image: mcr.microsoft.com/dotnet/sdk:8.0
+    # other apps. Tag matches the golden csproj's <TargetFramework>net10.0</TargetFramework>.
+    image: mcr.microsoft.com/dotnet/sdk:10.0
     working_dir: /app
     environment:
       # The golden OpenTelemetry.cs reads service.name from OTEL_SERVICE_NAME (IConfiguration

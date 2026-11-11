@@ -305,7 +305,11 @@ For **.NET** the equivalent check is `dotnet build` — the generated `OpenTelem
 pasted `Program.cs` line must compile against the added packages. Run it only if the SDK is
 present and packages restored; otherwise print the wiring commands from the subagent summary
 (add packages → paste the one-liner → `dotnet build`) and note verification was deferred. A
-build failure is a failure to fix, not to paper over. (Runtime span emission is the e2e
+build failure is a failure to fix, not to paper over. So is a build that succeeds while printing
+`<package> doesn't support net<N>`: NuGet fell back to a `.NETStandard` asset because the resolved
+package version dropped the project's TargetFramework, and that build exports nothing over
+OTLP/gRPC (#229) — report it, and re-run the `dotnet add package` lines with the explicit
+`--version` the subagent prints for `net8.0`/`net9.0`. (Runtime span emission is the e2e
 follow-up, as with Java.)
 
 For **Go** the equivalent check is `go build ./...` — the generated `tracing.go` plus the edited
