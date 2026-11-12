@@ -1,0 +1,67 @@
+# .github/workflows/routing-eval.yml
+# Plugin routing eval: does a fresh Claude Code session pick otel-as-code for "add OpenTelemetry"
+# style requests, and stay out of debugging and unrelated ones? See evals/routing/README.md.
+#
+# Manual only (workflow_dispatch). Every case is a real model call billed to the
+# ANTHROPIC_API_KEY secret: the default 9 prompts x 3 runs costs roughly $15-40 at list price.
+# It runs condition (a), only otel-as-code loaded; condition (b), your personal plugin set, can
+# only run on your own machine (evals/routing/run.sh b).
+name: Routing eval
+
+on:
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: Runs per prompt
+        default: '3'
+      model:
+        description: Model under test (pin it so a model rollout is not read as a regression)
+        default: claude-opus-5-5
+      max_cost_usd:
+        description: Cost ceiling in USD (list-price estimate)
+        default: '40'
+
+permissions:
+  contents: read
+
+jobs:
+  routing-eval:
+    name: Routing eval (condition a)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # Granting Bash to an eval run puts it under Claude Code's OS sandbox, which on Linux
+      # needs bubblewrap and socat. Without them every run is refused rather than run unconfined.
+      - name: Install Claude Code and sandbox prerequisites
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q bubblewrap socat
+          npm install -g @anthropic-ai/claude-code@2.1.311
+          claude --version
+
+      - name: Run the routing eval
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          RUNS: ${{ inputs.runs }}
+          EVAL_MODEL: ${{ inputs.model }}
+          MAX_COST_USD: ${{ inputs.max_cost_usd }}
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::error::ANTHROPIC_API_KEY secret is not set; the routing eval needs model access."
+            exit 1
+          fi
+          bash evals/routing/run.sh a ci | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: routing-eval-results
+          path: evals/results/routing/
+          if-no-files-found: warn

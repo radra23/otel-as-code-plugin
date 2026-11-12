@@ -44,6 +44,9 @@ jobs:
       - name: Run drift-check parser tests (offline)
         run: bash tests/drift-check.test.sh
 
+      - name: Run routing-eval scorer tests (offline; the eval itself is workflow_dispatch only)
+        run: bash tests/routing-eval.test.sh
+
       - name: Run freshness-contract test (scanner identityInputs ↔ /otel-init regex; #150 uncovered services)
         run: bash tests/hooks/freshness-contract.test.sh
 
