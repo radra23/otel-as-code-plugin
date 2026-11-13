@@ -61,14 +61,16 @@ run_b() {
   local B="$OUT/b"; mkdir -p "$B"
   local start=$(date +%s)
   skill_usage "$OUT/b-skill-usage-before.json"
+  # Every workspace of this pass lives under one pass-owned TMPDIR. Personal SessionEnd hooks
+  # (e.g. a memory plugin) can write into a workspace, or cache beside it, after run-headless.sh
+  # removed it; deleting this one directory once every run has exited clears them without
+  # touching anything else in the shared temp dir.
+  local pass_tmp; pass_tmp=$(mktemp -d "${TMPDIR:-/tmp}/otel-routing-pass.XXXXXX")
   for c in "$HERE"/cases/$CASE/; do
     grep -q 'tags: \[routing' "$c/prompt.md" || continue
     for n in $(seq 1 "$RUNS"); do printf '%s %s %s\n' "$c" "$n" "$B"; done
-  done | xargs -P "$JOBS" -L 1 "$HERE/run-headless.sh" 2>/dev/null || true
-  # Personal SessionEnd hooks (e.g. a memory plugin) can write into a workspace after
-  # run-headless.sh removed it, recreating it; sweep once every run of this pass has exited.
-  local tmp="${TMPDIR:-/tmp}"
-  rm -rf "${tmp:?}"/otel-routing-b.* "${tmp:?}"/*otel-routing-b-* 2>/dev/null || true
+  done | TMPDIR="$pass_tmp" xargs -P "$JOBS" -L 1 "$HERE/run-headless.sh" 2>/dev/null || true
+  rm -rf "${pass_tmp:?}"
   skill_usage "$OUT/b-skill-usage-after.json"
   echo "condition b wall time: $(( $(date +%s) - start ))s"
   python3 "$HERE/score.py" --headless "$B" --per-run \

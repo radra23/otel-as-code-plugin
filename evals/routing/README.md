@@ -11,7 +11,7 @@ secret).
 
 ## Prompts
 
-Nine cases under `cases/`, each a fresh session on a clean copy of the fixture.
+Ten cases under `cases/`, each a fresh session on a clean copy of the fixture.
 
 | Case | Expect | Prompt |
 |---|---|---|
@@ -24,6 +24,14 @@ Nine cases under `cases/`, each a fresh session on a clean copy of the fixture.
 | `checkout-is-slow` | should not route | checkout is slow, can you find out why? |
 | `explain-span` | should not route | explain what a span is |
 | `fix-failing-test` | should not route | fix the failing test in lib/orders.js |
+| `diagnose-slow-checkout-with-traces` | should not route | checkout is slow, can you find out why? Instrument the service with OpenTelemetry, run it, hit POST /checkout 20 times, and base your diagnosis on the traces: span names, durations, counts. |
+
+`diagnose-slow-checkout-with-traces` guards the debugging boundary. It asks for OpenTelemetry,
+but as a means to a diagnosis, and the plugin's flow writes a committed production bootstrap
+that a one-off investigation does not want; a scratch tracer the session writes itself is the
+expected outcome, so hand-rolled is a pass here and only a routed run counts against it. If a
+description change ever makes it route, the eval shows the plugin taking over debugging tasks
+before that ships. It was added after the 0.9.7 baseline below and fails there; see that section.
 
 The fixture is `fixtures/nodejs-greenfield` plus `fixture-overlay/`: a checkout path with a
 sequential per-item DB loop (so "checkout is slow" has a real answer that code reading finds)
@@ -85,7 +93,7 @@ python3 evals/routing/score.py --compare evals/results/routing/<before>/summary-
 Env: `RUNS` (default 3), `JOBS` (default 3), `EVAL_MODEL` (default `claude-opus-5-5`),
 `MAX_COST_USD` (default 40, condition a), `CASE` (glob). Results land in
 `evals/results/routing/` (gitignored), with a per-run table of verdict, cost, and wall time.
-A full pass of one condition is 27 runs; expect roughly $15 to $40 and 20 to 40 minutes.
+A full pass of one condition is 30 runs; expect roughly $15 to $40 and 20 to 40 minutes.
 
 ## Baseline (2026-11-12, otel-as-code 0.9.7 at `main` 5bffc17, `claude-opus-5-5`, Claude Code 2.1.311)
 
@@ -112,15 +120,26 @@ the otel-as-code commands carry usage history on this machine (`otel-init` 12, `
 
 **What this says about "loaded but never chosen".** The trial that prompted this eval
 (`~/otel-checkout-trial`, 0 of 6 sessions used the plugin) did not send plain requests. Its
-prompts were debugging tasks, three of them with instrumentation as one step: "checkout is slow,
-can you find out why? ... Instrument the service with OpenTelemetry, run it, hit POST /checkout 20
-times, and base your diagnosis on the traces". Re-running that exact prompt here under condition
-(b) reproduced it: 0/3 routed, 2/3 ran `npm install @opentelemetry/...` themselves. So the plugin
-is chosen for "add OpenTelemetry"; it is not chosen when instrumentation is a means to a
-debugging end. Whether it should be is a product decision, not a description bug: the plugin
-writes committed, production-grade bootstrap through a multi-step flow (about $1 to $3 and one to
-four minutes in these runs), where a throwaway diagnosis may be better served by a scratch
-`tracing.js`.
+prompts were debugging tasks, three of them with instrumentation as one step. So the plugin is
+chosen for "add OpenTelemetry"; the open question is the debugging tasks that ask for it.
+
+### Debugging with traces (2026-11-13, same plugin, model, and Claude Code version)
+
+`diagnose-slow-checkout-with-traces` was added afterwards to pin that boundary, as should not
+route, and it fails at baseline:
+
+| Prompt | Expect | (a) routed | (b) routed | Skill picked | Cost (a), (b) |
+|---|---|---|---|---|---|
+| checkout is slow ... instrument ... base your diagnosis on the traces | should not route | 3/3 | 1/3 | otel-instrument | $1.58, $1.76 |
+
+In isolation the session invokes `otel-instrument` every time. With the full plugin set it does
+so once, and the other two runs install `@opentelemetry/*` themselves. An earlier one-off run of
+the trial's own wording (it also names a local otel-lgtm backend) under condition (b) gave 0/3
+routed and 2/3 hand-rolled. Three runs per condition is a small sample, but it points one way:
+"not chosen for debugging" comes from the crowded skill listing, not from the descriptions. When
+the plugin's descriptions are visible, the debugging request routes. All six runs hit the 8-turn
+cap, and each had already reached a routed or hand-rolled verdict before it, so the cap does not
+change the result.
 
 One scorer bug was found and fixed while recording this baseline: `score.py` resolved relative
 paths and `Grep` regexes against its own working directory, which sits inside the plugin repo, so
