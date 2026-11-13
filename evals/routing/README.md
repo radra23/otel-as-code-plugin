@@ -141,6 +141,22 @@ the plugin's descriptions are visible, the debugging request routes. All six run
 cap, and each had already reached a routed or hand-rolled verdict before it, so the cap does not
 change the result.
 
+### After narrowing the descriptions (2026-11-13, 0.10.0, same model and Claude Code version)
+
+`otel-init` and `otel-instrument` now say what they are for (lasting observability, a committed
+bootstrap) and what they are not for ("diagnosing one slow or failing request", "throwaway
+tracing while debugging"). All ten cases, three runs each, both conditions:
+
+| Condition | Should-route routed, before / after | False triggers, before / after | Debugging-with-traces routed, before / after | Cost, wall (after) |
+|---|---|---|---|---|
+| (a) only otel-as-code | 6/6 / 6/6 | 1/4 / 0/4 | 3/3 / 0/3 | $14.25, 10 min |
+| (b) normal user config | 6/6 / 6/6 | 1/4 / 0/4 | 1/3 / 0/3 | $20.19, 10 min |
+
+"Before" is the 0.9.7 baseline above (the original nine cases on 2026-11-12, the debugging case
+on 2026-11-13). After the change every debugging-with-traces run hand-rolls a scratch tracer,
+which is the expected outcome, and every should-route run still routes, 36 of 36 across both
+conditions.
+
 One scorer bug was found and fixed while recording this baseline: `score.py` resolved relative
 paths and `Grep` regexes against its own working directory, which sits inside the plugin repo, so
 "explain what a span is" (a `Grep` for `span|tracer|opentelemetry`) briefly scored as routed. The

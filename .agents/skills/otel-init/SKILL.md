@@ -1,6 +1,6 @@
 ---
 name: otel-init
-description: First-run setup for otel-as-code — scan the repo, detect service boundaries, and prime the context cache. Use before other otel-* workflows.
+description: First-run setup for otel-as-code — scan the repo, detect service boundaries, and prime the context cache. Use before other otel-* workflows. Not for diagnosing one slow or failing request.
 ---
 
 # otel-init (Codex bridge)

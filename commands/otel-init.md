@@ -1,5 +1,5 @@
 ---
-description: "First-run: scan the repo, detect service boundaries, and prime the context cache"
+description: "First-run setup for lasting observability: scan the repo, detect service boundaries, and prime the context cache. Not for diagnosing one slow or failing request."
 argument-hint: "[--local-ignore]"
 ---
 

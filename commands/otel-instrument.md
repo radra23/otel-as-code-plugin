@@ -1,5 +1,5 @@
 ---
-description: Generate OTel SDK bootstrap and OTLP wiring for this service
+description: "Add OpenTelemetry to this service: generate committed OTel SDK bootstrap and OTLP wiring. Not for throwaway tracing while debugging one slow or failing request."
 argument-hint: "[language] [--service <id>] [--fix <ids>] [--experimental] [--force] [--dry-run]"
 ---
 
