@@ -264,6 +264,9 @@ and that last one is the most useful thing anyone can send.
 
 - [CONTRIBUTING.md](CONTRIBUTING.md) covers the repo's conventions, the single-source-of-truth
   rules, and how to run the tests locally.
+- [evals/routing/](evals/routing/README.md) is the routing eval: whether a fresh Claude Code
+  session picks this plugin for "add OpenTelemetry" style requests and leaves debugging alone.
+  It makes real model calls, so it runs on demand (locally or via the `Routing eval` workflow).
 - [ROADMAP.md](ROADMAP.md) shows where this is going, and what it deliberately will not do.
 - [Discussions](https://github.com/radra23/otel-as-code-plugin/discussions) is the place for
   questions and half-formed ideas. Issues are for things that are broken or missing.

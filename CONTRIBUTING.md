@@ -69,8 +69,19 @@ bash tests/hooks/semconv-lint.test.sh
 bash tests/hooks/session-summary.test.sh
 bash tests/hooks/codex-adapters.test.sh
 bash tests/drift-check.test.sh
+bash tests/routing-eval.test.sh
 bash tests/snapshots/instrument/pins.test.sh
 claude plugin validate . --strict
+```
+
+If you change a command or skill `description`, run the routing eval before and after. It
+measures whether a fresh session picks otel-as-code for plain requests like "add tracing" and
+stays out of debugging and unrelated ones, with only this plugin loaded and with your own
+plugin set. It costs real model calls (roughly $15 to $40 a pass), so it is not in CI by
+default; `evals/routing/README.md` has the commands and how it is scored.
+
+```bash
+evals/routing/run.sh both before   # then again after your change, and compare
 ```
 
 One shell caveat that costs people an afternoon: GitHub Actions runs `run:` blocks as

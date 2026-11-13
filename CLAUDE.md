@@ -33,5 +33,11 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
 - Terraform golden snapshots: `tests/snapshots/<vendor>/main.tf.snap`, self-contained (inline `variable` blocks) so CI validates `main.tf` standalone. `terraform` isn't installed — download a pinned binary to validate; introspect unfamiliar providers with `terraform providers schema -json`.
 - `scripts/drift_check.py` (weekly `drift-check` CI job; also `workflow_dispatch`) reports when the pinned semconv / OTel-SDK / TF-provider versions fall behind upstream — informational, never fails CI (`tests/drift-check.test.sh` keeps its pin parsers honest offline). When it flags drift: bump the pins, regenerate the affected snapshots, re-validate. Exception: a NuGet row marked **drops <tfm>** (#229) is not a bump target — that release has no asset for the golden `.csproj`'s TargetFramework (`net10.0` since #229; .NET 8/9 left support 2026-11-10), and NuGet's silent `.NETStandard` fallback compiles but exports nothing over OTLP/gRPC. The .NET pins move only together with the golden TargetFramework, re-proven by the live e2e trace-flow job (a clean `dotnet build` is not evidence; `tests/e2e/dotnet-placement.sh` fails on the SDK's "doesn't support net" warning for the same reason), and the generator prints `--version`-pinned 1.20.x lines for a `net8.0`/`net9.0` project rather than the bare form.
 
+- `evals/routing/` measures whether a fresh session picks this plugin (`claude plugin eval` for
+  only-this-plugin, `run-headless.sh` for a full personal plugin set, one scorer `score.py` for
+  both). Run it before and after any command/skill `description` change; it is billed, so it is
+  `workflow_dispatch` only. Don't loosen `score.py` to pass: its rules are pinned by
+  `tests/routing-eval.test.sh`.
+
 ## Shell
 - GitHub Actions runs `run:` blocks as `bash -eo pipefail`; reproduce CI shell logic with that, not the local zsh (zsh doesn't word-split unquoted `$VAR` — use literal args/arrays).
