@@ -36,7 +36,7 @@ subject: it is what a real codebase looks like after three years.
 
 ## How the repo is put together
 
-Read [`CLAUDE.md`](CLAUDE.md) before your first change. It is short, and it holds the
+Read [`.claude/CLAUDE.md`](.claude/CLAUDE.md) before your first change. It is short, and it holds the
 architecture decisions that are not obvious from the file tree. The two-minute version:
 
 - **Nothing is registered by hand.** Commands, agents, skills, and hooks are auto-discovered
@@ -54,7 +54,7 @@ architecture decisions that are not obvious from the file tree. The two-minute v
   | Context-cache schema and ownership | `agents/repo-context-scanner.md` |
 
   If you find yourself typing a vendor name or a version into a second file, stop and read
-  `CLAUDE.md`. There is almost certainly a list you should be reading from instead. A
+  `.claude/CLAUDE.md`. There is almost certainly a list you should be reading from instead. A
   hand-maintained parallel list is how `telemetry.ts` once shipped past the write guard.
 
 - **Codex is a bridge, not a fork.** `.agents/skills/` and `.codex/hooks.json` point back at the

@@ -1,7 +1,7 @@
 # AGENTS.md — otel-as-code
 
 Cross-agent instructions for this repo, read by Codex (and other agents that honor
-`AGENTS.md`). Claude Code plugin-development specifics live in `CLAUDE.md`.
+`AGENTS.md`). Claude Code plugin-development specifics live in `.claude/CLAUDE.md`.
 
 <!-- Maintainer note: Codex loads this file up to `project_doc_max_bytes` (32 KiB default) —
      keep it lean. An `AGENTS.override.md` beside it, if present, takes precedence. -->
@@ -60,5 +60,5 @@ here), so resolve these paths against otel-as-code's own checkout directory, not
 ## Conventions & architecture
 Tool-agnostic conventions — the single-sourced `SEMCONV_VERSION`, the `backends.txt` vendor list,
 and the Terraform snapshot layout — plus Claude Code plugin architecture (auto-discovery,
-`hooks/hooks.json`, `claude plugin validate`) live in `CLAUDE.md`. Read its "Conventions" section;
+`hooks/hooks.json`, `claude plugin validate`) live in `.claude/CLAUDE.md`. Read its "Conventions" section;
 they are not restated here, to keep a single source.

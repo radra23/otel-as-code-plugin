@@ -593,7 +593,7 @@ jobs:
       # for reproducibility — bump deliberately alongside other version pins.
       - name: Validate with the Claude Code plugin validator (--strict)
         run: |
-          npm install -g @anthropic-ai/claude-code@2.1.251
+          npm install -g @anthropic-ai/claude-code@2.1.311
           claude plugin validate . --strict
 
   # #128: the plugin's install cache is keyed on .claude-plugin/plugin.json's version string,
