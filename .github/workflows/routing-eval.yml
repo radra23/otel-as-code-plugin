@@ -3,7 +3,7 @@
 # style requests, and stay out of debugging and unrelated ones? See evals/routing/README.md.
 #
 # Manual only (workflow_dispatch). Every case is a real model call billed to the
-# ANTHROPIC_API_KEY secret: the default 9 prompts x 3 runs costs roughly $15-40 at list price.
+# ANTHROPIC_API_KEY secret: the default 10 prompts x 3 runs costs roughly $15-40 at list price.
 # It runs condition (a), only otel-as-code loaded; condition (b), your personal plugin set, can
 # only run on your own machine (evals/routing/run.sh b).
 name: Routing eval
