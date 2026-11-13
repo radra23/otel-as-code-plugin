@@ -1,6 +1,6 @@
 ---
 name: otel-instrument
-description: Generate OpenTelemetry SDK bootstrap (Node.js / Python), Java agent config, or .NET SDK wiring, plus OTLP wiring for a service. Use when adding OTel instrumentation to a codebase.
+description: Generate OpenTelemetry SDK bootstrap (Node.js / Python), Java agent config, or .NET SDK wiring, plus OTLP wiring for a service. Use when adding OTel instrumentation to a codebase. Not for throwaway tracing while debugging one slow or failing request.
 ---
 
 # otel-instrument (Codex bridge)
