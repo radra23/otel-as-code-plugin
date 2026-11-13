@@ -219,8 +219,8 @@ fi
 
 # Teeth: prove the python3 replacement is actually byte-identical to the old sha256sum|cut
 # pipeline it replaces, not just plausible-sounding prose.
-OLD_HASH="$(git hash-object CLAUDE.md AGENTS.md | sha256sum | cut -c1-16)"
-NEW_HASH="$(printf 'CLAUDE.md\nAGENTS.md\n' | git hash-object --stdin-paths | python3 -c "import sys,hashlib; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest()[:16])")"
+OLD_HASH="$(git hash-object .claude/CLAUDE.md AGENTS.md | sha256sum | cut -c1-16)"
+NEW_HASH="$(printf '.claude/CLAUDE.md\nAGENTS.md\n' | git hash-object --stdin-paths | python3 -c "import sys,hashlib; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest()[:16])")"
 if [ "$OLD_HASH" = "$NEW_HASH" ]; then
   echo "PASS: teeth: the python3 fingerprint command reproduces the exact same hash as sha256sum|cut did (#225)"; pass=$((pass+1))
 else
