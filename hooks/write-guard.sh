@@ -58,15 +58,40 @@ if python3 -c 'pass' </dev/null >/dev/null 2>/dev/null; then PY=python3
 elif python -c 'pass' </dev/null >/dev/null 2>/dev/null; then PY=python
 fi
 py() { if [ "$PY" = python3 ]; then python3 "$@"; else python "$@"; fi; }
-if [ -z "$PY" ]; then
-  echo "otel-as-code write-guard: no WORKING python found: python3/python are absent or do not run" >&2
-  echo "(on Windows, python3 may be a Microsoft Store alias stub that is on PATH but errors when run)." >&2
-  echo "Blocking this write (fail closed). Install a real Python 3, or set OTEL_HOOK_PYTHON to its path." >&2
-  exit 2
-fi
 
 # Read JSON from stdin
 INPUT=$(cat)
+
+# Without Python the payload can't be parsed properly, but the target's file name can still be
+# read with plain shell. Fail closed only when that name is one this plugin protects (a
+# generated file, a Terraform module file, or the context cache) or can't be read at all, so a
+# machine without Python can still edit everything else. Separators, Windows backslashes
+# included, become `/` through a character class rather than an escape.
+if [ -z "$PY" ]; then
+  # One plain assignment per line, so the plugin directory's validator can read each command.
+  # `|| true`: under pipefail a payload with no file_path would otherwise end the hook with exit
+  # 1, which Claude Code treats as a non-blocking error, so the write would go through unchecked.
+  FIELD=$(echo "$INPUT" | grep -o '"file_path"[^,}]*' || true)
+  NAME=$(echo "$FIELD" | sed 's#[^[:alnum:]._-]#/#g')
+  while [ "${NAME%/}" != "$NAME" ]; do NAME=${NAME%/}; done
+  NAME=${NAME##*/}
+  LOWER=$(echo "$NAME" | tr '[:upper:]' '[:lower:]')
+  protected=0
+  if [ -z "$NAME" ] || [ "$NAME" = "file_path" ]; then protected=1; fi
+  if otel_is_generated_basename "$NAME"; then protected=1; fi
+  case "$LOWER" in
+    otel-context.json|main.tf|variables.tf|outputs.tf) protected=1 ;;
+  esac
+  if [ "$protected" -eq 0 ]; then
+    echo "otel-as-code write-guard: no working python, so this write is not checked ($NAME is not an otel-as-code file)." >&2
+    exit 0
+  fi
+  echo "otel-as-code write-guard: no WORKING python found: python3/python are absent or do not run" >&2
+  echo "(on Windows, python3 may be a Microsoft Store alias stub that is on PATH but errors when run)." >&2
+  echo "Blocking this write to ${NAME:-an unreadable path}, a file otel-as-code protects (fail closed)." >&2
+  echo "Install a real Python 3, or set OTEL_HOOK_PYTHON to its path." >&2
+  exit 2
+fi
 
 # Extract tool name and file path (portable; avoids jq dependency)
 TOOL=$(echo "$INPUT" | py -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_name',''))" 2>/dev/null || echo "")
