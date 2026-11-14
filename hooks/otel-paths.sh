@@ -77,11 +77,11 @@ otel_bootstrap_globs() {
   local stem ext name
   for stem in "${OTEL_STEMS[@]}"; do
     for ext in "${OTEL_EXTS[@]}"; do
-      printf '%s.%s\n' "$stem" "$ext"
+      echo "$stem.$ext"
     done
   done
   for name in "${OTEL_BOOTSTRAP_FIXED_NAMES[@]}"; do
-    printf '%s\n' "$name"
+    echo "$name"
   done
 }
 
@@ -92,6 +92,6 @@ otel_all_generated_globs() {
   local name
   otel_bootstrap_globs
   for name in "${OTEL_COLLECTOR_FIXED_NAMES[@]}" "${OTEL_LOCAL_STACK_FIXED_NAMES[@]}"; do
-    printf '%s\n' "$name"
+    echo "$name"
   done
 }
