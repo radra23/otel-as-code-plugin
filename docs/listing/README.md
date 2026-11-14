@@ -5,7 +5,7 @@ below is yours to do by hand.
 
 | File | For |
 |---|---|
-| [plugin-directory.md](plugin-directory.md) | Anthropic's plugin directory: the portal steps, answers, security facts for the reviewer, routing-eval evidence |
+| [plugin-directory.md](plugin-directory.md) | Anthropic's plugin directory: submitted and refused by policy (see its Outcome section); the portal steps, answers, security facts, routing-eval evidence |
 | [otel-registry.yml](otel-registry.yml) and [otel-registry-steps.md](otel-registry-steps.md) | The OpenTelemetry Registry entry and how to open the PR (the registry is frozen right now; read the steps file first) |
 | [awesome.md](awesome.md) | awesome-claude-code, awesome-opentelemetry and awesome-observability, each in its own required format |
 
@@ -32,7 +32,10 @@ telemetry, terraform) and add these 5, which brings it to GitHub's limit of 20:
    https://github.com/radra23/otel-as-code-plugin
 3. Optional but worth it before any human reviewer looks: record the demo
    ([docs/demo/README.md](../demo/README.md)) and uncomment the image lines at the top of the README.
-4. Anthropic plugin directory: follow [plugin-directory.md](plugin-directory.md) at
+4. Anthropic plugin directory: **submitted 2026-11-14 and refused by directory policy** (command
+   hooks and scripts are accepted only from Verified organizations); not listed, by decision.
+   See the outcome at the top of [plugin-directory.md](plugin-directory.md). The original step:
+   follow [plugin-directory.md](plugin-directory.md) at
    https://claude.ai/directory/manage (needs a paid plan and the GitHub account that can push to the
    repo). Use a contact email you read, not the GitHub no-reply address.
 5. awesome-claude-code: the web issue form only, submitted by you, one recommendation at a time:
