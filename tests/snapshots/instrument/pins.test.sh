@@ -77,12 +77,12 @@ check "python bootstrap compiles" 'python3 -m py_compile tests/snapshots/instrum
 check "node pins match generator" 'pins_match tests/snapshots/instrument/nodejs/package.json'
 
 # Teeth check: proves pins_match actually compares versions, not just package names.
-# Injects a version-only drift (^0.221.0 -> ^9.999.0) into a throwaway copy of the golden
+# Injects a version-only drift (the pinned version -> ^9.999.0) into a throwaway copy of the golden
 # package.json and asserts pins_match correctly reports failure on it. Without this,
 # a name-only check (the bug this fix addresses) would silently pass here too.
 check "pin guard catches version drift (teeth check)" '
   tmp=$(mktemp -d)
-  sed -E "s/(\"@opentelemetry\/sdk-node\": \")\^0\.301\.1\"/\1^9.999.0\"/" tests/snapshots/instrument/nodejs/package.json > "$tmp/package.json"
+  sed -E "s/(\"@opentelemetry\/sdk-node\": \")\^[0-9.]+\"/\1^9.999.0\"/" tests/snapshots/instrument/nodejs/package.json > "$tmp/package.json"
   drift_injected=0
   grep -qF "\"@opentelemetry/sdk-node\": \"^9.999.0\"" "$tmp/package.json" && drift_injected=1
   guard_caught_drift=0
@@ -127,7 +127,7 @@ check ".NET pins match generator" 'pins_match_dotnet tests/snapshots/instrument/
 # drift into a throwaway copy of the golden csproj and assert the guard reports failure.
 check ".NET pin guard catches version drift (teeth check)" '
   tmp=$(mktemp -d)
-  sed -E "s/(Include=\"OpenTelemetry.Instrumentation.Http\" Version=\")1\.20\.2\"/\1""9.999.0\"/" \
+  sed -E "s/(Include=\"OpenTelemetry.Instrumentation.Http\" Version=\")[0-9.]+\"/\1""9.999.0\"/" \
     tests/snapshots/instrument/dotnet/checkout-api.csproj > "$tmp/x.csproj"
   drift_injected=0
   grep -qF "Include=\"OpenTelemetry.Instrumentation.Http\" Version=\"9.999.0\"" "$tmp/x.csproj" && drift_injected=1
@@ -153,7 +153,7 @@ check "Go pins match generator" 'pins_match_go tests/snapshots/instrument/go/go.
 # Teeth check: prove pins_match_go compares versions, not just names.
 check "Go pin guard catches version drift (teeth check)" '
   tmp=$(mktemp -d)
-  sed -E "s#(go\.opentelemetry\.io/otel v)1\.46\.0#\19.999.0#" \
+  sed -E "s#(go\.opentelemetry\.io/otel v)[0-9.]+#\19.999.0#" \
     tests/snapshots/instrument/go/go.mod > "$tmp/go.mod"
   drift_injected=0
   grep -qF "go.opentelemetry.io/otel v9.999.0" "$tmp/go.mod" && drift_injected=1
@@ -205,7 +205,7 @@ check "PHP pins match generator" 'pins_match_php tests/snapshots/instrument/php/
 # Teeth check: prove pins_match_php compares versions, not just names.
 check "PHP pin guard catches version drift (teeth check)" '
   tmp=$(mktemp -d)
-  sed -E "s/(\"open-telemetry\/sdk\": \")\^1\.16\.1\"/\1^9.999.0\"/" \
+  sed -E "s/(\"open-telemetry\/sdk\": \")\^[0-9.]+\"/\1^9.999.0\"/" \
     tests/snapshots/instrument/php/composer.json > "$tmp/composer.json"
   drift_injected=0
   grep -qF "\"open-telemetry/sdk\": \"^9.999.0\"" "$tmp/composer.json" && drift_injected=1
