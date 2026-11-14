@@ -11,7 +11,7 @@ secret).
 
 ## Prompts
 
-Ten cases under `cases/`, each a fresh session on a clean copy of the fixture.
+Twelve cases under `cases/`, each a fresh session on a clean copy of the fixture.
 
 | Case | Expect | Prompt |
 |---|---|---|
@@ -25,6 +25,8 @@ Ten cases under `cases/`, each a fresh session on a clean copy of the fixture.
 | `explain-span` | should not route | explain what a span is |
 | `fix-failing-test` | should not route | fix the failing test in lib/orders.js |
 | `diagnose-slow-checkout-with-traces` | should not route | checkout is slow, can you find out why? Instrument the service with OpenTelemetry, run it, hit POST /checkout 20 times, and base your diagnosis on the traces: span names, durations, counts. |
+| `see-traces-locally` | should route | I want to see my traces locally |
+| `telemetry-on-my-machine` | should route | show me this service's telemetry on my machine |
 
 `diagnose-slow-checkout-with-traces` guards the debugging boundary. It asks for OpenTelemetry,
 but as a means to a diagnosis, and the plugin's flow writes a committed production bootstrap
@@ -93,7 +95,7 @@ python3 evals/routing/score.py --compare evals/results/routing/<before>/summary-
 Env: `RUNS` (default 3), `JOBS` (default 3), `EVAL_MODEL` (default `claude-opus-5-5`),
 `MAX_COST_USD` (default 40, condition a), `CASE` (glob). Results land in
 `evals/results/routing/` (gitignored), with a per-run table of verdict, cost, and wall time.
-A full pass of one condition is 30 runs; expect roughly $15 to $40 and 20 to 40 minutes.
+A full pass of one condition is 36 runs; expect roughly $15 to $40 and 20 to 40 minutes.
 
 ## Baseline (2026-11-12, otel-as-code 0.9.7 at `main` 5bffc17, `claude-opus-5-5`, Claude Code 2.1.311)
 
@@ -156,6 +158,21 @@ tracing while debugging"). All ten cases, three runs each, both conditions:
 on 2026-11-13). After the change every debugging-with-traces run hand-rolls a scratch tracer,
 which is the expected outcome, and every should-route run still routes, 36 of 36 across both
 conditions.
+
+### Adding /otel-local (2026-11-14, 0.10.1 to 0.11.0, same model and Claude Code version)
+
+Two should-route cases for seeing telemetry on your own machine were added first and measured
+against 0.10.1 ("before"), then `/otel-local` landed ("after"). Twelve cases, three runs each:
+
+| Prompt | (a) before / after | (b) before / after | Skill picked after |
+|---|---|---|---|
+| I want to see my traces locally | 2/3 / 3/3 | 2/3 / 3/3 | otel-local |
+| show me this service's telemetry on my machine | 0/3 / 3/3 | 0/3 / 3/3 | otel-local |
+| **Should-route routed, false triggers** | 7/8, 0/4 / **8/8, 0/4** | 7/8, 0/4 / **8/8, 0/4** | |
+| **Cost, wall (after)** | $14.89, 13 min | $23.01, 13 min | |
+
+Before, "show me this service's telemetry on my machine" hand-rolled OpenTelemetry in 3/3 (a)
+and 2/3 (b) runs. Every other case kept its result, including the four should-not-route ones.
 
 One scorer bug was found and fixed while recording this baseline: `score.py` resolved relative
 paths and `Grep` regexes against its own working directory, which sits inside the plugin repo, so
