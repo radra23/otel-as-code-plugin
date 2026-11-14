@@ -84,11 +84,19 @@ fi
 
 # Confirm-before-write enforcement for business attributes. Business semantics are never
 # assumed: any business attribute written to the context cache must carry "confirmed": true
-# (set by /otel-business-attrs only after explicit user approval). Block otherwise — this
+# (set by /otel-business-attrs only after explicit user approval). Block otherwise: this
 # turns the confirmation gate into a structural invariant rather than prose. Full-file Writes
 # are validated; Edits that don't carry full JSON content can't be checked and pass through.
-case "$FILE_PATH" in
-  */.claude/otel-context.json|.claude/otel-context.json)
+# scripts/write_context.py, which the commands use to write the cache, applies the same rule.
+# The path is normalised before matching (backslashes, `.` and `..`, letter case), so a spelling
+# such as ./.claude/../.claude/otel-context.json or a Windows path cannot step around the check.
+IS_CONTEXT=$(py -c "
+import os, sys
+p = os.path.normpath(sys.argv[1].replace(chr(92), '/')).replace(chr(92), '/').lower().split('/')
+print('yes' if len(p) >= 2 and p[-1] == 'otel-context.json' and p[-2] == '.claude' else 'no')
+" "$FILE_PATH" 2>/dev/null || echo no)
+case "$IS_CONTEXT" in
+  yes)
     CONTENT=$(echo "$INPUT" | py -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_input',{}).get('content',''))" 2>/dev/null || echo "")
     if [ -n "$CONTENT" ]; then
       UNCONFIRMED=$(py -c "
