@@ -91,6 +91,15 @@ def latest_collector():
     return fetch_json("https://api.github.com/repos/open-telemetry/opentelemetry-collector-releases/releases/latest")["tag_name"].lstrip("v")
 
 
+def lgtm_release_version(release):
+    """The image tag a docker-otel-lgtm GitHub release publishes (tag v0.40.0 -> image 0.40.0)."""
+    return release["tag_name"].lstrip("v")
+
+
+def latest_lgtm():
+    return lgtm_release_version(fetch_json("https://api.github.com/repos/grafana/docker-otel-lgtm/releases/latest"))
+
+
 def latest_semconv():
     return fetch_json("https://api.github.com/repos/open-telemetry/semantic-conventions/releases/latest")["tag_name"].lstrip("v")
 
@@ -373,6 +382,22 @@ def collector_pin():
     return m.group(1) if m else None
 
 
+def lgtm_pins():
+    """Every place the grafana/otel-lgtm image tag for /otel-local is pinned, keyed by file. The
+    command is what users get; the golden compose file is what the local-stack e2e job runs. The
+    test suite asserts they agree, so CI never proves a tag the command does not generate."""
+    pat = r"grafana/otel-lgtm:([0-9][0-9.]*)"
+    return {
+        "commands/otel-local.md": re.search(pat, _read("commands/otel-local.md")),
+        "tests/snapshots/local-stack/otel-local.compose.yaml": re.search(pat, _read("tests/snapshots/local-stack/otel-local.compose.yaml")),
+    }
+
+
+def lgtm_pin():
+    m = lgtm_pins()["commands/otel-local.md"]
+    return m.group(1) if m else None
+
+
 def semconv_pin():
     m = re.search(r"SEMCONV_VERSION:\s*([0-9.]+)", _read("skills/semconv-discipline/SKILL.md"))
     return m.group(1) if m else None
@@ -433,6 +458,8 @@ def main():
         add(f"tf {source}", pinned, latest, err, cmp=behind_major)
     latest, err = safe(latest_collector)
     add("otelcol-contrib (Collector)", collector_pin(), latest, err)
+    latest, err = safe(latest_lgtm)
+    add("grafana/otel-lgtm (/otel-local)", lgtm_pin(), latest, err)
 
     table = "\n".join(
         ["| Component | Pinned | Latest | Status |", "|---|---|---|---|"]

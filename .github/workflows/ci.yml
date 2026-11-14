@@ -126,6 +126,9 @@ jobs:
       - name: assert-logs unit test
         run: bash tests/e2e/assert-logs.test.sh
 
+      - name: assert-lgtm unit test (local stack read-back)
+        run: bash tests/e2e/assert-lgtm.test.sh
+
       - name: golden bootstrap pins/syntax test
         run: bash tests/snapshots/instrument/pins.test.sh
 
@@ -262,6 +265,24 @@ jobs:
 
       - name: Trace-flow smoke test (#1)
         run: bash tests/e2e/run.sh
+
+  # /otel-local: the pinned grafana/otel-lgtm stack from the golden compose file, the Node
+  # fixture on its own port 3000 (so Grafana is remapped to host 3001), and a trace read back
+  # through Grafana's datasource proxy by the same script the command runs.
+  local-stack-e2e:
+    name: Local stack (/otel-local) trace read-back
+    runs-on: ubuntu-latest
+    # Pulling the ~1 GB image and an npm install dominate; a healthy run is ~3-5 min.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Local stack end to end
+        run: bash tests/e2e/local-stack.sh
 
   validate-codex-bridge:
     name: Validate Codex bridge

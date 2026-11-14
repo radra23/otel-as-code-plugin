@@ -53,6 +53,6 @@ bad = [c for c in glob.glob("evals/routing/cases/*/")
        if not (glob.glob(c + "graders/*.md") and os.path.exists(c + "scaffold.sh") and os.path.exists(c + "case.yaml"))]
 pos = sum(v["expect"] == "should-route" for v in exp.values())
 print(f"cases: {len(exp)} ({pos} should-route, {len(exp) - pos} should-not-route); incomplete: {bad or 'none'}")
-sys.exit(1 if bad or len(exp) != 10 or pos != 6 else 0)
+sys.exit(1 if bad or len(exp) != 12 or pos != 8 else 0)
 PY
 exit $fail

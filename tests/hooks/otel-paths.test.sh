@@ -18,6 +18,9 @@ has_all(){ otel_all_generated_globs  | grep -qx "$1"; }
 # --- otel_bootstrap_globs is BOOTSTRAP-ONLY (the destructive-consumer set) ---
 check "bootstrap globs EXCLUDE otelcol-agent.yaml"   '! has otelcol-agent.yaml'
 check "bootstrap globs EXCLUDE otelcol-gateway.yaml" '! has otelcol-gateway.yaml'
+# The local stack is shared by every service; per-service /otel-uninstrument must never reach it.
+check "bootstrap globs EXCLUDE otel-local.compose.yaml" '! has otel-local.compose.yaml'
+check "bootstrap globs EXCLUDE otel-local.env"          '! has otel-local.env'
 check "bootstrap globs include otel-java.env"        'has otel-java.env'
 check "bootstrap globs include OpenTelemetry.cs"     'has OpenTelemetry.cs'
 check "bootstrap globs include tracing.js"           'has tracing.js'
@@ -29,6 +32,8 @@ check "bootstrap globs include opentelemetry.rb"      'has opentelemetry.rb'
 # --- otel_all_generated_globs is the UNION (read-only reporting set) ---
 check "all-generated globs include otelcol-agent.yaml"   'has_all otelcol-agent.yaml'
 check "all-generated globs include otelcol-gateway.yaml" 'has_all otelcol-gateway.yaml'
+check "all-generated globs include otel-local.compose.yaml" 'has_all otel-local.compose.yaml'
+check "all-generated globs include otel-local.env"          'has_all otel-local.env'
 check "all-generated globs include the bootstrap names too" 'has_all OpenTelemetry.cs && has_all tracing.js'
 
 # --- otel_is_generated_path stays the UNION: the write-guard must still PROTECT collector
@@ -36,6 +41,9 @@ check "all-generated globs include the bootstrap names too" 'has_all OpenTelemet
 #     narrow the guard.
 check "is_generated_path still true for otelcol-agent.yaml (guard protects it)"   'otel_is_generated_path /x/otelcol-agent.yaml'
 check "is_generated_path still true for otelcol-gateway.yaml (guard protects it)" 'otel_is_generated_path /x/otelcol-gateway.yaml'
+check "is_generated_path true for otel-local.compose.yaml (guard protects it)" 'otel_is_generated_path /x/otel-local.compose.yaml'
+check "is_generated_path true for otel-local.env (guard protects it)"          'otel_is_generated_path /x/otel-local.env'
+check "is_generated_path false for a user's .env"                            '! otel_is_generated_path /x/.env'
 check "is_generated_path true for OpenTelemetry.cs"  'otel_is_generated_path /x/OpenTelemetry.cs'
 check "is_generated_path false for a hand-written file" '! otel_is_generated_path /x/server.js'
 

@@ -1128,7 +1128,8 @@ Next steps:
      java -javaagent:./opentelemetry-javaagent.jar -jar <app>.jar
      # deployment.environment.name defaults to <the confirmed deploymentEnvironment>; override
      # per target by exporting DEPLOYMENT_ENV before sourcing, e.g. DEPLOYMENT_ENV=production.
-  3. Verify traces at http://localhost:16686 (Jaeger), with a local Collector listening on :4317.
+  3. See it locally: /otel-local starts a free Grafana stack on this machine and prints where
+     your traces, logs and metrics appear (it sources otel-local.env after otel-java.env).
 ```
 
 Per the "Deployment-environment provisioning check" section: if `deploymentEnvConfigured` is not
@@ -2251,7 +2252,8 @@ Next steps:
   npm install   (or pip install -e ".[dev]")
   Local, no collector needed:  OTEL_TRACES_EXPORTER=console npm start
   With a collector on :4317:   OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 npm start
-  Verify traces at http://localhost:16686 (Jaeger) or http://localhost:3000 (Grafana/Tempo)
+  See it locally: /otel-local starts a free Grafana stack on this machine and prints where
+  your traces, logs and metrics appear
 ```
 
 Include the logs-correlation caveat whenever logs are enabled: a log record carries
