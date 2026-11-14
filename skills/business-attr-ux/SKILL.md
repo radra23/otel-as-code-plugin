@@ -69,9 +69,11 @@ approved a different string than the one that reaches disk.
 
 **Enforced, not just requested.** Each `businessAttrs` entry written to
 `.claude/otel-context.json` MUST carry `"confirmed": true`, set only after the user
-explicitly approves it. The `write-guard` PreToolUse hook parses every write to
-`otel-context.json` and BLOCKS it if any business attribute is missing `"confirmed": true`.
-So an unconfirmed business attribute cannot reach disk even if this prose is ignored — write
+explicitly approves it. Both ways the cache gets written refuse otherwise:
+`scripts/write_context.py`, which the commands use, refuses the whole write if any business
+attribute is missing `"confirmed": true`, and the `write-guard` PreToolUse hook blocks a direct
+Write of `otel-context.json` the same way. So an unconfirmed business attribute cannot reach disk
+even if this prose is ignored; write
 approved attributes with `"confirmed": true`, and never write rejected/unreviewed ones.
 
 ## Confidence Thresholds
@@ -235,7 +237,7 @@ them over verbatim and must never reset them to `null` or `[]`. Mark a confirmed
 team `"user-confirmed"` as its source — that marker is what tells the scanner not to overwrite
 it with a fresh inference.
 
-Every object in `businessAttrs` MUST include `"confirmed": true` — the `write-guard` hook
-rejects the whole file otherwise. Omit attributes the user rejected or did not review; never
+Every object in `businessAttrs` MUST include `"confirmed": true`: `scripts/write_context.py`
+and the `write-guard` hook both reject the whole file otherwise. Omit attributes the user rejected or did not review; never
 write them with `"confirmed": false` expecting them to be ignored. Never write a bare `biz.*`
 name; keep the pre-namespace form in `candidateName`.

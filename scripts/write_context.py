@@ -21,6 +21,11 @@ actual write, and enforces in code the rules a transcription can't reliably chec
      script's own clock -- the scanner has none of its own, which is exactly the bug this
      check exists to catch), and pluginVersion must match the version this plugin's own
      installed plugin.json actually declares, when --plugin-root is given.
+  4. Every businessAttrs entry must carry "confirmed": true, on every write, first scan included.
+     Business semantics are never assumed: /otel-business-attrs records an attribute only after
+     the user approves it. hooks/write-guard.sh enforces the same rule on a Write of this file,
+     but the commands write the cache through this script from the shell, which the hook never
+     sees, so the rule has to live here too or it is not enforced at all.
 
 Exit 0 and a written file on success. Exit 1 with a one-line reason and NOTHING written on any
 safety-rule failure, including an I/O or parse error encountered while enforcing a rule --
@@ -201,6 +206,19 @@ def check_plugin_version(new, plugin_root):
         )
 
 
+def check_business_attrs_confirmed(new):
+    """Rule 4: the same test hooks/write-guard.sh applies to a Write of the cache."""
+    attrs = new.get("businessAttrs") or []
+    if not isinstance(attrs, list):
+        fail("'businessAttrs' is not a list -- not a valid context object.")
+    unconfirmed = [a.get("name", "?") for a in attrs
+                   if isinstance(a, dict) and a.get("confirmed") is not True]
+    if unconfirmed:
+        fail(f"refusing to write unconfirmed business attribute(s): {', '.join(unconfirmed)}. "
+             f"Each needs \"confirmed\": true, set only after the user approves it in "
+             f"/otel-business-attrs -- nothing written.")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -226,6 +244,7 @@ def main():
 
     check_scanned_at(new)
     check_plugin_version(new, args.plugin_root)
+    check_business_attrs_confirmed(new)
 
     old = None
     if args.existing:

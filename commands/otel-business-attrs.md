@@ -90,9 +90,9 @@ Update `.claude/otel-context.json`:
   `"histogram"` — see `business-attr-ux`; it decides how `/otel-backend` renders the attribute),
   plus `name`, `source`, `confidence`, `confirmedAt`, and `"unit"` (nullable — the instrument's
   unit when observed, e.g. `"s"`/`"ms"`/`"By"`, used to label a histogram's quantile-panel axis;
-  `null` otherwise, never guessed). Do NOT include rejected or unreviewed candidates — the
-  `write-guard` hook blocks the entire write if any `businessAttrs` entry lacks
-  `"confirmed": true`.
+  `null` otherwise, never guessed). Do NOT include rejected or unreviewed candidates:
+  `scripts/write_context.py` refuses the entire write if any `businessAttrs` entry lacks
+  `"confirmed": true`, and the `write-guard` hook does the same for a direct Write.
 
 Print:
 ```
