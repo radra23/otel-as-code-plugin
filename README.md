@@ -12,8 +12,20 @@ A Claude Code plugin and a set of Codex skills that scan your repo, instrument y
 and generate the Collector config and Terraform (dashboards, alerts, SLOs) for Grafana, Datadog,
 New Relic, or Dash0.
 
-<!-- TODO: 30 to 60 second demo. /otel-init on a sample repo, then /otel-instrument, then the
-     first span printing with OTEL_TRACES_EXPORTER=console. Save as docs/demo.gif. -->
+<!-- Demo GIF shot list (30 to 60 s, save as docs/demo.gif). Sample repo: fixtures/nodejs-greenfield
+     copied to a scratch dir (its app listens on 3000, so the Grafana remap shows on screen).
+     1. Terminal, Claude Code open in the repo: type /otel-init. Hold on the detected service
+        (checkout-api, Node.js, Express) and the closing "Want to see this running locally now?".
+     2. Answer yes. /otel-instrument runs: show the one confirmation and "Generated: tracing.js".
+     3. /otel-local: the port line ("app listens on 3000, so Grafana goes on 3001"), docker
+        compose pulling and starting, then the "where to look" block with http://localhost:3001.
+     4. Second terminal: the printed run line (set -a; . ./otel-local.env; set +a; npm start),
+        then three curl -X POST http://localhost:3000/checkout calls.
+     5. Back in Claude Code: answer yes to "check that a trace arrived?" and hold on
+        "found: 3 trace(s); latest root span "POST /checkout"".
+     6. Browser at http://localhost:3001: Explore, Tempo, Search, Service Name = checkout-api, open
+        one trace and let the span waterfall sit for two seconds.
+     7. End on Explore, Prometheus, one http_server_* metric graph. No vendor login anywhere. -->
 <!-- ![otel-as-code demo](docs/demo.gif) -->
 
 **Why it exists.** Hand-rolled OTel setups fail quietly. The SDKs default to `localhost:4317`,
@@ -111,8 +123,22 @@ a command says "dispatch the `<x>` agent", read `agents/<x>.md` and do that work
 
 ## Quick start
 
+Recommended first step: see your own traces, logs and metrics on your machine, with nothing to
+sign up for.
+
 ```
-/otel-init                  # Scan your repo, detect services
+/otel-init                  # Scan your repo, detect services; offers the next line at the end
+/otel-local                 # Free local Grafana stack in Docker, wired to your service
+```
+
+`/otel-local` starts `grafana/otel-lgtm`, a single open-source container that takes OTLP in and
+shows traces, logs and metrics in Grafana, and nothing leaves your machine. The generated code
+speaks plain OTLP, so you can swap the stack for any backend that accepts OTLP without touching
+it. No Docker? It says so and prints spans to the console instead.
+
+Then, when you are ready for a real backend:
+
+```
 /otel-business-attrs        # Confirm service identity + namespace
 /otel-instrument            # Generate OTel SDK bootstrap
 /otel-collector agent       # Generate Collector config
@@ -133,6 +159,7 @@ gaps and deprecated attributes with finding IDs you can apply selectively via
 | `/otel-init` | First-run setup: detect services, prime context cache |
 | `/otel-instrument [lang]` | SDK bootstrap for Node.js / Python / Go / Ruby / Rust, Java agent config, or .NET SDK wiring |
 | `/otel-uninstrument` | Remove the generated SDK bootstrap for a service (marker-gated rollback) |
+| `/otel-local` | Free local Grafana stack (grafana/otel-lgtm) in Docker, wired to your service; `--down` stops it |
 | `/otel-evaluate` | Read-only brownfield gap audit |
 | `/otel-remediate` | Deployment-config diff (env vars) for a service with no app source to bootstrap but native OTel support — v1: Keycloak only |
 | `/otel-collector [mode]` | otelcol-contrib config (agent \| gateway) |

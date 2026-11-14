@@ -1,0 +1,34 @@
+{
+ "traces": [
+  {
+   "traceID": "8225562198c59dc6c56c0a6d09f7af7",
+   "rootServiceName": "checkout-api",
+   "rootTraceName": "POST /checkout",
+   "startTimeUnixNano": "1794417269393000000",
+   "durationMs": 774,
+   "spanSet": {
+    "spans": [
+     {
+      "spanID": "77c5809bc11a53eb",
+      "startTimeUnixNano": "1794417269394000000",
+      "durationNanos": "243958",
+      "attributes": [
+       {
+        "key": "service.name",
+        "value": {
+         "stringValue": "checkout-api"
+        }
+       }
+      ]
+     }
+    ],
+    "matched": 1
+   }
+  }
+ ],
+ "metrics": {
+  "inspectedBytes": "1024",
+  "completedJobs": 1,
+  "totalJobs": 1
+ }
+}

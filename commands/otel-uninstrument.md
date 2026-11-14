@@ -61,6 +61,9 @@ Resolve the candidate files the same way as `/otel-instrument` Step 4 — do NOT
    destructive command from ever reaching a Collector config. Do not re-add the collector or
    Terraform names by hand — they are out of scope for uninstrument, and the marker gate would NOT
    protect them (`/otel-collector` stamps its output with the same ownership marker).
+   The same holds for the local-stack files (`otel-local.compose.yaml`, `otel-local.env`): the stack
+   is shared by every service in the repo, so this per-service command never removes them. If any
+   exist, say so in the summary and point at `/otel-local --down`.
 
 If nothing is found, print "No generated bootstrap artifacts found for <target>. Nothing to
 remove." and exit 0.

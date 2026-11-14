@@ -302,6 +302,16 @@ Recommended next steps:
   /otel-instrument       — generate OTel SDK bootstrap code
   /otel-collector agent  — generate an OTel Collector config
   /otel-evaluate         — audit existing OTel coverage (brownfield repos)
+  /otel-local            - see your traces, logs and metrics on this machine (Docker)
 
 Commit .claude/otel-services.json so your team shares the same service map.
+
+Want to see this running locally now? I can instrument <service> and start a free local
+Grafana stack in Docker; your first trace shows up in a few minutes and nothing leaves this machine.
 ```
+
+Ask that last question only when at least one detected service has `generatorSupported: true`;
+name the service `/otel-instrument` Step 2 would pick, or say "a service" when there are several.
+On yes, run `/otel-instrument` (it confirms its own choices), then `/otel-local` for the same
+service. On no, stop here. Never start the stack without asking: it pulls a ~1 GB image and binds
+host ports.
