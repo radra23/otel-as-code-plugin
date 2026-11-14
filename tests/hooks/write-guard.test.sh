@@ -133,6 +133,45 @@ else
 fi
 rm -rf "$TMP"
 
+# Test 7b: the same unconfirmed write under other spellings of the same file must also block:
+# a `..` detour, different letter case (one file on macOS's default filesystem), and a Windows
+# path with backslashes. Each target is a brand-new file, so a block can only come from the
+# confirmation check.
+for spelling in "TMP/.claude/../.claude/otel-context.json" "TMP/.Claude/Otel-Context.json" "WIN"; do
+  TMP=$(mktemp -d); mkdir -p "$TMP/.claude"
+  CTX='{"schemaVersion":"1","businessAttrs":[{"name":"biz.checkout.conversion_rate","confirmed":false}]}'
+  case "$spelling" in
+    WIN) target="C:$(printf '%s' "$TMP" | tr '/' '\\')\\.claude\\otel-context.json" ;;
+    *) target="${spelling/TMP/$TMP}" ;;
+  esac
+  INPUT=$(python3 -c "import json,sys; print(json.dumps({'tool_name':'Write','tool_input':{'file_path':sys.argv[1],'content':sys.argv[2]}}))" "$target" "$CTX")
+  actual_exit=0
+  echo "$INPUT" | bash "$HOOK" > /dev/null 2>&1 || actual_exit=$?
+  if [ "$actual_exit" -eq 2 ]; then
+    echo "PASS: blocks unconfirmed business attribute write via $spelling"
+    PASS=$((PASS+1))
+  else
+    echo "FAIL: unconfirmed business attr via $spelling (expected 2, got $actual_exit)"
+    FAIL=$((FAIL+1))
+  fi
+  rm -rf "$TMP"
+done
+
+# A file that only looks similar is not the context cache: no block for an unconfirmed attr.
+TMP=$(mktemp -d)
+CTX='{"schemaVersion":"1","businessAttrs":[{"name":"x","confirmed":false}]}'
+INPUT=$(python3 -c "import json,sys; print(json.dumps({'tool_name':'Write','tool_input':{'file_path':sys.argv[1],'content':sys.argv[2]}}))" "$TMP/notclaude/otel-context.json" "$CTX")
+actual_exit=0
+echo "$INPUT" | bash "$HOOK" > /dev/null 2>&1 || actual_exit=$?
+if [ "$actual_exit" -eq 0 ]; then
+  echo "PASS: otel-context.json outside a .claude folder is not the cache"
+  PASS=$((PASS+1))
+else
+  echo "FAIL: otel-context.json outside .claude was treated as the cache (expected 0, got $actual_exit)"
+  FAIL=$((FAIL+1))
+fi
+rm -rf "$TMP"
+
 # Test 8: writing otel-context.json with ALL business attrs confirmed → allow (exit 0)
 TMP=$(mktemp -d); mkdir -p "$TMP/.claude"
 CTX='{"schemaVersion":"1","businessAttrs":[{"name":"biz.checkout.conversion_rate","confirmed":true}]}'
