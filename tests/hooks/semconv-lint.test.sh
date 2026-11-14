@@ -120,21 +120,29 @@ rm -rf "$SENT"
 set +e; emit "$CLN/tracing.js" | OTEL_STRICT=1 bash "$HOOK" >/dev/null 2>&1; RC=$?; set -e
 check_rc "strict on + clean -> exit 0" 0 "$RC"
 
-# Test 11: no python + strict → fail closed (exit 2) — can't uphold the strict block guarantee.
-set +e; emit "$SEV/tracing.js" | OTEL_HOOK_PYTHON= OTEL_STRICT=1 bash "$HOOK" >/dev/null 2>&1; RC=$?; set -e
+# Tests 11-14: no working python. The hook runs its interpreter only by the literal names
+# python3/python, so absence is simulated with failing stubs of both names first on PATH.
+# Test 11: no python + strict -> fail closed (exit 2): can't uphold the strict block guarantee.
+# The CLEAN file makes this discriminating: with a working python it would exit 0.
+NOPY=$(mktemp -d)
+for n in python3 python; do printf '#!/bin/sh\nexit 127\n' > "$NOPY/$n"; chmod +x "$NOPY/$n"; done
+set +e; emit "$CLN/tracing.js" | PATH="$NOPY:$PATH" OTEL_STRICT=1 bash "$HOOK" >/dev/null 2>&1; RC=$?; set -e
 check_rc "no-python + strict -> exit 2 (fail closed)" 2 "$RC"
 
-# Test 12: no python + advisory (default) → skip quietly (exit 0) — advisory lint can't run.
-set +e; emit "$SEV/tracing.js" | OTEL_HOOK_PYTHON= bash "$HOOK" >/dev/null 2>&1; RC=$?; set -e
+# Test 12: no python + advisory (default) -> skip quietly (exit 0): advisory lint can't run.
+set +e; emit "$SEV/tracing.js" | PATH="$NOPY:$PATH" bash "$HOOK" >/dev/null 2>&1; RC=$?; set -e
 check_rc "no-python + advisory -> exit 0 (skip)" 0 "$RC"
+rm -rf "$NOPY"
 
-# Test 13/14 (#54): interpreter RESOLVES but does not RUN (Windows `python3` alias stub) — same
-# guarantee as no-python: strict fails closed (exit 2), advisory skips (exit 0). Before the fix
-# the naive `command -v` picked the stub, the parse produced nothing, and strict never blocked.
-STUBDIR=$(mktemp -d); printf '#!/bin/sh\nexit 9\n' > "$STUBDIR/py-stub"; chmod +x "$STUBDIR/py-stub"
-set +e; emit "$SEV/tracing.js" | OTEL_HOOK_PYTHON="$STUBDIR/py-stub" OTEL_STRICT=1 bash "$HOOK" >/dev/null 2>&1; RC=$?; set -e
+# Test 13/14 (#54): interpreter RESOLVES but does not RUN (Windows `python3` alias stub): same
+# guarantee as no-python. Strict fails closed (exit 2, on the CLEAN file again), advisory skips.
+STUBDIR=$(mktemp -d)
+for n in python3 python; do
+  printf '#!/bin/sh\necho "Python was not found" >&2\nexit 9\n' > "$STUBDIR/$n"; chmod +x "$STUBDIR/$n"
+done
+set +e; emit "$CLN/tracing.js" | PATH="$STUBDIR:$PATH" OTEL_STRICT=1 bash "$HOOK" >/dev/null 2>&1; RC=$?; set -e
 check_rc "stub interpreter + strict -> exit 2 (fail closed)" 2 "$RC"
-set +e; emit "$SEV/tracing.js" | OTEL_HOOK_PYTHON="$STUBDIR/py-stub" bash "$HOOK" >/dev/null 2>&1; RC=$?; set -e
+set +e; emit "$SEV/tracing.js" | PATH="$STUBDIR:$PATH" bash "$HOOK" >/dev/null 2>&1; RC=$?; set -e
 check_rc "stub interpreter + advisory -> exit 0 (skip)" 0 "$RC"
 rm -rf "$STUBDIR"
 

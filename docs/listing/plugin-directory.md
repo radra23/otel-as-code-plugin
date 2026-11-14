@@ -300,6 +300,15 @@ outcome." The command descriptions now say what they are not for, for example `/
 
 ## Things to fix or expect before submitting
 
+- **Portal validation (2026-11-14):** the first Validate on `main` was **blocked** with "Can't
+  confirm which code runs" on `hooks/write-guard.sh`, because the hooks ran their Python
+  interpreter from a variable and built helper paths from the script's location. Fixed in
+  0.11.3 (the hooks name every program they run); Validate then **passed** with 25 policy holds
+  and 48 warnings, none blocking. The holds: credentials read from the environment (the
+  generated Terraform's vendor keys), "Hook can approve tool calls" on the PreToolUse hook,
+  image files the code could run, and "Scripts the validator couldn't follow". Most notes come
+  from submitting the whole repo (fixtures, tests); the slim `directory` branch addresses those.
+
 - **Version**: 0.11.2 must be on `main` before you select Validate (done once the listing PR merges).
 - **Likely reviewer hold**: the checklist says a hook script that runs "calls to other files in the
   plugin", "shell variables other than `${CLAUDE_PLUGIN_ROOT}`" or "command substitutions" is "Held

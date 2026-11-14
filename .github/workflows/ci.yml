@@ -158,8 +158,9 @@ jobs:
 
       # GitHub's Windows runners expose Python as `python` in Git Bash, not always as `python3`.
       # The hooks now probe python3 -> python, and the test harness calls `python3` directly, so
-      # guarantee a working `python3` on PATH. (The suites still simulate the BROKEN Store stub via
-      # OTEL_HOOK_PYTHON, so the fail-closed / fall-through behaviour is exercised regardless.)
+      # guarantee a working `python3` on PATH. (The suites still simulate a missing or BROKEN Store
+      # stub with failing `python3`/`python` stubs first on PATH, so the fail-closed and
+      # fall-through behaviour is exercised regardless.)
       - name: Ensure python3 resolves in Git Bash
         run: |
           if ! command -v python3 >/dev/null 2>&1; then
