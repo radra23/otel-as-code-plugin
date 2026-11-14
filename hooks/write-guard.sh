@@ -88,36 +88,30 @@ fi
 # turns the confirmation gate into a structural invariant rather than prose. Full-file Writes
 # are validated; Edits that don't carry full JSON content can't be checked and pass through.
 # scripts/write_context.py, which the commands use to write the cache, applies the same rule.
-# The path is normalised before matching (backslashes, `.` and `..`, letter case), so a spelling
-# such as ./.claude/../.claude/otel-context.json or a Windows path cannot step around the check.
-IS_CONTEXT=$(py -c "
-import os, sys
-p = os.path.normpath(sys.argv[1].replace(chr(92), '/')).replace(chr(92), '/').lower().split('/')
-print('yes' if len(p) >= 2 and p[-1] == 'otel-context.json' and p[-2] == '.claude' else 'no')
-" "$FILE_PATH" 2>/dev/null || echo no)
-case "$IS_CONTEXT" in
-  yes)
-    CONTENT=$(echo "$INPUT" | py -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_input',{}).get('content',''))" 2>/dev/null || echo "")
-    if [ -n "$CONTENT" ]; then
-      UNCONFIRMED=$(py -c "
+# The path is normalised before matching (backslashes, `.` and `..`, letter case), so another
+# spelling of the same file or a Windows path cannot step around the check. The normalisation
+# lives in otel-force-match.py, the one place this hook already compares paths.
+if py "${CLAUDE_PLUGIN_ROOT}/hooks/otel-force-match.py" --is-context "$FILE_PATH" 2>/dev/null; then
+  CONTENT=$(echo "$INPUT" | py -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_input',{}).get('content',''))" 2>/dev/null || echo "")
+  if [ -n "$CONTENT" ]; then
+    UNCONFIRMED=$(py -c "
 import sys, json
 try:
-    d = json.load(sys.stdin)
+  d = json.load(sys.stdin)
 except Exception:
-    sys.exit(0)  # not full-file JSON (e.g. an Edit): cannot validate, so it passes
+  sys.exit(0)  # not full-file JSON (e.g. an Edit): cannot validate, so it passes
 attrs = d.get('businessAttrs', []) or []
 print(chr(10).join(a.get('name', '?') for a in attrs if isinstance(a, dict) and a.get('confirmed') is not True))
 " <<<"$CONTENT" 2>/dev/null || echo "")
-      if [ -n "$UNCONFIRMED" ]; then
-        echo "otel-as-code write-guard: refusing to write unconfirmed business attribute(s) to otel-context.json:" >&2
-        echo "$UNCONFIRMED" | sed 's/^/  - /' >&2
-        echo 'Business attributes must carry "confirmed": true before they are written.' >&2
-        echo "Re-run /otel-business-attrs and confirm each attribute." >&2
-        exit 2
-      fi
+    if [ -n "$UNCONFIRMED" ]; then
+      echo "otel-as-code write-guard: refusing to write unconfirmed business attribute(s) to otel-context.json:" >&2
+      echo "$UNCONFIRMED" | sed 's/^/  - /' >&2
+      echo 'Business attributes must carry "confirmed": true before they are written.' >&2
+      echo "Re-run /otel-business-attrs and confirm each attribute." >&2
+      exit 2
     fi
-    ;;
-esac
+  fi
+fi
 
 # Check if the file exists on disk
 if [ ! -f "$FILE_PATH" ]; then

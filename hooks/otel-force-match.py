@@ -4,6 +4,12 @@
 Usage: otel-force-match.py <file_path> <project_dir> <sentinel_file>
 Exit 0 = the sentinel lists this file (allow the overwrite). Exit 1 = it does not.
 
+       otel-force-match.py --is-context <file_path>
+Exit 0 = the path names the context cache, .claude/otel-context.json, however it is spelled
+(backslashes, `.` and `..`, letter case). Exit 1 = it does not. write-guard.sh uses this to
+decide whether the business-attribute confirmation check applies, with the same normalisation
+the --force match relies on, so a different spelling of the path cannot step around it.
+
 Why this is not `grep -Fxq`: the two sides of the comparison are produced by different
 programs on possibly different path conventions, and an exact string match between them
 can never succeed on Windows.
@@ -71,7 +77,17 @@ def same(a_raw, a_canon, b_raw, b_canon):
     return a_real is not None and a_real == b_real
 
 
+def is_context(raw):
+    """True when `raw` names .claude/otel-context.json. Case is folded on every host: macOS's
+    default filesystem treats .Claude/Otel-Context.json as the same file, and treating a
+    lookalike as the cache only means a confirmation check runs where it was not needed."""
+    parts = canon(raw, "/").lower().split("/")
+    return len(parts) >= 2 and parts[-2:] == [".claude", "otel-context.json"]
+
+
 def main():
+    if len(sys.argv) == 3 and sys.argv[1] == "--is-context":
+        return 0 if is_context(sys.argv[2]) else 1
     if len(sys.argv) != 4:
         return 1
     target_raw, project_dir, sentinel = sys.argv[1], sys.argv[2], sys.argv[3]
