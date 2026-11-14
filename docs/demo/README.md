@@ -14,6 +14,9 @@ Target: 40 to 60 seconds, ending on the `found: 3 trace(s)` line from the local 
 brew install asciinema agg gifsicle        # gifsicle is optional, it only shrinks the GIF
 ```
 
+You also need Docker running (Docker Desktop, or any engine with `docker compose`), since
+`/otel-local` starts the stack in it.
+
 Use a plain prompt and no shell theme while recording, so the GIF shows nothing about your
 machine: `export PS1='$ '` (zsh: `PROMPT='$ '`).
 
@@ -45,7 +48,7 @@ so the ~1 GB pull is not in the take.
 | 1 | `ls` | A plain Express app: `index.js`, `package.json`, `Dockerfile`. No OTel anywhere |
 | 2 | `claude --plugin-dir /path/to/otel-as-code-plugin` | Claude Code starts |
 | 3 | `/otel-init` | The scan, then the detected service (`checkout-api`, Node.js). Pause ~2s on the closing "Want to see this running locally now?" |
-| 4 | `y` | `/otel-instrument` runs: `tracing.js` written, `package.json` updated. Then `/otel-local`: the port line (app on 3000, so Grafana on 3001), the stack starting, and the "where to look" block with `http://localhost:3001`. Pause ~2s on that block |
+| 4 | `y` | `/otel-instrument` runs: `tracing.js` written, `package.json` updated. If it asks "Want me to add these to `Dockerfile`? [y/N]", answer `n`: that is the deployed endpoint, and the demo only needs the local one, which `/otel-local` writes to `otel-local.env`. Then `/otel-local`: the port line (app on 3000, so Grafana on 3001), the stack starting, and the "where to look" block with `http://localhost:3001`. Pause ~2s on that block |
 | 5 | `/exit`, then `npm install` | Back to the shell (sped up) |
 | 6 | The printed run line, with `&`: `set -a; . ./otel-local.env; set +a; npm start &` | The server starts |
 | 7 | `for i in 1 2 3; do curl -s -XPOST localhost:3000/checkout -H 'content-type: application/json' -d '{"cartId":"c-42"}'; done` | Three JSON responses |
@@ -80,12 +83,13 @@ Claude Code's welcome screen can show account or organisation details.
 ## Why the env var
 
 By default the Node SDK's resource detectors add `host.name`, `host.id`, `process.owner`, and
-the full command path to every span, which would put your machine's name, your OS username, and
-your home directory into a public GIF. `OTEL_NODE_RESOURCE_DETECTORS=env` turns those detectors
-off. The service identity (`service.name`, `service.version`, `service.namespace`,
+the full command path to every span. Tempo's span detail in Grafana lists those resource
+attributes, so without the env var the screenshot would show your machine's name, your OS
+username, and your home directory. `OTEL_NODE_RESOURCE_DETECTORS=env` turns those detectors off.
+The service identity (`service.name`, `service.version`, `service.namespace`,
 `deployment.environment.name`) still appears, because the generated `tracing.js` sets it
-directly. It also cuts the output for one request from about 270 lines to about 170, so a
-whole span fits on screen in the final frame.
+directly.
 
-Exporting it before `asciinema rec` keeps it out of the recording. That is a presentation
-choice, not a change to what the plugin generates.
+It has to be exported in the shell that starts the app (step 6). Exporting it before
+`asciinema rec` does that and keeps it out of the recording. It is a presentation choice, not a
+change to what the plugin generates.
