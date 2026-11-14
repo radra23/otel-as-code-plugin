@@ -132,6 +132,33 @@ the agent writes, in both Claude Code and Codex:
 - **Clean rollback.** `/otel-uninstrument` removes the bootstrap files it generated, and only
   those: the marker gate means it cannot delete a hand-written file, even with `--force`.
 
+## What it runs and what it connects to
+
+Nothing leaves your machine unless you set it up to. Generated code exports nowhere until you set
+an endpoint (every exporter defaults to `none`), and the Collector config and Terraform only reach
+a vendor once you deploy or apply them with your own credentials. The plugin has no telemetry of
+its own and ships no MCP server.
+
+What it runs, and when:
+
+- **Hooks** (`hooks/hooks.json`, bash plus Python, no network calls). The write guard blocks
+  overwriting a marker-carrying generated file without `--force`, and a full write of
+  `.claude/otel-context.json` that holds an unconfirmed business attribute. It fails closed: if it
+  finds no working Python, it blocks every Write and Edit and says how to fix it (install Python 3,
+  or set `OTEL_HOOK_PYTHON`). Semconv lint is advisory unless strict mode is on, and runs after the
+  write, so it can report but not undo it. Session summary only prints.
+- **`/otel-local`** runs `docker compose` to start `grafana/otel-lgtm` (a public image from Docker
+  Hub, about 1 GB on first pull), with every port bound to `127.0.0.1`, and checks it through
+  `localhost` only.
+- **`/otel-backend`** runs `terraform` (or `tofu`) `fmt`, `init -backend=false` and `validate`;
+  `init` downloads the pinned providers from the public registry. It never runs `plan` or `apply`.
+- **`/otel-instrument`** smoke-checks the result with the toolchain you already have (`node`,
+  `python`, `dotnet build`, `go build`, `cargo check`, and so on), which can fetch dependencies the
+  same way a normal build does. It prints `npm install` and similar commands for you; it does not
+  run them.
+- **`/otel-backend`, `/otel-collector` and `/otel-evaluate`** check whether a vendor MCP server is
+  already connected and print a one-line tip. They never call it to generate anything.
+
 ## What is proven, and how
 
 otel-as-code is pre-1.0. Here is exactly what CI verifies, so you know how far to trust each
