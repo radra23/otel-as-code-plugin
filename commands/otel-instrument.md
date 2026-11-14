@@ -1,0 +1,501 @@
+---
+description: "Add OpenTelemetry to this service: generate committed OTel SDK bootstrap and OTLP wiring. Not for throwaway tracing while debugging one slow or failing request."
+argument-hint: "[language] [--service <id>] [--fix <ids>] [--experimental] [--force] [--dry-run]"
+---
+
+# /otel-instrument [language] [--service <id>] [--fix <ids>] [--experimental] [--force]
+
+Generate OTel SDK bootstrap and OTLP wiring for one service.
+
+## Flags
+- `[language]` — optional; `nodejs`, `python`, `java`, `dotnet`, `go`, `ruby`, or `rust`. If omitted, derived from the
+  selected service (Step 2). It narrows the candidate services; it does not pick one.
+- `--service <id>` — the service to instrument, by `id` from the context JSON. Skips the
+  Step 2 prompt.
+- `--fix <ids>` — apply only the findings with these IDs from the most recent
+  `/otel-evaluate` report. IDs are the `<CAT>-<id>` form that report emits (e.g.
+  `--fix CV-tracing12-servicename,SH-tracing0-simplespanprocessor`), and in a multi-service repo
+  they are service-qualified (`--fix bot:CV-tracing12-servicename`) — see the finding-ID scheme
+  in `agents/brownfield-auditor.md`. Scopes
+  regeneration to those findings
+  instead of rewriting whole files. See Step 5. A `CV` (semconv violation) finding is only
+  actually rewritten when the auditor tagged it `mechanical` (a straight OLD→NEW key rename, per
+  the `semconv-discipline` skill's `Fix` column) — a `manual` one (the value itself has to change
+  shape, e.g. `http.target` splitting into `url.path` + `url.query`) is reported back as skipped,
+  naming why, rather than guessed at. A finding the report annotated `fix: config` or
+  `fix: infra` (#226) is reported back as skipped too, for the same reason — this command only
+  ever edits application source, never a deployment value or infrastructure file. Pair with
+  `--dry-run` to review exactly what a `--fix` would change before it's written.
+- `--experimental` — unlock pre-Stable signals (e.g. logs for Python and Node.js). Passed to
+  both `language-maturity` and `semconv-discipline` skills.
+- `--force` — overwrite existing generated artifacts. Required if the write-guard hook blocks
+  a re-generation. **`--force` is a full regeneration and discards hand edits** — read the
+  warning in Step 4 before using it.
+- `--dry-run` — preview without writing. Generate exactly as normal, then print a unified diff of
+  each would-be file against what is on disk (or "would create" for a new file) and exit WITHOUT
+  writing — non-zero if anything would change, so it composes in CI. Pairs with `--force`: it is
+  the only way to see what a destructive regeneration would do before it discards your edits. Also
+  pairs with `--fix`, for the same reason at a narrower scope: preview which findings would
+  actually change a file (and which `manual` ones would be skipped) before committing to it. See
+  the Dry run section.
+
+## Step 1: Load context
+
+Read the `otel-as-code:language-maturity` skill — apply all maturity gating rules.
+
+Check `.claude/otel-context.json`. Apply the freshness rule from `/otel-init` Step 1
+(identity-input fingerprint, not `HEAD`). If stale or absent:
+- Run `/otel-init` logic inline — dispatch `otel-as-code:repo-context-scanner` **passing the
+  existing cache as `priorContext`** so confirmed answers survive, then write what it returns via
+  `scripts/write_context.py` exactly as `/otel-init` Step 4 does (#211) — never by transcribing
+  the JSON into a `Write` call. A refresh is a merge, never a replace (see
+  `agents/repo-context-scanner.md`). Pass the same `scanTime` + `pluginVersion` + `semconvVersion`
+  + `semconvGuidancePath` inputs `/otel-init` Step 2 does — the scanner has no clock, no way to
+  read `plugin.json`, and no `Skill` tool, and cannot read the guidance, the time, or its own
+  installed version itself.
+- Do NOT print the /otel-init success message; just run the scan silently.
+
+If the scan or the cache has **no services**, apply `/otel-init` Step 2's "Empty scan" rule:
+print its message, write nothing (not the cache either), exit 0. Step 2's "No candidates" branch
+is for a repo that HAS services none of which can be instrumented, where each one carries a
+reason; it must not be reached with an empty list.
+
+## Step 2: Select the target SERVICE
+
+Pick a service first; its language follows from it. Resolving a language alone settles nothing
+when two services share one — and `services[0]` is not a safe default, because the first
+detected service is frequently a browser SPA whose `language` is `nodejs` and whose runtime
+is not Node at all.
+
+1. Build the candidate list: every service in `context.services` with
+   `generatorSupported: true`. If `[language]` was given, keep only services with that `language`.
+   If `--service <id>` was given, use exactly that one (and validate it below).
+2. Then:
+   - **Exactly one candidate** → use it. Print: "Target: <name> (<rootDir>, <language>/<runtime>)".
+   - **More than one** → list them and ask. Never default to the first:
+     ```
+     Which service should be instrumented?
+       1  checkout-api   api/   nodejs / node    (no OTel detected)
+       2  worker         jobs/  nodejs / node    (traces present)
+     Not offered: portal-web (web/) — runtime is browser; browser/RUM is out of scope.
+     →
+     ```
+   - **No candidates** → print, for each detected service, its `instrumentableReason`, then exit
+     without writing anything:
+     ```
+     ⚠ No service in this repo can be instrumented by /otel-instrument yet.
+       portal-web (web/)  — runtime is browser; browser/RUM instrumentation is out of scope
+                            for the MVP. Use an OTel browser SDK / RUM product directly.
+       billing (billing/) — no php generator yet (#117).
+     ```
+3. Validate the chosen service before generating. If it has `generatorSupported: false`, refuse:
+   ```
+   ⚠ <name> cannot be instrumented by this command: <instrumentableReason>
+     Nothing was written.
+   ```
+   The reason carries the explanation, so print it as given and add nothing generic. Only for
+   `runtime: browser`, add: "Generating a server-side SDK bootstrap for a browser bundle produces
+   code that cannot run and that breaks the build." The sentence is language-neutral on purpose: a
+   Blazor WebAssembly project is `language: dotnet`, `runtime: browser`, and nobody would generate
+   a Node bootstrap for it (#186). A PHP, CLI or console-project refusal
+   must not be told it is a browser bundle.
+
+   **Then point to what does apply, for a service that is `inScope: true`** (a browser bundle,
+   `inScope: false`, gets no pointer):
+   - the service is one `/otel-remediate` supports (the upstream image in the
+     `deployment-remediation` skill's known-targets table, Keycloak in v1), i.e. a workload with no
+     application source: add
+     `→ This workload has no application source. /otel-remediate --service <id> proposes the deployment-config change instead.`
+   - any other `generatorSupported: false`, `inScope: true` service: add
+     `→ /otel-evaluate --service <id> audits what is already there.`
+   `/otel-evaluate` already routes the first case this way; a user is more likely to start here.
+   Exit. Emitting wrong code is worse than emitting none — do not fall back to a near-match.
+4. Derive `language` from the selected service. If it is not `nodejs`, `python`, `java`,
+   `dotnet`, `go`, `ruby`, `rust`, or `php`:
+   - Print: "⚠ <language> is not supported yet. Supported: nodejs, python, java, dotnet, go, ruby,
+     rust, php."
+   - Exit.
+
+If `context.services` has no `runtime` field at all, the cache predates schema 2 — re-scan
+(Step 1) rather than guessing, since `language` alone cannot tell a browser bundle from a
+server.
+
+Note: `java` uses the OpenTelemetry Java **agent** (zero-code auto-instrumentation), so the
+generated artifact is `otel-java.env` + run instructions, not a source bootstrap file. The
+`instrumentation-gen` subagent handles the per-language artifact shape.
+
+## Step 3: Check signal maturity
+
+For the target language, apply the maturity gate rules from `language-maturity` skill.
+
+If any signal is Development-level AND `--experimental` is NOT set:
+- Print the Development-level warning from the skill.
+- Do not generate that signal's code.
+- Print: "Re-run with --experimental to generate Development-level signals."
+
+## Step 4: Find the existing artifact, and gate the overwrite
+
+**Resolve the existing bootstrap from the cache, not from a guessed filename.** Testing for
+`tracing.js` in the service root misses `api/src/tracing.ts` on both the name and the depth,
+concludes nothing exists, and writes a *second* bootstrap beside the real one — after which the
+SDK starts from whichever the entry point happens to import.
+
+1. If `service.existingOtel.bootstrapFiles` is non-empty, start from those paths.
+2. Otherwise glob the **whole service subtree** (`<rootDir>/**`, excluding `node_modules`,
+   `dist`, `build`, `.venv`) for `tracing.*`, `telemetry.*`, `opentelemetry.*` and
+   `otel-java.env`. The extensions come from `hooks/otel-paths.sh`, which is also what the
+   write-guard protects — so anything the guard will block is something this step finds.
+3. Only if both come back empty is there no existing OTel bootstrap; go to Step 5.
+
+**Before anything else, check whether any resolved path is shared with another service.** For
+every path resolved in 1-2 above, check every OTHER service in `context.services` (not the one
+selected in Step 2) for that same repo-relative path in its own `existingOtel.bootstrapFiles`. If
+any match is found, refuse outright — `--force` does not override this, because the problem is
+not "the file already exists," it is "this command cannot tell which service's answer is the
+right one":
+```
+⚠ <path> is shared: it also appears in <other-service-name>'s existingOtel.bootstrapFiles.
+  /otel-instrument regenerates one service at a time and cannot safely rewrite a bootstrap file
+  other services depend on too — doing so changes their behavior as well (a different SDK line,
+  a different service.name fallback) without naming them or asking.
+  Nothing was written. Edit the shared file by hand, then verify every consumer afterward.
+```
+Exit before writing the `.claude/.otel-force` sentinel or touching anything else in this step.
+
+**Then split what you found by ownership, because only one half may ever be overwritten.** Read
+each path. A file that carries the `generated by otel-as-code` marker (or is a fixed generated
+name such as `OpenTelemetry.cs` or `otel-java.env` that carries it) is **generated**: it may be
+regenerated, and hand edits to it are what `preserve` protects. A file without the marker is
+**hand-written**, however it ended up in the list: it is the user's OTel setup, not this
+command's output. Never put a hand-written path in `existingArtifacts`, in the `--force`
+overwrite warning, or in the `.claude/.otel-force` sentinel. `--force` widens what may be
+regenerated; it never turns user code into generated code. (A `.NET` service whose SDK is
+configured inline in `Program.cs` is the clearest case: that file is the composition root.)
+
+If there are hand-written OTel files and NO generated ones — the brownfield case — print and exit
+without writing anything, `--force` or not:
+```
+⚠ <name> already configures OpenTelemetry by hand: <path(s)>.
+  /otel-instrument would add a second, parallel bootstrap beside it, and only one SDK can own
+  the global provider. Nothing was written.
+  Audit it with /otel-evaluate, then apply specific findings with --fix <ids>, or edit by hand.
+```
+
+If generated artifacts were found AND `--force` is NOT set:
+- Print: "⚠ Generated artifact already exists: <generated path(s)>. Use --force to overwrite,
+  or --fix <ids> to apply specific /otel-evaluate findings without a full rewrite."
+- If hand-written OTel files were also found, add one line naming them as left untouched.
+- Exit.
+
+If generated artifacts were found AND `--force` IS set (hand-written files are listed as "left
+untouched" and stay out of everything below):
+- Print the overwrite warning, in full, and get confirmation before writing:
+  ```
+  ↻ --force regenerates these files from scratch:
+      api/src/tracing.ts
+      api/src/telemetry.ts
+    Any hand-written changes in them will be lost. By the time regeneration is worth running,
+    these files have usually been edited by hand.
+
+    Recommended first: `git diff` them after generation, or copy them aside now.
+    Narrower alternative: /otel-instrument --fix <ids> applies specific findings instead.
+
+    Continue? [y/N]
+  ```
+  If the files are tracked and clean in git, say so — "both files are committed, so `git diff`
+  will show exactly what changed" — and the confirmation can be a formality. If they are dirty
+  or untracked, insist: back them up first.
+- Read each file that will be overwritten BEFORE regenerating, and pass its content to the
+  subagent as `preserve` (Step 5). Deliberate local decisions — a handler wrapper for a runtime
+  with no inbound HTTP server, an exporter switch, a bounded `error.type`, a documented
+  exclusion — must survive regeneration or be re-emitted; they are the reason the file is worth
+  keeping.
+- Authorize the overwrite for the `write-guard` hook by listing the paths the subagent will
+  overwrite in the `.claude/.otel-force` sentinel, one per line. **Truncate the sentinel as you
+  write it** (`>`, not `>>`) so a leftover from an aborted earlier run can never grant a standing
+  overwrite authorization — write all paths in a single `printf`:
+  ```
+  mkdir -p .claude && printf '%s\n' "<path 1>" "<path 2>" > .claude/.otel-force
+  ```
+  A slash-command flag cannot set an env var for the hook process, so this file is how
+  `--force` reaches the guard. List the GENERATED paths resolved in this step, exactly as found, and only those. Absolute
+  or repo-relative both work: the guard normalises both sides before comparing (drive letters,
+  backslashes, `.`/`..`, relative-to-project), so the sentinel does not have to guess the
+  host's path convention. It stays path-scoped — a path you do not list is still protected.
+
+## Step 5: Dispatch instrumentation-gen subagent
+
+Pass to `otel-as-code:instrumentation-gen`:
+- `context`: the loaded context JSON
+- `service`: the SELECTED service object from Step 2
+- `language`: the language derived from it
+- `runtime` / `host`: from the selected service — these decide whether an inbound HTTP server
+  exists to instrument (see the serverless section of `instrumentation-gen`)
+- `experimental`: boolean from --experimental flag
+- `semconvVersion`: the `SEMCONV_VERSION` from the `semconv-discipline` skill (the subagent has no
+  `Skill` tool; it stamps this into the header and must not restate it from memory)
+- `pluginVersion`: the `version` field from `${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json` —
+  the subagent cannot read that file itself; it stamps this into the header's `<PLUGIN_VERSION>`
+  placeholder and must never copy the literal `v0.1.0` shown in its own template (#177)
+- `languageMaturityPath`: `${CLAUDE_PLUGIN_ROOT}/skills/language-maturity/SKILL.md` — the subagent
+  `Read`s it for the per-language signal-maturity matrix
+- `existingArtifacts`: the paths resolved in Step 4
+- `preserve`: the current content of each file being overwritten, when `--force` was used
+- `fixList`: when `--fix <ids>` was given, the findings with those IDs from the most recent
+  `/otel-evaluate` report — each with its `file`, `line`, and required change (a `CV` finding also
+  carries its `Fix` classification, `mechanical` or `manual` — see `agents/instrumentation-gen.md`'s
+  `fixList` handling for what the subagent does with each). With a
+  `fixList`, the subagent edits only those sites and leaves the rest of each file alone;
+  it does not regenerate the file.
+
+## Dry run (`--dry-run`)
+
+If `--dry-run` was passed, do NOT let the subagent write and do NOT proceed to Steps 6–8's
+side effects. Instead: pass `dryRun: true` in the Step 5 dispatch, so `instrumentation-gen`
+returns each intended file as `{path, content}` rather than writing. Then, for each returned file:
+- if it exists on disk, print a unified diff of the returned content against the on-disk content
+  (e.g. write the content to a temp file and `git diff --no-index <disk> <tmp>`);
+- if it does not exist, print `would create <path> (<n> lines)`.
+Write nothing, do NOT touch the cache (Step 6) or the `.claude/.otel-force` sentinel, and exit
+**non-zero if any file would change** (zero if the diff is empty) so `--dry-run` composes in CI.
+This is the only way to preview a `--force` regeneration before it discards hand edits.
+
+## Step 6: Record what was written back into the cache
+
+The subagent handles file writing. After it returns, **update
+`.claude/otel-context.json` for the target service** before printing anything. Run
+`date -u +%Y-%m-%dT%H:%M:%SZ` and use its actual output for `observedAt` — do not copy the
+placeholder below literally, that produces midnight every time (#202):
+
+```json
+"existingOtel": {
+  "hasTraces": true,
+  "hasMetrics": true,
+  "hasLogs": false,
+  "sdkVersion": "<resolved>",
+  "sdkPackages": ["@opentelemetry/sdk-node@^0.221.0", "..."],
+  "bootstrapFiles": ["api/src/tracing.ts", "api/src/telemetry.ts"],
+  "wiredInto": ["api/package.json#scripts.start"],
+  "source": "recorded-by-command",
+  "observedAt": "<the real output of date -u +%Y-%m-%dT%H:%M:%SZ>"
+}
+```
+
+Nothing else updates this, so skipping it makes `/otel-evaluate` — the obvious next command —
+exit with "No existing OTel instrumentation detected" immediately after instrumentation was
+generated. Rewrite only `existingOtel` for that service; leave every other field, and every
+user-owned field, untouched.
+
+If a `.claude/.otel-force` sentinel was created in Step 4, remove it now so the write-guard
+is restored for subsequent writes: `rm -f .claude/.otel-force`.
+
+## Step 7: Verify the bootstrap actually loads and identity is correct
+
+"Generated" is not "working". Before reporting success, prove the bootstrap imports, the SDK
+starts, and the resource carries the identity `/otel-business-attrs` confirmed — with a local
+**console** smoke that needs no collector and no network. This catches a bootstrap that throws
+on import, a wrong `service.name`, or a dropped `service.namespace` / `deployment.environment.name`
+immediately, instead of after the user wires up a backend and sees nothing.
+
+Applies to the Node.js and Python source bootstraps. (Java is the zero-code agent — there is no
+importable bootstrap to smoke here; its equivalent is running the app under the agent, which the
+e2e harness covers. Say that and skip.)
+
+For **.NET** the equivalent check is `dotnet build` — the generated `OpenTelemetry.cs` and the
+pasted `Program.cs` line must compile against the added packages. Run it only if the SDK is
+present and packages restored; otherwise print the wiring commands from the subagent summary
+(add packages → paste the one-liner → `dotnet build`) and note verification was deferred. A
+build failure is a failure to fix, not to paper over. So is a build that succeeds while printing
+`<package> doesn't support net<N>`: NuGet fell back to a `.NETStandard` asset because the resolved
+package version dropped the project's TargetFramework, and that build exports nothing over
+OTLP/gRPC (#229) — report it, and re-run the `dotnet add package` lines with the explicit
+`--version` the subagent prints for `net8.0`/`net9.0`. (Runtime span emission is the e2e
+follow-up, as with Java.)
+
+For **Go** the equivalent check is `go build ./...` — the generated `tracing.go` plus the edited
+`go.mod` must compile after `go mod tidy` resolves `go.sum`. Run it only if the Go toolchain is
+present; otherwise print the wiring commands from the subagent summary (`go.mod` already edited →
+`go mod tidy` → paste the two required wiring lines → `go build ./...`) and note verification was
+deferred. A build failure is a failure to fix, not to paper over. (Runtime span emission is the
+e2e follow-up, as with Java and .NET.)
+
+For **Ruby** the equivalent check is `bundle exec ruby -e "require_relative './tracing'"` (or the
+Rails initializer's path) — confirms the require chain resolves and `SDK.configure` doesn't raise.
+Run it only if `bundle install` has completed; otherwise print the wiring commands from the
+subagent summary (`bundle install` → paste the require line AFTER your framework requires →
+`bundle exec ruby -e "require_relative './tracing'"`) and note verification was deferred. A raised
+exception is a failure to fix, not to paper over. (Runtime span emission is the e2e follow-up, as
+with every other language.)
+
+For **Rust** the equivalent check is `cargo check` — the generated `src/telemetry.rs`, the
+`Cargo.toml` block and the three pasted `main.rs` lines must compile together. Run it only if
+`cargo` is present (it fetches the crates itself); otherwise print the wiring steps from the
+subagent summary and note verification was deferred. A compile error is a failure to fix, not to
+paper over. (Runtime span emission is the e2e follow-up, as with Go.)
+
+For **PHP** the equivalent check is `composer validate && php -l telemetry.php` (or the
+framework-specific path) — `composer validate` confirms the appended `require` block is
+well-formed JSON with resolvable constraints, `php -l` confirms the generated file has no syntax
+error. This is a SYNTAX check only, not the compile-and-link guarantee Go/Rust/.NET's checks give
+— PHP has no build step to catch a wrong class/namespace reference the way those do. Run it only
+if `composer`/`php` are present; otherwise print the wiring steps (`composer install` → the host
+PECL-extension step from the subagent summary → `composer validate && php -l telemetry.php`) and
+note verification was deferred. A syntax error is a failure to fix, not to paper over. (Runtime
+span emission is the e2e follow-up, as with every other language — and PHP's has not been
+runtime-verified at all yet, since no PHP toolchain was available at generation time; say so
+plainly rather than implying it was.)
+
+Run the smoke only if the SDK dependencies are installed (`node_modules` / the venv present). If
+they are not, DO NOT fail — print the exact command for the user to run after `npm install` /
+`pip install`, and note verification was deferred.
+
+- **Node.js** (adjust the bootstrap path to what was generated):
+  ```
+  OTEL_TRACES_EXPORTER=console OTEL_METRICS_EXPORTER=none OTEL_LOGS_EXPORTER=none \
+    node -e "require('./tracing.js'); const {trace}=require('@opentelemetry/api'); \
+    trace.getTracer('otel-verify').startSpan('otel.smoke').end(); \
+    setTimeout(()=>process.exit(0), 1200)"
+  ```
+- **Python** (adjust module name):
+  ```
+  OTEL_TRACES_EXPORTER=console OTEL_METRICS_EXPORTER=none OTEL_LOGS_EXPORTER=none \
+    python -c "import tracing; from opentelemetry import trace; \
+    trace.get_tracer('otel-verify').start_span('otel.smoke').end(); tracing.shutdown()"
+  ```
+
+Both print the span as JSON on stdout, including its `resource` attributes. Assert on that output:
+- a span named `otel.smoke` was printed (the SDK started and the console exporter ran); and
+- its resource `service.name` equals the confirmed name, and — when the context has them —
+  `service.namespace` and `deployment.environment.name` match what was confirmed.
+
+Report the result plainly: `✓ Verified: bootstrap loads and emits service.name=<name> …`, or, on a
+mismatch or an import error, show the discrepancy and treat it as a failure to fix — do not paper
+over it. If verification was deferred (deps not installed), say so and give the command above.
+
+## Step 8: Deployment wiring — say what is still required
+
+Print the subagent's summary, then this block. **Do not omit it and do not soften it.** The
+generated bootstrap reads `OTEL_EXPORTER_OTLP_ENDPOINT` and hard-codes nothing, which is
+correct — and it means the service exports nowhere until the deployment sets it. The generated
+Node.js/Python/Go/Rust/.NET code defaults every exporter to `none` (Go and Rust: no provider
+registered at all; .NET: the exporter is not attached) when no endpoint is configured, so the failure mode is silence rather than a retry loop against
+`localhost:4317`; that is a safe default, not a working one. Ruby needs its own sentence here since its DEFAULT behavior (with no endpoint configured) is actually to retry against `localhost:4318` like Java — the generated `tracing.rb` avoids this with an explicit `OTEL_TRACES_EXPORTER` guard, so from the deployment's perspective Ruby behaves like Node/Python/Go (safe silence, not a reconnect loop), but only because the generated code contains that guard, not because the underlying SDK defaults to it. Also note: Ruby exports over OTLP/**HTTP** on `:4318`, not this plugin's usual gRPC `:4317` — setting the endpoint below must point at the HTTP port for Ruby specifically. Rust exports over OTLP/**HTTP** on `:4318` too (the generator's choice: the gRPC transport would add `tonic` and its build tree to every service). (The Java agent does the
+opposite — it defaults to `localhost:4317` and retries — so for it, setting the endpoint below is
+not just recommended, it is what stops a reconnect loop in the deployed process. The .NET OTLP
+exporter does the same on its own, but the generated `OpenTelemetry.cs` attaches it only once an
+endpoint is configured, so .NET behaves like Node/Python/Go: silence, not a retry loop.)
+
+Use `service.deployment.configFiles` and `service.deployment.endpointConfigured` from the
+context to make this concrete rather than generic:
+
+- **`endpointConfigured: true`** — print one line confirming where it is set, and move on.
+- **`endpointConfigured: false` and `configFiles` is non-empty** — the highest-impact gap in the
+  whole flow (an instrumented service with no endpoint costs money and produces nothing), so do
+  more than name it: **detect the target type from the config file and emit the settings in that
+  file's own syntax**, then offer to write them in. Map the file to its shape:
+
+  | Config file (`configFiles`) | Target | Emit as |
+  |---|---|---|
+  | `*.tf` on a function-app / app-service / container resource | Terraform | an `app_settings = { … }` / `env { … }` block on that resource |
+  | `*.bicep` | Bicep | `appSettings` array entries (`{ name: '…', value: '…' }`) |
+  | `k8s/*.yaml`, `*deployment*.yaml`, `values.yaml`/`Chart.yaml` | Kubernetes | an `env:` list on the container (or ConfigMap keys) |
+  | `docker-compose.y*ml` | Compose | an `environment:` map on the service |
+
+  The settings, in every case (`DEPLOYMENT_ENV` ties to the deployment-environment default, see
+  the instrumentation-gen notes):
+  ```
+  OTEL_EXPORTER_OTLP_ENDPOINT   # your collector or vendor OTLP endpoint (do NOT invent it)
+  OTEL_EXPORTER_OTLP_PROTOCOL = grpc
+  OTEL_TRACES_EXPORTER  = otlp
+  OTEL_METRICS_EXPORTER = otlp
+  OTEL_LOGS_EXPORTER    = otlp
+  DEPLOYMENT_ENV        # this target's environment, e.g. production
+  ```
+  For `framework: nextjs`, add one more, and say it is required, not optional (#173):
+  ```
+  NEXT_MANUAL_SIG_HANDLE = true   # Next otherwise exits on SIGTERM before OTel flushes its last batch
+  ```
+  It must reach the running process (Dockerfile `ENV`, platform env, the `env:` block); the
+  generated bootstrap cannot set it because Next reads it before `register()` runs. Name the
+  trade-off: Next then no longer drains the server before exit, and the generated handler
+  flushes and exits instead. The instrumentation-gen Next.js section has the evidence.
+
+  Include `OTEL_LOGS_EXPORTER` only when the logs signal was generated. Node.js and Python logs are
+  Development-level and generated only under `--experimental`; without the flag, drop that line
+  from every rendering below. For Node.js it is not harmless: NodeSDK turns the logs pipeline on
+  from this variable alone, so writing it into deployment config re-enables the gated signal.
+
+  **For a FRESH Python install only** (`existingArtifacts` was empty — nothing already running to
+  change), add one more setting to the block above — there is no release of
+  `opentelemetry-instrumentation-fastapi`/`-flask` that defaults to stable HTTP semconv, and this
+  plugin's own generated Grafana/Datadog/New Relic/Dash0 queries only the stable attribute/metric
+  names (see instrumentation-gen's "HTTP semconv stability check" section):
+  ```
+  OTEL_SEMCONV_STABILITY_OPT_IN = http/dup
+  ```
+  Do **not** add this line for a brownfield Python service, or for a brownfield Node.js service
+  whose `instrumentation-http` pin resolves below `0.300.0` (check `service.existingOtel.sdkPackages`)
+  — silently changing what an already-deployed service emits on the wire is not this command's
+  decision to make. Instead print a separate `⚠` warning naming the exact same value and why it
+  matters (the generated dashboards/alerts/SLOs will sit in permanent NoData without it, which
+  reads as healthy, not broken), and leave applying it to the user — `/otel-evaluate` also reports
+  this as a finding (see `brownfield-auditor`). A Node.js service already on `instrumentation-http
+  >= 0.300.0` needs nothing here: that version has no old-semconv mode left to opt out of.
+
+  **If a collector this service points at requires auth:** check for `otelcol-agent.yaml` /
+  `otelcol-gateway.yaml` in the repo (root or service root) — if one exists and contains
+  `authenticator: bearertokenauth` (generated by `/otel-collector --public`, #107), add one more
+  setting to the block above:
+  ```
+  OTEL_EXPORTER_OTLP_HEADERS = Authorization=Bearer%20<the collector's COLLECTOR_AUTH_TOKEN value>
+  ```
+  Do NOT invent the token value — name the collector file and tell the user to use the same
+  secret they set as `COLLECTOR_AUTH_TOKEN` there. Without this, the instrumented service exports
+  nowhere: the `--public` collector rejects every unauthenticated request. The `%20` is required,
+  not cosmetic: this env var's values must be percent-encoded per the OTel spec (W3C Baggage
+  format) — a literal space works in some SDKs but the OTel Python SDK specifically rejects it,
+  failing every export with `UNAUTHENTICATED`.
+
+  Render them in the detected file's syntax — e.g. Terraform:
+  ```hcl
+  app_settings = {
+    OTEL_EXPORTER_OTLP_ENDPOINT = var.otel_exporter_otlp_endpoint
+    OTEL_EXPORTER_OTLP_PROTOCOL = "grpc"
+    OTEL_TRACES_EXPORTER        = "otlp"
+    OTEL_METRICS_EXPORTER       = "otlp"
+    OTEL_LOGS_EXPORTER          = "otlp"
+    DEPLOYMENT_ENV              = "production"
+  }
+  ```
+  or Kubernetes:
+  ```yaml
+  env:
+    - { name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector:4317" }
+    - { name: OTEL_EXPORTER_OTLP_PROTOCOL, value: "grpc" }
+    - { name: OTEL_TRACES_EXPORTER,  value: "otlp" }
+    - { name: OTEL_METRICS_EXPORTER, value: "otlp" }
+    - { name: OTEL_LOGS_EXPORTER,    value: "otlp" }
+    - { name: DEPLOYMENT_ENV,        value: "production" }
+  ```
+  Print the ⚠ banner, show the stanza in the right syntax, name the exact file, and ask
+  "Want me to add these to `<file>`? [y/N]". On yes, **merge into the existing resource/service
+  block** — read the file, find the right block, add only the missing keys; never append a
+  duplicate block. **Never invent the endpoint value**: leave it as a variable/placeholder the
+  user fills, and say so.
+- **`configFiles` empty or `endpointConfigured: null`** — no deployment file to write into. Print
+  the ⚠ banner and the `KEY=value` list, and name where the settings go for this `host` (a Bicep
+  `appSettings` block, a platform dashboard's app settings, a CI secret, etc.).
+
+Then, for local development:
+```
+Locally, no collector required:
+  OTEL_TRACES_EXPORTER=console npm start     # spans printed to stdout
+Set OTEL_EXPORTER_OTLP_ENDPOINT to switch the exporters back to otlp.
+```
+
+Finally, if the subagent reported a wiring gap of its own — a serverless `host` where the
+runtime delivers invocations over a non-HTTP channel, so `instrumentation-http` emits no SERVER
+spans and a generated handler wrapper must be applied per route — repeat it here as an
+unmissable, countable next step, e.g. "0 of 22 routes wrapped: instrumentation is present but
+unreachable until `withServerSpan()` wraps each handler." Do not end the command reporting
+success while the generated code is not actually reached.

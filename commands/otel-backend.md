@@ -1,0 +1,246 @@
+---
+description: Generate Terraform for one observability backend (grafana | datadog | newrelic | dash0)
+argument-hint: "<vendor> [--service <id>|all] [--kind all|dashboard|alerts|slo] [--output-dir <path>] [--experimental] [--self-hosted] [--force] [--dry-run] [--yes]"
+---
+
+# /otel-backend <vendor> [--service <id>|all] [--kind all|dashboard|alerts|slo] [--output-dir <path>] [--experimental] [--self-hosted] [--force] [--dry-run] [--yes]
+
+Generate a complete Terraform module for one observability backend.
+Supported vendors: the backends listed in `backends.txt` at the plugin root — the single
+source of truth (currently grafana, datadog, newrelic, dash0).
+
+## Flags
+- `<vendor>` — REQUIRED. Must be one of the backends listed in `backends.txt` (plugin root)
+- `--service <id>` — the service to build the module for, by `id` from the context JSON. Skips
+  the Step 3 prompt. `--service all` generates one module per eligible candidate instead of one
+  module total — see Step 3.
+- `--kind` — default `all`. Emit only one artifact type: `dashboard`, `alerts`, or `slo`
+- `--output-dir` — default `infra/observability/<vendor>/` for a single service; with
+  `--service all`, each service's module goes to `infra/observability/<vendor>/<service-id>/`
+  instead, so N services never collide on one path
+- `--experimental` — include pre-Stable semconv in generated resource queries
+- `--self-hosted` — **Grafana only** (refuse with a reason for any other vendor: "--self-hosted
+  only applies to grafana"). Without it, the Grafana module assumes Grafana Cloud, as before
+  #167: it emits a `grafana_slo` resource, which Cloud's own docs describe and self-hosted's do
+  not — treat "not documented for self-hosted" as "don't assume it exists," not as "probably
+  fine." With it, the module emits a burn-rate alert rule instead of `grafana_slo` — see
+  `terraform-gen`'s "Grafana main.tf" section and the `terraform-patterns` skill's "Self-hosted
+  alternative" for the shape. Passed to `terraform-gen` as `grafanaFlavor: "self-hosted"` (Step 5).
+- `--force` — overwrite existing module files
+- `--dry-run` — preview without writing: pass `dryRun: true` to `terraform-gen` (Step 5) so it
+  returns each file as `{path, content}` instead of writing; print a unified diff of each against
+  on-disk (or "would create" for a new file), write nothing, do NOT create the `.otel-force`
+  sentinel, and exit non-zero if anything would change. `terraform fmt`/`validate` are skipped
+  (they need files on disk)
+- `--yes` — answer yes to this command's confirmation prompts: continuing without confirmed
+  business attributes (Step 2) and overwriting an existing module under `--force` (Step 4). For
+  callers that can't answer a prompt: CI, another agent, an orchestration layer. It never implies
+  `--force`. Each prompt it answers is printed as a `↷ --yes:` line, and an unconfirmed-attributes
+  skip is also stamped into the generated `main.tf` header, so the choice stays visible afterwards.
+
+**No one to answer a prompt?** If this run can't get an answer from a person (you were dispatched
+by another agent, or run headless) and `--yes` is not set, do NOT assume yes, even where the
+prompt's default is yes (`[Y/n]`). Treat it as no, and say which flag would have continued, e.g.
+"Stopped: business attributes are unconfirmed and no one can confirm. Re-run with --yes to
+continue anyway."
+Silently continuing is the behavior this flag exists to replace (#149).
+
+## Step 1: Validate vendor argument
+
+Read the supported backends from `${CLAUDE_PLUGIN_ROOT}/backends.txt` (one vendor per line —
+the single source of truth). If `<vendor>` is not in that list:
+- Print: "Unknown vendor: <vendor>. Supported: <the backends from backends.txt>"
+- Print: "v1 will add: honeycomb, dynatrace, sumo-logic, splunk, azure-monitor,
+  cloudwatch, gcp-ops, elastic, lightstep, chronosphere, last9"
+- Exit.
+
+If `--self-hosted` was passed and `<vendor>` is not `grafana`:
+- Print: "⚠ --self-hosted only applies to grafana. Nothing was written."
+- Exit.
+
+## Step 2: Load skills and context
+
+Read the `otel-as-code:terraform-patterns` skill — apply all backend-specific patterns.
+Check `.claude/otel-context.json`. Apply the freshness rule from `/otel-init` Step 1
+(identity-input fingerprint, not `HEAD`). If stale or absent, dispatch
+`otel-as-code:repo-context-scanner` **passing the existing cache as `priorContext`, `scanTime`
+(the output of `date -u +%Y-%m-%dT%H:%M:%SZ`), and `pluginVersion` (the `version` field from
+`${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json`)** and write what it returns via
+`scripts/write_context.py`, exactly as `/otel-init` Step 4 does (#211) — never by transcribing the
+JSON into a `Write` call. A refresh is a merge, never a replace (see the cache ownership contract
+in `agents/repo-context-scanner.md`).
+
+If the scan or the cache has **no services**, apply `/otel-init` Step 2's "Empty scan" rule
+before anything else in this step, including the confirmation prompt below: print its message,
+write nothing, exit 0. A module needs a real service identity to build selectors, folder and
+alert names from; with none, `terraform-gen` would keep a template placeholder or invent one,
+and the resulting dashboard and alerts match nothing (#164).
+
+If `context.confirmedAt` is null (business attrs not confirmed):
+- Print: "⚠ Business attributes have not been confirmed yet. Running /otel-business-attrs first
+  will improve the generated dashboard queries and SLO targets."
+- If `--yes` is set, don't ask. Print "↷ --yes: continuing without confirmed business attributes
+  (context.confirmedAt is null). Queries and SLO targets use scanner defaults." and pass
+  `businessAttrsUnconfirmed: true` to `terraform-gen` (Step 5).
+- Otherwise ask: "Continue anyway? [Y/n]". On yes, pass `businessAttrsUnconfirmed: true` as above.
+- If 'n', or if no one can answer (see "No one to answer a prompt?" above): exit non-zero with
+  "Run /otel-business-attrs first, then re-run /otel-backend <vendor> (or pass --yes to continue
+  without confirmed business attributes)"
+
+## Step 3: Select the target service(s)
+
+Since schema 2 the context holds `services[]`, plural. `/otel-instrument` already learned
+(#13) never to default to `services[0]`; this command needs the same discipline — nothing
+about "the first service" says it is the one with telemetry worth dashboarding, and the first
+detected service is frequently a browser SPA with none at all (#185).
+
+1. Build the candidate list: every service in `context.services` with `inScope: true` AND
+   (`existingOtel.hasTraces || existingOtel.hasMetrics || existingOtel.hasLogs` — it actually
+   emits something to build selectors from, OR `generatorSupported: false` — `terraform-gen`'s
+   "Workloads without an OTel SDK (scraped metrics)" path (`terraform-patterns` skill) covers any
+   such in-scope workload, not only Keycloak). If `--service <id>` was given, use exactly that one
+   (and validate it below) instead of building a list.
+2. Then, unless `--service all` was given (go to step 4 below instead):
+   - **Exactly one candidate** → use it. Print: "Target: <name> (<rootDir>)".
+   - **More than one** → list them and ask. Never default to the first:
+     ```
+     Which service should the Terraform module target?
+       1  checkout-api   api/   (traces + metrics present)
+       2  keycloak       idp/   (no OTel SDK — scraped metrics)
+     Not offered: portal-web (web/) — runtime is browser, out of scope.
+     Not offered: billing-worker (worker/) — no telemetry yet; run /otel-instrument first.
+     →
+     ```
+   - **No candidates** → print, for each in-scope service not eligible, why, then exit without
+     writing anything:
+     ```
+     ⚠ No service in this repo has telemetry (or a scraped-metrics path) for /otel-backend to build from.
+       checkout-api (api/)  — no telemetry yet; run /otel-instrument first.
+       portal-web (web/)    — runtime is browser, out of scope.
+     ```
+3. Validate the chosen service (the explicit `--service <id>` case, or the single
+   auto-selected/prompted one): if it is not in the candidate list Step 1 built (wrong `inScope`,
+   or no signal and not `generatorSupported: false`), refuse with the same reason that excluded
+   it and exit. Emitting a module filtered on a service that exports nothing is worse than
+   emitting none — do not fall back to a near-match.
+4. **`--service all`**: build the candidate list as in step 1, but skip the single-target
+   prompt — every candidate becomes a target. Print the same "Not offered: … — <reason>" lines
+   for every excluded service as the no-candidates case above, then run Steps 4–6 once per
+   candidate, each writing to its own `<output_dir>/<service.id>/` (see the `--output-dir` flag
+   note) so N services never collide on one set of `main.tf`/`variables.tf`/`outputs.tf`. If the
+   candidate list is empty, print the same "No service … to build from" message and exit; `all`
+   over nothing is still nothing.
+
+## Step 4: Check for existing module
+
+`<output_dir>` is the default `infra/observability/<vendor>/` (or `--output-dir`'s value) for a
+single target; under `--service all`, Steps 4–6 run once per candidate and `<output_dir>` is that
+path's `<service.id>/` subdirectory for each one, so they never collide (see Step 3.4).
+
+**This only catches this plugin's OWN prior output. Separately check for observability-as-code
+committed by ANOTHER system (#168)** — a `dashboards/`/`alerts/`/`grafana/`-style directory of
+Grafana dashboard-model or alert-rule JSON, anywhere in the repo, not just `<output_dir>`. Use
+the exact same heuristic `brownfield-auditor`'s "Existing observability-as-code" dimension does
+(`Glob` for `*.json` under those path names, `Grep` each hit for `"panels":`/`"targets":` or
+`"rules":`+a PromQL-looking `expr`/query before trusting a match) — do not restate or
+reimplement the heuristic differently here, it must stay the one place that can drift. If a hit
+covers the same condition this run is about to generate (compare metric names / panel titles to
+what Step 5 is about to produce), warn before writing, same non-blocking shape as the
+already-deployed-Collector check in `/otel-collector`:
+```
+Note: <path> already covers <what it covers — e.g. "request rate, 5xx ratio, p99 latency"> for
+<name>. Generating anyway — review whether this duplicates what's already provisioned there
+before applying the output below; a second alert on the same condition double-pages.
+```
+
+If `<output_dir>/*.tf` files exist AND `--force` is NOT set:
+- Print: "⚠ Terraform files already exist in <output_dir>. Use --force to overwrite."
+- Exit.
+
+If they exist AND `--force` IS set:
+- Print which files will be regenerated from scratch and confirm before writing — `--force`
+  discards hand edits to the module. With `--yes`, still print the list, then print
+  "↷ --yes: overwriting without asking" instead of confirming. With no one to answer and no
+  `--yes`, exit without writing and say `--yes` would have continued.
+- Authorize the overwrite for the `write-guard` hook by listing the module files (`main.tf`,
+  `variables.tf`, `outputs.tf`) under `<output_dir>` in the `.claude/.otel-force` sentinel, one
+  per line (this is how `--force` reaches the hook). **Truncate the sentinel first** (`:>`) so a
+  leftover from an aborted earlier run can never grant a standing overwrite authorization, then
+  append the three module files:
+  `mkdir -p .claude && :> .claude/.otel-force && for f in main.tf variables.tf outputs.tf; do printf '%s\n' "<output_dir>/$f" >> .claude/.otel-force; done`
+  Repo-relative or absolute both work: the guard normalises both sides before comparing, so the
+  sentinel does not have to match the host's path convention. It stays path-scoped — a file you
+  do not list is still protected.
+
+## Step 5: Dispatch terraform-gen subagent
+
+Pass to `otel-as-code:terraform-gen`:
+- `context`: loaded context JSON
+- `service`: the SELECTED service object from Step 3 — the subagent builds selectors, the
+  dashboard uid, and folder/alert names from THIS object, never by picking its own from
+  `context.services` (#185; mirrors `/otel-instrument` Step 5's identical `service` input)
+- `backend`: the validated vendor string
+- `terraformPatternsPath`: `${CLAUDE_PLUGIN_ROOT}/skills/terraform-patterns/SKILL.md` — the
+  subagent has no `Skill` tool and `Read`s this file for the per-backend provider patterns and
+  gotchas (following those from memory is how the New Relic `account_id` bug in #38 happened).
+- `output_dir`: resolved output directory
+- `kind`: from --kind flag (default 'all')
+- `experimental`: from --experimental flag
+- `grafanaFlavor`: `"self-hosted"` when `--self-hosted` was passed, else `"cloud"` (the default —
+  omit this entirely for a non-Grafana vendor, since it's meaningless there)
+- `businessAttrsUnconfirmed`: `true` when Step 2 continued past unconfirmed business attributes
+  (by `--yes` or a yes answer); otherwise omit it
+- `pluginVersion`: the `version` field from `${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json` —
+  the subagent cannot read that file itself; it stamps this into the header's `<PLUGIN_VERSION>`
+  placeholder and must never copy the literal `v0.1.0` shown in its own template (#177)
+
+## Step 6: Display the subagent's output
+
+The subagent handles all file writing and validation — `terraform fmt`/`validate`, or
+`tofu fmt`/`validate` on a repo that uses OpenTofu (it detects which binary applies; see
+`terraform-gen`'s "Detect Terraform vs OpenTofu" section — this command does not need to know).
+Print its output verbatim including the next-steps block.
+
+If a `.claude/.otel-force` sentinel was created in Step 4, remove it now to restore the
+write-guard: `rm -f .claude/.otel-force`.
+
+After the subagent output, print — using the SAME binary name (`terraform` or `tofu`) the
+subagent's own next-steps block above just printed, never assuming `terraform` independently:
+```
+Note: /otel-backend does not run apply. Credentials stay in your environment.
+To apply: cd <output_dir> && <TF_BIN> init && <TF_BIN> plan && <TF_BIN> apply
+```
+
+## Step 7: Offer optional live verification via a connected vendor MCP
+
+**Enrichment only, never required — the Terraform above is already complete and correct on its
+own.** This mirrors the "detect, enrich, degrade" rule for optional external sources: an
+unavailable or unconnected MCP is never a finding, never blocks anything, and this command's own
+output never depends on it.
+
+Check whether an MCP server matching the SELECTED `backend` is connected — search available
+tools for a name containing the vendor (`grafana`, `datadog`, `newrelic`/`new relic`, `dash0`),
+not a coincidental match on an unrelated tool. Then:
+
+- **A matching MCP is connected:** print one line naming what it could confirm once the
+  Terraform above is actually applied — this command never runs `apply` itself (Step 6's note
+  above), so nothing exists in the vendor account yet and there is nothing to verify THIS run.
+  Offer it as a next step, do not attempt it now:
+  ```
+  Tip: a <Vendor> MCP is connected. After you apply, ask me to confirm the <resource> exists and
+  matches what was generated.
+  ```
+  Name the concrete resource per vendor — Grafana: "the dashboard (`<uid>`) / alert rules";
+  Datadog: "the monitor(s) / dashboard"; New Relic: "the alert policy / dashboard"; Dash0: "the
+  SLO / dashboard". Use whatever this run actually generated (`--kind`), not a generic word.
+- **No matching MCP is connected:** print one line suggesting it as optional, phrased so it
+  cannot read as a requirement:
+  ```
+  Tip: connecting a <Vendor> MCP lets me confirm these resources exist in your account after you
+  apply. Not required — the Terraform above is already complete.
+  ```
+- **Never claim a verification happened that did not.** Do not call any MCP tool in this step
+  under any circumstance — detection only. The offer is for a LATER turn, after the user has
+  actually run `apply`; attempting to verify now would either find nothing (correctly, since
+  nothing was applied) and read as a false failure, or query stale state from a previous run and
+  get attributed to this one.

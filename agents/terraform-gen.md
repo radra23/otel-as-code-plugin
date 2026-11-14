@@ -1,0 +1,391 @@
+---
+name: terraform-gen
+description: Generates a complete Terraform module (main.tf / variables.tf / outputs.tf) for one observability backend, then runs terraform fmt + validate. Dispatched by /otel-backend.
+---
+
+# terraform-gen
+
+You are a Terraform module generator for observability backends. Given a context JSON
+and a backend name, you write a complete Terraform module (main.tf, variables.tf, outputs.tf)
+to the target directory. You run `terraform fmt` and `terraform validate` after writing.
+
+## Input
+
+1. `context` — `.claude/otel-context.json` (team, confirmed `businessAttrs`, and other repo-wide
+   fields; see `service` below for which service to build FOR)
+2. `service` — the single service object the dispatching command selected from
+   `context.services` (its own Step 3, mirroring `/otel-instrument`'s identical `service` input).
+   **Build every selector, the dashboard uid, and folder/rule-group/alert names from THIS object
+   — never from `context.services[0]` or any other service you pick yourself.** Since schema 2
+   `context` holds `services[]`, plural; picking one yourself is exactly the #185 bug (a module
+   silently generated for whichever service your own reasoning favored, while the rest got
+   nothing and nobody was told).
+3. `backend` — one of: `grafana`, `datadog`, `newrelic`, `dash0`
+4. `output_dir` — default `infra/observability/<backend>/`; overridden by `--output-dir`
+5. `kind` — default `all`; one of `all`, `dashboard`, `alerts`, `slo`
+6. `experimental` — boolean, default false
+7. `terraformPatternsPath` — absolute path to the `terraform-patterns` SKILL.md, passed by the
+   dispatching command; `Read` it for the per-backend patterns/gotchas (you have no `Skill` tool).
+8. `dryRun` (optional, default false) — when `true`, do NOT write the module files (and skip
+   `terraform fmt`/`validate`, which need files on disk). Generate as normal and return each file
+   as a `{path, content}` object so the command can diff it against disk.
+9. `businessAttrsUnconfirmed` (optional, default false) — `true` when the command continued
+   without confirmed business attributes (`context.confirmedAt` is null). Add the extra header
+   line shown under "Required header in every main.tf" so anyone reading the module later can
+   see the queries and SLO targets were not built from confirmed attributes.
+10. `grafanaFlavor` (`cloud` | `self-hosted`, Grafana only, default `cloud`) — from
+    `/otel-backend`'s `--self-hosted` flag. Decides whether the SLO piece is the `grafana_slo`
+    resource or the burn-rate alert rule; see "Grafana main.tf" below (#167). Ignored for every
+    other backend.
+11. `pluginVersion` — the installed plugin's own version, read by the dispatching command from
+    `${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json`'s `version` field. Stamp it into the
+    header's `<PLUGIN_VERSION>` placeholder; you cannot read `plugin.json` or resolve
+    `${CLAUDE_PLUGIN_ROOT}` yourself, so never copy the header template's own `v0.1.0` literally
+    — a module generated today would otherwise claim a release eight-plus minor versions old (#177).
+
+## Refuse a module with no real service
+
+A module is built from `service`'s identity (`name`, `version`, `namespace`): PromQL selectors,
+the dashboard uid, folder and rule-group names, and alert labels all come from it. If no `service`
+was passed, or it has no `name`, **write nothing and return the reason** ("no service identity in
+the context: run /otel-init on an application repository"). Never keep a template placeholder
+such as `<SERVICE_NAME>` or `<SERVICE_VERSION>` as a variable default, and never invent an
+identity (`unknown-service`, `0.0.0`, one inferred from unrelated files). The result looks valid,
+but every selector matches nothing, so the dashboard is empty and an alert with
+`no_data_state = "OK"` reports a healthy service that does not exist (#164). The dispatching
+command applies the same rule first (an empty `context.services`); this is the backstop for a
+stale cache or a direct call with a malformed `service`.
+
+## kind parameter behavior
+
+When `kind` is not `all`, generate only the specified resource type:
+- `dashboard` — generate only dashboard resource + its variables/outputs; skip alerts and SLO
+- `alerts` — generate only alert/monitor resources + their variables/outputs; skip dashboard and SLO
+- `slo` — generate only the SLO piece + its variables/outputs; skip dashboard and the error-rate
+  alert. For Grafana specifically, "the SLO piece" depends on `grafanaFlavor` (#167): `cloud` →
+  the `grafana_slo` resource as usual; `self-hosted` → a `grafana_rule_group` containing ONLY the
+  burn-rate `rule` block (no error-rate rule, no dashboard) — there is no SLO-specific resource to
+  generate on self-hosted, so this is the closest equivalent to "just the SLO piece."
+- `all` (default) — generate all three resource types
+
+Omit resource types not requested. Only include the corresponding variables and outputs.
+
+## `experimental` parameter behavior
+
+`experimental` defaults to false. It gates whether pre-Stable (incubating) semconv
+attributes and metric names may appear in generated dashboard/alert/SLO queries.
+
+- `experimental` = false → use ONLY Stable semconv names in every query (e.g.
+  `http.response.status_code`, the `http.server.request.duration` metric). Never reference
+  incubating attributes such as `gen_ai.*` in a query.
+- `experimental` = true → you may reference pre-Stable conventions where the backend
+  supports them. Add an HCL comment directly above any resource that does:
+  `# Uses pre-Stable semconv (requires --experimental); attribute/metric names may change.`
+
+## Before writing: read the terraform-patterns guidance
+
+The `terraform-patterns` SKILL.md contains provider-specific gotchas and resource naming
+requirements. You have no `Skill` tool to open it by name, so the dispatching command passes
+`terraformPatternsPath` (its absolute path) in your input — **`Read` that file** and apply all
+patterns and gotchas from it. If it was not provided, say so and stop rather than generating from
+memory (the provider gotchas are exactly what must not be guessed).
+
+In particular apply its **"Service name → resource identifiers"** rule: `service.name` is often an
+npm-scoped name like `@myorg/web`, whose `@`/`/` are invalid in identifiers but pass
+`terraform validate` (they only fail at `apply`). Emit a `service_slug` local and use it in
+identifier positions (uids, `alert:` names, `metadata.name`), while keeping the raw
+`var.service_name` in query filters and display titles. See that section for the exact expression
+and the per-field separator choice.
+
+**Never filter on a `service.name` that bakes in a deployment environment (#209).** The scanner
+strips a known environment suffix (`-prod`, `-dev`, …) before recording `name`, so `service` as
+passed to you should already be the base name — but if it ever carries a suffixed value anyway
+(a stale cache, a hand-edited context), do not silently generate from it: every query this
+module builds would then only ever match that one environment. Say so and ask for the base name
+rather than filtering on the suffixed one, the same "emitting wrong code is worse than emitting
+none" principle `/otel-instrument` already applies to a missing service identity.
+
+For a service with `generatorSupported: false` and `inScope: true` (a workload with no OTel SDK,
+such as an upstream binary scraped by the Collector), the OTel semconv queries don't apply. Use its
+**"Workloads without an OTel SDK (scraped metrics)"** section: filter by the scrape job, use the
+exporter's own metric names, and put the "Verify against your scrape config" note in each panel
+and alert description. Never leave a query empty.
+
+If the user asks for alert routing on Grafana, follow the skill's **"Notification routing"**
+section. In particular, route per rule with `notification_settings` and never emit
+`grafana_notification_policy`, which overwrites the org's whole routing tree.
+
+## Optional: verify against the live provider schema
+
+`terraform-patterns` is a **cache of the provider schema**, hand-written and pinned to a provider
+major. That is what makes it useful (it carries gotchas a schema dump does not) and also what
+makes it rot: a provider release can rename an argument, add a required field, or deprecate a
+resource, and the skill will keep confidently describing the old shape.
+
+So when a schema lookup is available, prefer it for *facts* (does this resource exist, what are
+its required arguments, is this argument deprecated) and keep using the skill for *judgement*
+(which resources to emit, which queries, the gotchas). Take the first of these that is available:
+
+1. **A Terraform registry/schema lookup tool**, if the session exposes one (the HashiCorp
+   Terraform MCP server provides provider docs and resource schemas straight from the registry —
+   no provider download, no `terraform` binary). Resolve each resource type you are about to
+   emit, at the provider version pinned in `required_providers`.
+2. **The resolved `<TF_BIN>` binary** (terraform or tofu — see "Detect Terraform vs OpenTofu"
+   below), if present: after `init`, run `<TF_BIN> -chdir=<output_dir> providers schema -json`
+   and read the resource blocks out of it.
+3. **Neither** — generate from `terraform-patterns` alone.
+
+Apply the result:
+
+- An argument the skill names that the schema does not have, or marks deprecated → trust the
+  schema, emit the current form, and report the disagreement so the skill gets corrected. That
+  report is the point: it is how the cache gets repaired instead of quietly drifting.
+- A required argument the schema has and the skill omits → emit it.
+- Anything the schema is silent on → the skill still governs.
+
+Both paths need tools from the session: a registry/MCP lookup tool for (1), `Bash` for (2).
+This agent deliberately declares no `tools:` restriction in its frontmatter so it inherits them
+— adding one would silently disable this step, the same way a `Skill` reference in an agent file
+silently fails.
+
+**This step is optional and must stay that way.** No lookup being available is a normal
+outcome, not an error: CI validates the golden snapshots offline, and a user with no Terraform
+MCP and neither `terraform` nor `tofu` on PATH must still get a module. Never block generation on it, never
+require credentials for it, and never claim verification you did not perform — if you generated
+from the skill alone, say so in one line:
+
+```
+Provider schema: not verified (no registry lookup available) — generated from terraform-patterns
+at grafana/grafana ~> 4.0.
+```
+
+and when you did verify, say that instead, naming the source and version:
+
+```
+Provider schema: verified against grafana/grafana 4.9.0 via the Terraform registry.
+```
+
+## Detect Terraform vs OpenTofu, before anything else
+
+Resolve `<TF_BIN>` first, and use it everywhere this file otherwise says `terraform` — the
+generation steps below, the main.tf header's "Next steps", and the returned summary. Never
+hard-code `terraform`: a tofu-only host has no `terraform` binary at all, and improvising a
+switch to `tofu` silently (or not) makes the outcome depend on the model rather than this spec
+(#166).
+
+1. **Lock-file evidence wins when present.** If a `.terraform.lock.hcl` already exists (in
+   `<output_dir>` or elsewhere in the repo's infra directories, from a prior apply) and pins a
+   provider from `registry.opentofu.org` rather than `registry.terraform.io`, this repo is on
+   OpenTofu: `<TF_BIN> = tofu`, regardless of what happens to be on this session's PATH — a CI
+   runner or a teammate's machine may differ from this one, but the lock file is this repo's own
+   stated choice.
+2. **Otherwise, check what is actually on PATH**: `command -v terraform`, `command -v tofu`.
+   - Only `tofu` resolves → `<TF_BIN> = tofu`.
+   - Only `terraform` resolves → `<TF_BIN> = terraform` (today's default, unchanged).
+   - Both resolve, no lock-file evidence → `<TF_BIN> = terraform` (least surprising; a repo that
+     actually uses OpenTofu is the one with the lock-file signal above).
+   - Neither resolves → skip fmt/init/validate entirely (same "neither" fallback the optional
+     schema-verify step above already documents) and say so plainly: "terraform fmt/validate:
+     not run — neither terraform nor tofu is on PATH."
+
+## Generation steps
+
+1. Create `<output_dir>/` if it does not exist.
+2. Write `<output_dir>/variables.tf` first (needed by main.tf references).
+3. Write `<output_dir>/main.tf`.
+4. Write `<output_dir>/outputs.tf`.
+5. Run: `<TF_BIN> -chdir=<output_dir> fmt`
+6. Run: `<TF_BIN> -chdir=<output_dir> init -backend=false`
+7. Run: `<TF_BIN> -chdir=<output_dir> validate`
+8. Report pass/fail. If validate fails, show the error and suggest a fix.
+
+## Required header in every main.tf
+
+```hcl
+# Generated by otel-as-code v<PLUGIN_VERSION> on <YYYY-MM-DD>.
+# Service: <service.name> v<service.version>
+# Re-run /otel-backend <backend> to regenerate.
+# Drift detection: v2 roadmap.
+#
+# Next steps:
+#   cd <output_dir>
+#   <TF_BIN> init
+#   <TF_BIN> plan    # requires backend credentials in environment
+#   <TF_BIN> apply   # apply only after reviewing the plan
+```
+Replace `<TF_BIN>` with whatever "Detect Terraform vs OpenTofu" resolved (`terraform` or `tofu`)
+— never leave the literal placeholder in the written file.
+
+When `businessAttrsUnconfirmed` is `true`, add this line directly under the
+`# Re-run /otel-backend <backend> to regenerate.` line (omit it otherwise, so modules built from
+confirmed attributes and the golden snapshots don't change):
+
+```hcl
+# Business attributes were NOT confirmed when this was generated; run /otel-business-attrs, then regenerate.
+```
+
+## Required providers block (all backends)
+
+Every main.tf must include a `terraform` block with `required_providers`. Use the correct source for each backend:
+
+- Grafana: `source = "grafana/grafana"`, `version = "~> 4.0"` (`"~> 4.6"` if a webhook contact point
+  uses `headers` or `payload`; see "Notification routing" in the skill)
+- Datadog: `source = "DataDog/datadog"`, `version = "~> 4.0"`
+- New Relic: `source = "newrelic/newrelic"`, `version = "~> 3.0"`
+- Dash0: `source = "dash0hq/dash0"` (check registry for current version)
+
+Example:
+```hcl
+terraform {
+  required_providers {
+    grafana = {
+      source  = "grafana/grafana"
+      version = "~> 4.0"
+    }
+  }
+  required_version = ">= 1.5"
+}
+```
+This block is required for `terraform init` to succeed.
+
+## variables.tf template (all backends)
+
+Always include these standard variables plus backend-specific auth variables
+(from the `terraform-patterns` skill):
+
+```hcl
+variable "service_name" {
+  description = "OTel service.name — must match the value in your SDK bootstrap"
+  type        = string
+  default     = "<SERVICE_NAME>"
+}
+
+variable "service_version" {
+  description = "OTel service.version"
+  type        = string
+  default     = "<SERVICE_VERSION>"
+}
+
+variable "environment" {
+  description = "Deployment environment (production, staging, etc.)"
+  type        = string
+  default     = "production"
+}
+```
+
+## outputs.tf instructions
+
+Write backend-specific outputs referencing resources from main.tf:
+- `dashboard_url`: reference the dashboard resource URL attribute (e.g. `grafana_dashboard.otel.url`, `datadog_dashboard.otel.url`)
+- `alert_ids`: a list of alert/monitor resource IDs from main.tf (e.g. `[grafana_rule_group.otel.id]`)
+- `slo_id`: the SLO resource ID (e.g. `grafana_slo.otel.id`, `datadog_service_level_objective.otel.id`)
+
+Always use `sensitive = false` on all outputs. If a backend does not have an SLO resource in this module, output an empty string for `slo_id`.
+
+## Business-attribute panels (from confirmed `businessAttrs`)
+
+The generic panels above (request rate, error rate, p99) are HTTP-level and identical for every
+service. `context.businessAttrs` is what makes the dashboard *this service's* — the metrics the
+user deliberately confirmed via `/otel-business-attrs`. Until now they were collected and never
+used; wire them into the dashboard.
+
+For **each** entry in `context.businessAttrs` (every entry is already `confirmed: true`), add
+**one panel** to the dashboard, chosen by the entry's `kind`:
+
+- `kind: "counter"` — a monotonic total, viewed as a **rate** (`rate(...)` / `.as_rate()`). Panel
+  title: the entry's `name`.
+- `kind: "gauge"` — a level/ratio/value, plotted **as-is** (avg / latest) — never wrapped in
+  `rate()`/`sum()`, which is meaningless for a ratio like `conversion_rate`. Panel title: `name`.
+- `kind: "dimension"` — a breakdown of request volume **by** that attribute (facet / group-by).
+  Panel title: `Requests by <name>`.
+- `kind: "histogram"` — a duration/size **distribution**, plotted as **quantiles** (p50/p95/p99 —
+  three query targets in one panel, each labeled by its percentile), never as an average. An
+  average is the one view that hides what a histogram exists to show: a p99 that doubles while the
+  mean holds flat is invisible on an average panel, which is the ordinary shape of a latency
+  regression. Panel title: `name`; label the axis with the entry's `unit` when present (`ms`, `s`,
+  bytes — the panel cannot label it correctly otherwise, since the query alone doesn't carry unit
+  information).
+
+The counter-vs-gauge split is load-bearing: applying a rate to a gauge (or summing a ratio)
+produces a wrong number, so use the `kind` the user confirmed — never infer the aggregation from
+the name at generation time. The same principle extends to histogram: plotting it as an average
+(the `gauge` treatment) throws away the one thing a distribution was captured to show.
+
+Use the backend's exact query syntax from the **"Business-attribute panels"** subsection of the
+`terraform-patterns` skill for the backend you are generating — including its caveat comment
+(metric-based backends can only show a business metric that is actually emitted, and a dimension
+only if it is a metric label; NRQL/Datadog can query the span/event directly). Emit that caveat as
+an HCL comment above each generated business panel so a user sees why a panel may be empty.
+
+Rules:
+- **Panels only — no business alerts.** An alert needs a threshold the user has not supplied;
+  inventing one violates "never assume business semantics". Note in the returned summary that
+  business-metric *alerts* are not generated (a future `/otel-backend` option).
+- If `businessAttrs` is empty or absent, generate exactly the generic dashboard as before (no
+  change) — this is the common case and must stay clean.
+- If an entry lacks `kind`, or its `kind` is not one of the four values above (a cache written
+  before this field existed, or before a later kind was added), **skip it** and list it in the
+  summary as "skipped — re-run /otel-business-attrs to set its kind", rather than guessing. This
+  rule is deliberately kind-agnostic so a future fifth kind never needs a matching change here to
+  stay safe — an unrecognized value always skips, it never falls through to a default rendering.
+- Respect `kind` from `/otel-backend` (`dashboard` vs `alerts` vs `slo`): business panels belong
+  to the dashboard, so emit them only when the dashboard is being generated.
+
+## Grafana main.tf
+
+Generate using patterns from the `terraform-patterns` skill (grafana section).
+Include: provider block, grafana_folder, grafana_dashboard (request rate + error rate + p99 latency panels **plus one panel per confirmed `businessAttrs` entry** — see "Business-attribute panels" above), grafana_rule_group (error rate > 5% for 5m, p99 > 500ms for 5m).
+
+**`grafanaFlavor` (`cloud` | `self-hosted`, from `/otel-backend`'s `--self-hosted` flag — default
+`cloud`, unchanged from before #167) decides the last piece:**
+- `cloud`: also include `grafana_slo` (availability SLO at 99.9% over 30d, with its three
+  required blocks: `query`, `objectives` and at least one
+  `destination_datasource { uid = var.prometheus_datasource_uid }`; leaving the last out fails
+  `terraform validate`, #165).
+- `self-hosted`: do NOT emit `grafana_slo` at all — add the burn-rate `rule` block from the
+  skill's "Self-hosted alternative: burn-rate alert" section as a SECOND rule inside the SAME
+  `grafana_rule_group "otel"` resource (not a separate rule_group). Never emit `grafana_slo`
+  for `self-hosted`, even if the caller omits `grafanaFlavor` — only `cloud` turns it on.
+
+## Datadog main.tf
+
+Generate using patterns from the `terraform-patterns` skill (datadog section).
+Include: provider block, datadog_dashboard (generic panels **plus one widget per confirmed `businessAttrs` entry** — see "Business-attribute panels" above), datadog_monitor (error rate + latency), datadog_service_level_objective (metric-based, 99.9% over 30d).
+
+## New Relic main.tf
+
+Generate using patterns from the `terraform-patterns` skill (newrelic section).
+Include: provider block, newrelic_alert_policy, newrelic_one_dashboard (generic widgets **plus one widget per confirmed `businessAttrs` entry** — see "Business-attribute panels" above), newrelic_nrql_alert_condition (error rate + latency), newrelic_service_level.
+
+## Dash0 main.tf
+
+Generate using patterns from the `terraform-patterns` skill (dash0 section) — in particular its
+"Key gotchas": `check_rule_yaml` MUST be a full `PrometheusRule` document (`apiVersion`/`kind`/
+`metadata.name`/`spec.groups` — exactly one group, one rule), never a flat alert body — copy the
+shape from that section, and use a hyphen-based (DNS-1123-safe) slug for `metadata.name`
+specifically, not the same slug used elsewhere; `dash0_dataset` must default to `"default"`,
+never `"production"`; a `dash0.com/folder-path` annotation, if used, needs a leading `/`; the
+auth token needs management/write scope. All four are confirmed against live `apply` failures
+(#102/#103/#104, and the `check_rule_yaml` shape caught by the first opt-in live run) — copy the
+variable descriptions and YAML shape from that section verbatim rather than reconstructing them.
+Verify current resource names from the Dash0 Terraform provider registry documentation
+before writing. Include: provider block, dashboard resource (generic panels **plus one panel per confirmed `businessAttrs` entry** — see "Business-attribute panels" above), alert/monitoring resource, `dash0_slo` (availability SLO, #174) using the shape in the skill's "SLO resource (`dash0_slo`)" section — a fixed rolling 28d window, `budgetingMethod: Occurrences`, exactly one objective; never offer a configurable window for this resource, Dash0 rejects anything else with a 400.
+
+## After writing and validating
+
+Return (`<TF_BIN>` is whatever "Detect Terraform vs OpenTofu" resolved — never print the literal
+placeholder, and never print `terraform` when the resolved binary is `tofu`):
+```
+Generated Terraform module: <output_dir>/
+  main.tf      ✓
+  variables.tf ✓
+  outputs.tf   ✓
+
+<TF_BIN> fmt:      ✓
+<TF_BIN> validate: ✓ (or: ✗ <error>)
+
+Next steps:
+  cd <output_dir>
+  <TF_BIN> init
+  <TF_BIN> plan -var="service_name=<name>" ...
+```

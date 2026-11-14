@@ -1,0 +1,348 @@
+---
+description: Generate an otelcol-contrib config (agent or gateway mode)
+argument-hint: "[agent|gateway] [--experimental] [--public] [--exporter-header Name=${env:VAR}] [--cardinality-budget <N>] [--force] [--confirm-remove-auth] [--confirm-remove-exporter-auth] [--dry-run]"
+---
+
+# /otel-collector [mode] [--experimental] [--public]
+
+Generate an otelcol-contrib config for this service's Collector setup.
+
+## Flags
+- `[mode]` — `agent` (default) or `gateway`
+- `--experimental` — include experimental processors/receivers
+- `--public` — the collector has NO private-network path to the app(s) sending to it (e.g. the app
+  runs on a serverless-container platform with no sidecar option, so the collector runs on a
+  separate, internet-reachable host). Without this flag the OTLP receiver is unauthenticated —
+  fine for same-host/private-network, a real gap otherwise (#107). Adds the `bearertokenauth`
+  extension (beta stability upstream) wired into both receiver protocols. **TLS in front of the
+  collector is a requirement for this to actually secure anything** — say so explicitly in Step 6.
+  See the `collector-topology` skill's "Receiver auth" section for the exact shape and why this is
+  opt-in rather than inferred.
+- `--exporter-header <Name=value>` — repeatable. Adds a header to the generated `otlp` exporter's
+  `headers:` block, for a Collector that exports straight to a backend or to an authenticated
+  gateway. **Every value must reference an environment variable (`${env:VAR}`), never a literal**:
+  refuse a value with no `${env:` in it and say why (a secret must not be committed, and even a
+  non-secret value such as a dataset name differs per environment). Example:
+  `--exporter-header 'Authorization=Bearer ${env:BACKEND_AUTH_TOKEN}'`. The plugin deliberately
+  does not pick header names per vendor — they are the vendor's OTLP-ingest contract, so take
+  them from the vendor's docs. Without this flag the exporter carries no credentials.
+- `--cardinality-budget <N>` — generate a proactive metrics cardinality ceiling (#119), as
+  `cardinality_guardian`'s `max_cardinality_delta_per_epoch: <N>` (new unique label values
+  allowed per `(metric, label)` pair per 300s epoch), paired with a `filter` processor that drops
+  anything it flags. `<N>` is never inferred or defaulted — you must supply it. Requires
+  `--experimental` (the component is Development-stability upstream; refuse otherwise with a
+  one-line reason) and `mode=gateway` (refuse for `agent` — the detector needs aggregate
+  visibility across every upstream agent to mean anything; see the `collector-topology` skill's
+  "Cost/Cardinality Budget" section for why). Without this flag, no cardinality-budget processor
+  is generated, at any `--experimental` setting — this is additive, opt-in policy, not something
+  `--experimental` unlocks by itself.
+- `--force` — overwrite an existing `otelcol-agent.yaml` / `otelcol-gateway.yaml`. Required if the
+  write-guard hook blocks re-generation (it protects generated collector configs). If the existing
+  file has receiver auth and `--public` is not also passed, `--force` alone is refused — see
+  `--confirm-remove-auth`. Exporter `headers:` / `auth:` already in the file are kept — see Step 3.
+- `--confirm-remove-exporter-auth` — required alongside `--force` to regenerate over exporter
+  auth the new config cannot carry (see Step 3). An explicit, typed opt-out, like
+  `--confirm-remove-auth`.
+- `--confirm-remove-auth` — required alongside `--force` (and without `--public`) to regenerate an
+  auth-having config into an unauthenticated one. An explicit, typed opt-out for a downgrade that
+  must never happen from a forgotten flag alone.
+- `--dry-run` — preview without writing. Generate the config as normal (Step 4) but, instead of
+  writing it in Step 5, print a unified diff of the would-be YAML against the on-disk file (or
+  "would create `<filename>`" if absent), write nothing, do NOT create the `.otel-force` sentinel,
+  and exit non-zero if it would change — so it composes in CI. **Combined with `--public`, still
+  print Step 6's REQUIRED-TLS advisory** even though nothing was written — skip only the
+  file-existence-dependent parts (the `docker run -v` mount, the "run it" framing). A `--dry-run`
+  invocation is exactly the CI path most likely to run unattended with no human present to notice
+  a missing security warning.
+
+## Step 1: Load the collector-topology skill
+
+Read `otel-as-code:collector-topology`. Apply all topology patterns and cardinality
+guardrails from that skill throughout this command.
+
+## Step 2: Load context
+
+Check `.claude/otel-context.json`. Apply the freshness rule from `/otel-init` Step 1
+(identity-input fingerprint, not `HEAD`). If stale or absent, dispatch
+`otel-as-code:repo-context-scanner` **passing the existing cache as `priorContext`, `scanTime`
+(the output of `date -u +%Y-%m-%dT%H:%M:%SZ`), and `pluginVersion` (the `version` field from
+`${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json`)** and write what it returns via
+`scripts/write_context.py`, exactly as `/otel-init` Step 4 does (#211) — never by transcribing the
+JSON into a `Write` call. A refresh is a merge, never a replace (see the cache ownership contract
+in `agents/repo-context-scanner.md`).
+
+If the scan or the cache has **no services**, apply `/otel-init` Step 2's "Empty scan" rule:
+print its message, write nothing, exit 0. A Collector config describes what receives telemetry
+from services; for a repo with none it would be a repo-root file that collects from nothing.
+
+**Check for an already-deployed Collector before generating (#176).** If any service has
+`instrumentableReason` naming it existing OTel Collector infrastructure (the scanner's
+`helm_release`/`kubernetes_manifest` detection — see `repo-context-scanner.md`), print a note
+before Step 3 proceeds — this does NOT block generation, since the user may genuinely want a
+second config (a different mode, or this repo's own agent config alongside a separately-managed
+gateway), but silently generating a disconnected duplicate with no acknowledgment is the exact
+gap reported:
+```
+Note: <name> already deploys an OTel Collector (chart <chart>, image <image>) via <file>.
+Generating anyway — review whether editing that release's own `values` is more appropriate than
+a second, disconnected config before applying this one.
+```
+
+## Step 3: Determine output path
+
+Write to: `otelcol-agent.yaml` (mode=agent) or `otelcol-gateway.yaml` (mode=gateway)
+in the repo root (or service root for monorepos).
+
+If the file already exists:
+- **Without `--force`:** print "⚠ `<filename>` already exists. Re-run with `--force` to overwrite."
+  and exit — the write-guard hook will block the overwrite anyway.
+- **With `--force`, existing file contains `authenticator:` (has receiver auth), and `--public`
+  was NOT passed this run:** STOP before overwriting — regenerating now would silently strip auth
+  from what may be an internet-exposed collector, the exact vulnerability `--public` exists to
+  close, reintroduced by a forgotten flag. Print:
+  ```
+  ⚠ <filename> currently has receiver auth (bearertokenauth) — this regeneration would REMOVE it
+    (--public was not passed). Re-run with --public to keep auth, or add --confirm-remove-auth
+    to intentionally downgrade to unauthenticated.
+  ```
+  and exit. Only proceed past this check if `--public` is set (auth stays) or the user passed
+  `--confirm-remove-auth` alongside `--force` (an explicit, typed opt-out — never inferred, never
+  silent).
+- **With `--force`, existing file has `headers:` or `auth:` under any `exporters.<name>`:** that
+  is the user's backend credential wiring (typically `Authorization: Bearer ${env:…}` or an API
+  key header), and the generator does not produce it, so a plain regeneration would delete it
+  with no warning and every export would then be rejected. Read it BEFORE generating and:
+  - **keep it** when the regenerated config has an exporter of the same name (the templates
+    define `otlp`): carry the `headers:` and `auth:` blocks over verbatim, then apply
+    `--exporter-header` entries on top (a flag entry replaces a kept header of the same name).
+    Say so: `↻ Kept exporter auth: exporters.otlp.headers (Authorization, Dash0-Dataset)`.
+  - **stop** when it sits on an exporter the new config does not have (e.g. `otlp/dash0`): there
+    is nowhere to put it. Print
+    ```
+    ⚠ <filename> has exporter auth on exporters.<name>, which this regeneration does not produce —
+      it would be REMOVED. Keep that exporter by editing the file by hand, or add
+      --confirm-remove-exporter-auth to intentionally drop it.
+    ```
+    and exit. Proceed only with the typed `--confirm-remove-exporter-auth`.
+  Never print a header VALUE that is not an `${env:…}` reference; if the existing file holds a
+  literal secret there, say "a literal credential" and recommend moving it to an env var.
+- **With `--force` otherwise:** print "↻ Overwriting `<filename>` (--force)." and authorize the
+  write-guard by writing the absolute path of the file to the `.claude/.otel-force` sentinel. A
+  slash-command flag cannot set an env var for the hook process, so the sentinel is how `--force`
+  reaches it. **Truncate the sentinel as you write it** (`>`, not `>>`) so a leftover from an
+  aborted earlier run can never grant a standing overwrite authorization:
+  `mkdir -p .claude && printf '%s\n' "<abs path of the otelcol-*.yaml>" > .claude/.otel-force`
+
+## Step 4: Generate the config
+
+**If `--cardinality-budget` was passed, validate it before generating anything:**
+- Without `--experimental`: refuse — "⚠ --cardinality-budget requires --experimental (the
+  cardinality_guardian processor is Development-stability upstream). Nothing was written." Exit.
+- With `mode=agent` (or the default, unspecified mode): refuse — "⚠ --cardinality-budget only
+  applies to gateway mode — the growth-rate detector needs aggregate visibility across every
+  upstream agent to mean anything. Re-run with `gateway`. Nothing was written." Exit.
+- Otherwise (gateway + `--experimental`): proceed: generate it per the gateway section below.
+
+Begin the file with an ownership header so the write-guard recognises it as plugin-generated
+(the guard only blocks overwrites of files carrying this marker) and a human can tell it was
+machine-written. This command has `Bash`: read the `version` field from
+`${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json` yourself and use the ACTUAL installed version
+— never the literal `v0.1.0` below, which is this file's own placeholder, not a value to copy
+(#177; a header that always said `v0.1.0` could never tell which release produced a file, or
+whether it predates a plugin change):
+```yaml
+# Generated by otel-as-code v<PLUGIN_VERSION> — otelcol-contrib config (<mode> mode).
+# Re-run /otel-collector <mode> to regenerate.
+```
+
+For `agent` mode:
+- Use the agent template from the `collector-topology` skill
+- Replace endpoint env var with `${env:OTEL_EXPORTER_OTLP_ENDPOINT}`
+- Include the `transform` processor. On top of the static `delete_key` statements in the
+  `collector-topology` template, add one `delete_key` for each attribute name in
+  `context.services[i].derived.highCardinalityAttributes`, unioned across all services in the
+  cache and de-duplicated. That field is a typed list of attribute keys the scanner/auditor found
+  to be high-cardinality — read it directly, and add each one to BOTH the `trace_statements` and
+  the `metric_statements` lists (they must stay identical; #172). Do NOT filter `conformanceIssues` on a
+  `severity: "cardinality"` value: no producer emits that severity (they emit info/warning/error),
+  and `conformanceIssues` lives under `derived`, not `existingOtel` — so the old filter matched
+  nothing and only the template's four generic identifiers were ever protected (#37).
+- Include `memory_limiter` and `batch` processors
+
+For `gateway` mode:
+- Use the gateway template from the `collector-topology` skill
+- Include `tail_sampling` with error + latency + debug + probabilistic policies
+- Set `decision_wait: 10s`, `num_traces: 100000`
+- If `--cardinality-budget <N>` was validated above, add the `cardinality_guardian` +
+  `filter/cardinality_budget` processor pair from the `collector-topology` skill's "Cost/Cardinality
+  Budget" section to the **metrics** pipeline only, between `memory_limiter` and `batch`
+  (`[memory_limiter, cardinality_guardian, filter/cardinality_budget, batch]`), with
+  `max_cardinality_delta_per_epoch: <N>` set to exactly the value passed — never a default, never
+  rounded. Annotate both with `# experimental — requires --experimental (#119)`, same convention as
+  other experimental components below. Do not touch the traces or logs pipelines: the component has
+  no traces/logs support (verified against the real binary, see the skill).
+
+Apply `--experimental`:
+- If `--experimental` is NOT set, emit ONLY the stable receivers/processors/exporters from
+  the `collector-topology` skill.
+- If `--experimental` IS set, you may add experimental components (e.g. the `spanmetrics`
+  connector or profiling receivers) on top of the stable pipeline. Annotate each added
+  component with a `# experimental — requires --experimental` comment so it is easy to find.
+
+Apply `--public` (both modes — they share the `receivers.otlp` block):
+- Add the `bearertokenauth` extension per the `collector-topology` skill's "Receiver auth"
+  section, wired into **both** `receivers.otlp.protocols.grpc.auth.authenticator` and
+  `.http.auth.authenticator`, with `extensions: bearertokenauth: token: "${env:COLLECTOR_AUTH_TOKEN}"`
+  — NEVER a literal token — and `service.extensions: [bearertokenauth]`.
+- Also set `exporters.otlp.tls.insecure: false` — see the skill's note on why this is a separate
+  leg (the collector's own outbound hop) tied to the same flag, not caused by receiver auth.
+- If `--public` is NOT set, emit no `extensions:` block at all — the flag is the only signal for
+  this (see the skill for why it's never inferred from `host`/deployment fields instead).
+
+Apply exporter auth (both modes — they share the `exporters.otlp` block): add a `headers:` block
+under `exporters.otlp` holding any kept headers (Step 3) and `--exporter-header` entries, each
+value an `${env:VAR}` reference. Emit no `headers:` block when there are none. See the
+`collector-topology` skill's "Exporter auth" section.
+
+## Step 5: Write the file and validate
+
+Write the YAML config file. If a `.claude/.otel-force` sentinel was created in Step 3, remove it
+now (`rm -f .claude/.otel-force`) so the write-guard is restored for subsequent writes.
+
+Run: `otelcol-contrib validate --config=<filename>` (if otelcol-contrib is on PATH).
+If not on PATH, print: "otelcol-contrib not found on PATH. To validate manually:
+  otelcol-contrib validate --config=<filename>"
+
+## Step 6: Print next steps
+
+```
+✓ Generated <filename>
+
+To run a local Collector:
+  docker run --rm \
+    -p 4317:4317 -p 4318:4318 \
+    -e OTEL_EXPORTER_OTLP_ENDPOINT=<your gateway or backend OTLP endpoint> \
+    -v $(pwd)/<filename>:/etc/otelcol-contrib/config.yaml \
+    otel/opentelemetry-collector-contrib:latest
+
+This OTEL_EXPORTER_OTLP_ENDPOINT is the COLLECTOR's own upstream (where IT forwards to —
+a gateway or your backend) — the exporter block in <filename> reads it, and otelcol-contrib
+refuses to start without it (`exporters::otlp: requires a non-empty "endpoint"`). It is a
+DIFFERENT hop from the next line, which is your SDK's own env var, read by a different
+process entirely. Setting the same value in your shell for both does not work: that would
+point your app's exporter at itself instead of at this Collector (#191).
+
+Set in your app (the SDK → this Collector hop, NOT the line above):
+  OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+```
+
+If the generated exporter has no `headers:` or `auth:` block, append:
+```
+Note: the exporter sends no credentials. That is right for a hop to an unauthenticated
+collector on a private network; a backend or an authenticated gateway will reject every batch,
+and with retry and the queue on, the data sits there and is then dropped. Add the backend's
+header from an env var: re-run with --exporter-header 'Name=${env:VAR}' (header names are in
+the vendor's OTLP docs), or for an authenticated gateway use the client-side bearertokenauth
+shape shown below.
+```
+
+If `--public` was **NOT** set, append one line — the flag exists precisely so this is a decision,
+not a silent default:
+```
+Note: this receiver has no auth. If it will be reachable from the public internet (no
+private-network path from the sender), re-run with --public.
+```
+
+If `--public` **was** set, append (this step is required — the collector will not start without
+`COLLECTOR_AUTH_TOKEN` set, by design). The sender-configuration step differs by mode — **agent**
+mode receives directly from the app (SDK); **gateway** mode receives from agent Collectors, which
+are a different kind of client and need a different config surface (`OTEL_EXPORTER_OTLP_HEADERS`
+is an SDK/app env var — an otelcol `otlp` exporter does not read it):
+
+```
+This collector requires auth (--public). Before running it:
+  1. REQUIRED: terminate TLS in front of this collector (a reverse proxy such as Caddy, or the
+     receiver's own tls: block). The bearer token below is a shared secret sent on every
+     request — without TLS it travels in cleartext across the public internet and anyone
+     observing the network path recovers it, defeating the point of adding auth at all.
+  2. Generate a random token, e.g.: openssl rand -hex 32
+  3. Set it as COLLECTOR_AUTH_TOKEN on the collector's host/environment.
+```
+
+For **agent** mode, append:
+```
+  4. Configure every sending app with:
+       OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer%20<same token>
+     (the %20 is required, not cosmetic — the spec requires this env var's values to be
+     percent-encoded per W3C Baggage; a literal space works in some SDKs but the OTel Python
+     SDK specifically rejects it, failing every export with UNAUTHENTICATED.)
+```
+
+For **gateway** mode, append instead (the senders are agent Collectors, not apps — give them
+client-side auth on their own exporter, not an app env var):
+```
+  4. Each sending agent Collector needs client-side auth on ITS OWN otlp exporter (not an app env
+     var) — add to every agent's config:
+       extensions:
+         bearertokenauth/client:
+           token: "${env:COLLECTOR_AUTH_TOKEN}"   # same shared token as this gateway
+       exporters:
+         otlp:
+           auth:
+             authenticator: bearertokenauth/client
+       service:
+         extensions: [bearertokenauth/client]   # add alongside any extensions already listed
+```
+
+Both modes, append:
+```
+Note: bearertokenauth is beta-stability upstream (opentelemetry-collector-contrib).
+```
+
+If `--cardinality-budget <N>` was generated, append:
+```
+Note: cardinality_guardian is Development-stability upstream (opentelemetry-collector-contrib) —
+that's why this required --experimental. It flags a metric/label pair once its new-value growth
+in a 300s epoch exceeds <N>; the paired filter processor then drops those flagged datapoints, so
+<N> is a hard ceiling on cardinality GROWTH RATE, not on total series count. Watch the collector's
+own logs for drops before trusting this in production, and re-run with a higher <N> if legitimate
+metrics start getting cut.
+```
+
+## Step 7: Offer optional live verification via a connected vendor MCP
+
+Same rule as `/otel-backend` Step 7 and `/otel-evaluate` Step 7: enrichment only, never
+required, and never attempted in this step. The generated config is already complete and
+correct on its own whether or not any of this fires.
+
+**This command has no vendor flag and the generated exporter is deliberately vendor-agnostic**
+(Step 1's flag note above: "the plugin deliberately does not pick header names per vendor").
+There is no reliable way to name a vendor from the config alone, and inventing one from the
+exporter's endpoint hostname would mean asserting an unverified vendor-to-hostname mapping from
+memory, exactly what this plugin's own discipline refuses to do everywhere else. So this step
+reuses `/otel-evaluate` Step 7's detection instead of guessing: look for
+`infra/observability/<vendor>/` (any vendor in `backends.txt`) anywhere in the repo. If none
+exists, skip this step. A generated Terraform module for a vendor is evidence this repo's
+telemetry is actually headed there; nothing else here is.
+
+**Also require the generated exporter to actually carry credentials.** If Step 6 printed the
+"exporter sends no credentials" note above, skip this step too. An unauthenticated hop (a local
+network, an internal gateway) is evidence this Collector is NOT the one talking to a named
+vendor's ingest endpoint directly, so there is nothing a vendor MCP could meaningfully confirm
+about it.
+
+When both hold (a vendor directory exists AND the generated exporter has `headers:` or `auth:`
+configured), check whether an MCP matching that vendor is connected the same way `/otel-backend`
+Step 7 does (search available tools for a name containing the vendor, not a coincidental match
+on an unrelated tool), then:
+
+- **A matching MCP is connected:**
+  ```
+  Tip: a <Vendor> MCP is connected. After this Collector is running and forwarding real traffic,
+  ask me to confirm telemetry is actually arriving at <Vendor>.
+  ```
+- **No matching MCP is connected:**
+  ```
+  Tip: connecting a <Vendor> MCP would let me confirm telemetry is actually arriving at <Vendor>
+  once this Collector is running. Not required.
+  ```
