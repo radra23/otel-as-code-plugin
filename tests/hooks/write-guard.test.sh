@@ -157,6 +157,15 @@ for spelling in "TMP/.claude/../.claude/otel-context.json" "TMP/.Claude/Otel-Con
   rm -rf "$TMP"
 done
 
+# --is-context directly: the normalisation write-guard relies on, one spelling per case.
+FM="$(dirname "$HOOK")/otel-force-match.py"
+for yes in ".claude/otel-context.json" "/r/./.claude/../.claude/otel-context.json" "/r/.CLAUDE/OTEL-CONTEXT.JSON" "C:$(printf 'x')/.claude/otel-context.json"; do
+  if python3 "$FM" --is-context "$yes"; then echo "PASS: --is-context recognises $yes"; PASS=$((PASS+1)); else echo "FAIL: --is-context missed $yes"; FAIL=$((FAIL+1)); fi
+done
+for no in "/r/otel-context.json" "/r/.claude/otel-context.json.bak" "/r/claude/otel-context.json" "/r/.claude/x/otel-context.json"; do
+  if python3 "$FM" --is-context "$no"; then echo "FAIL: --is-context wrongly matched $no"; FAIL=$((FAIL+1)); else echo "PASS: --is-context rejects $no"; PASS=$((PASS+1)); fi
+done
+
 # A file that only looks similar is not the context cache: no block for an unconfirmed attr.
 TMP=$(mktemp -d)
 CTX='{"schemaVersion":"1","businessAttrs":[{"name":"x","confirmed":false}]}'

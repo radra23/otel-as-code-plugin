@@ -45,7 +45,10 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
   through `${CLAUDE_PLUGIN_ROOT}`, `backends.txt`, README, LICENSE). A new file a command or hook
   reaches through `${CLAUDE_PLUGIN_ROOT}` must be added to the build script; `tests/directory-build.test.sh`
   fails if it is missing. Hooks must name every program they run (literal `python3`/`python`, paths
-  from `${CLAUDE_PLUGIN_ROOT}`): the directory blocks a hook whose program is computed.
+  from `${CLAUDE_PLUGIN_ROOT}`): the directory blocks a hook whose program is computed. It also
+  blocked an inline `py -c` that normalised a path (0.11.5, "Command path can't be followed"), while
+  the same logic in a file run as `py "${CLAUDE_PLUGIN_ROOT}/hooks/<file>.py" ...` passes: put new
+  hook logic in a plugin file, and check a preview of the slim build in the portal before release.
 
 ## Shell
 - GitHub Actions runs `run:` blocks as `bash -eo pipefail`; reproduce CI shell logic with that, not the local zsh (zsh doesn't word-split unquoted `$VAR` — use literal args/arrays).
