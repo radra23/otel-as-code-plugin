@@ -19,7 +19,7 @@ are correct and safe to deploy, without first becoming an OTel expert or finding
 to hand-roll it.
 
 <!-- Demo: record and render with docs/demo/README.md, then uncomment the next two lines. -->
-<!-- ![otel-as-code demo: /otel-init and /otel-instrument on an Express app, then the first span printed to the console](docs/demo.gif) -->
+<!-- ![otel-as-code demo: /otel-init on an Express app, yes to running it locally, then the first trace read back from the local Grafana stack](docs/demo.gif) -->
 <!-- <sub>Recorded live on the checkout-api fixture. The agent's working time is sped up; nothing else is edited.</sub> -->
 
 | | |
@@ -45,13 +45,21 @@ claude plugin install otel-as-code@otel-as-code
 In Claude Code, inside your repo:
 
 ```text
-/otel-init               # scan the repo and detect services
-/otel-business-attrs     # confirm service name, namespace, and owner
+/otel-init               # scan the repo and detect services; offers to run the next two
 /otel-instrument         # generate the OTel SDK bootstrap for one service
+/otel-local              # free local Grafana stack in Docker, wired to that service
 ```
 
-Then start the instrumented service with `OTEL_TRACES_EXPORTER=console` and hit any endpoint.
-Spans print to stdout. No Collector, no backend, no account needed.
+`/otel-local` is the recommended first step: it prints the Grafana URL and where your service's
+traces, logs and metrics appear, and can check that the first trace arrived. It runs
+`grafana/otel-lgtm`, a single open-source container that takes OTLP in, and nothing leaves your
+machine. The generated code speaks plain OTLP, so you can swap the stack for any backend that
+accepts OTLP without touching it.
+
+No Docker? `/otel-local` says so and falls back to the console: start the instrumented service
+with `OTEL_TRACES_EXPORTER=console` and hit any endpoint, and spans print to stdout. No
+Collector, no backend, no account needed. `/otel-business-attrs` confirms the service name,
+namespace and owner whenever you want to refine them.
 
 When you are ready to send telemetry somewhere real:
 
@@ -248,6 +256,7 @@ from `/otel-remediate` instead; v1 covers Keycloak only.
 | `/otel-collector [agent\|gateway]` | Generate an `otelcol-contrib` config |
 | `/otel-backend <vendor>` | Generate Terraform for `grafana`, `datadog`, `newrelic`, or `dash0` |
 | `/otel-uninstrument` | Remove the bootstrap files `/otel-instrument` generated (marker-gated) |
+| `/otel-local` | Start a free local Grafana stack (`grafana/otel-lgtm`) in Docker, wired to one service; `--down` stops it |
 | `/otel-remediate` | Print a deployment-config diff for a service with native OTel but no app source to bootstrap (v1: Keycloak) |
 
 ## Flags

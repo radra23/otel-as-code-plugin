@@ -38,6 +38,25 @@ for vendor in $(cat backends.txt); do
   fi
 done
 
+# Local stack (/otel-local, not a backends.txt vendor): run it against fixtures/nodejs-greenfield,
+# whose app listens on 3000, so the golden also pins the Grafana remap to host 3001. The compose
+# file lands at the repo root and otel-local.env in the service's rootDir (the root, there).
+for name in otel-local.compose.yaml otel-local.env; do
+  snap="tests/snapshots/local-stack/${name}"
+  [ -f "$snap" ] || { echo "MISSING: local-stack golden snapshot not committed ($snap)"; continue; }
+  FOUND=$((FOUND+1))
+  if [ ! -f "$name" ]; then
+    echo "FAIL: $name was not generated"
+    FAIL=$((FAIL+1))
+  elif diff -q "$snap" "$name" > /dev/null 2>&1; then
+    echo "PASS: local-stack $name matches"
+  else
+    echo "FAIL: local-stack $name differs from generated output"
+    diff "$snap" "$name" || true
+    FAIL=$((FAIL+1))
+  fi
+done
+
 echo ""
 if [ "$FOUND" -eq 0 ]; then
   echo "ERROR: snapshot drift gate is INACTIVE — no golden files committed under tests/snapshots/."

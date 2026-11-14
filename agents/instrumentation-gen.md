@@ -423,9 +423,9 @@ itself from the env vars, so they are not listed here. (These minimums track the
 JS release trains — the stable packages are on the 1.x/2.x line, the SDK on the 0.x line; bump
 to the latest at generation time rather than copying these verbatim if newer releases exist):
 ```json
-"@opentelemetry/sdk-node": "^0.301.1",
+"@opentelemetry/sdk-node": "^0.301.2",
 "@opentelemetry/resources": "^3.1.1",
-"@opentelemetry/auto-instrumentations-node": "^0.83.0",
+"@opentelemetry/auto-instrumentations-node": "^0.83.1",
 "@opentelemetry/semantic-conventions": "^1.45.0"
 ```
 
@@ -1128,7 +1128,8 @@ Next steps:
      java -javaagent:./opentelemetry-javaagent.jar -jar <app>.jar
      # deployment.environment.name defaults to <the confirmed deploymentEnvironment>; override
      # per target by exporting DEPLOYMENT_ENV before sourcing, e.g. DEPLOYMENT_ENV=production.
-  3. Verify traces at http://localhost:16686 (Jaeger), with a local Collector listening on :4317.
+  3. See it locally: /otel-local starts a free Grafana stack on this machine and prints where
+     your traces, logs and metrics appear (it sources otel-local.env after otel-java.env).
 ```
 
 Per the "Deployment-environment provisioning check" section: if `deploymentEnvConfigured` is not
@@ -1207,8 +1208,8 @@ diffs against this file:
 
 ```
 dotnet add package OpenTelemetry.Extensions.Hosting          # 1.21.0
-dotnet add package OpenTelemetry.Instrumentation.AspNetCore  # 1.20.2
-dotnet add package OpenTelemetry.Instrumentation.Http        # 1.20.2
+dotnet add package OpenTelemetry.Instrumentation.AspNetCore  # 1.21.0
+dotnet add package OpenTelemetry.Instrumentation.Http        # 1.21.0
 dotnet add package OpenTelemetry.Exporter.OpenTelemetryProtocol  # 1.21.0
 ```
 
@@ -2251,7 +2252,8 @@ Next steps:
   npm install   (or pip install -e ".[dev]")
   Local, no collector needed:  OTEL_TRACES_EXPORTER=console npm start
   With a collector on :4317:   OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 npm start
-  Verify traces at http://localhost:16686 (Jaeger) or http://localhost:3000 (Grafana/Tempo)
+  See it locally: /otel-local starts a free Grafana stack on this machine and prints where
+  your traces, logs and metrics appear
 ```
 
 Include the logs-correlation caveat whenever logs are enabled: a log record carries

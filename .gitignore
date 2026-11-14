@@ -7,11 +7,12 @@
 .remember/
 .superpowers/
 
-# Internal planning/design docs — kept locally, not shipped in the public repo.
+# Internal planning/design docs: kept locally, not shipped in the public repo.
 # docs/* (not docs/) so the README demo can be re-included below.
 docs/*
 !docs/demo/
 !docs/demo.gif
+!docs/demo-grafana.png
 
 # Local Claude Code settings
 .claude/settings.local.json

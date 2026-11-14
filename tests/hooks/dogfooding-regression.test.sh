@@ -1190,7 +1190,7 @@ check "#177 otel-collector.md reads plugin.json itself (direct write, no subagen
      && grep -qF "ACTUAL installed version" commands/otel-collector.md'
 check "#177 golden snapshots show the CURRENT installed plugin version, not a stale literal" \
   'PLUGVER=$(python3 -c "import json; print(json.load(open(\".claude-plugin/plugin.json\"))[\"version\"])"); \
-   [ "$(grep -rl "otel-as-code v${PLUGVER}" tests/snapshots/ | wc -l)" -eq 15 ]'
+   [ "$(grep -rl "otel-as-code v${PLUGVER}" tests/snapshots/ | wc -l)" -eq 17 ]'
 
 # --- #191: the printed "docker run" omits the endpoint otelcol-contrib refuses to start without -
 COLLECTOR_CMD="commands/otel-collector.md"

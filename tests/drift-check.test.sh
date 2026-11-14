@@ -134,6 +134,18 @@ check(f"collector pin agrees across {', '.join(sorted(vals))}", len(set(vals.val
 if len(set(vals.values())) > 1:
     print("  disagreeing pins:", vals)
 check("collector_pin() reports the script default", d.collector_pin() == vals.get("tests/collector-validate.sh"))
+lp = d.lgtm_pins()
+check("otel-lgtm pin parsed from the command and the golden compose", all(lp.values()))
+lvals = {f: m.group(1) for f, m in lp.items() if m}
+check(f"otel-lgtm pin agrees across {', '.join(sorted(lvals))}", len(set(lvals.values())) == 1)
+if len(set(lvals.values())) > 1:
+    print("  disagreeing pins:", lvals)
+check("every grafana/otel-lgtm tag inside commands/otel-local.md is the same one",
+      len(set(_re.findall(r"grafana/otel-lgtm:([0-9][0-9.]*)", open("commands/otel-local.md").read()))) == 1)
+check("lgtm_pin() reports the command's pin", d.lgtm_pin() == lvals.get("commands/otel-local.md"))
+check("otel-lgtm pin is an exact version, not latest or a range", bool(_re.fullmatch(r"\d+\.\d+\.\d+", d.lgtm_pin() or "")))
+check("otel-lgtm release tag v0.41.0 maps to image tag 0.41.0", d.lgtm_release_version({"tag_name": "v0.41.0"}) == "0.41.0")
+check("otel-lgtm 0.40.0 reads as behind 0.41.0", d.behind("0.40.0", "0.41.0"))
 
 check("behind: 1.27.0 < 1.37.0", d.behind("1.27.0", "1.37.0"))
 check("not behind: 2.8.0 == 2.8.0", not d.behind("2.8.0", "2.8.0"))

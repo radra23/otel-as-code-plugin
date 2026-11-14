@@ -33,3 +33,12 @@ each validates standalone. This catches provider-schema breaks, **not** content 
 regenerate and diff. When you intentionally change generation, update the snapshots by hand (see
 above) and review the diff yourself. (`tests/check-snapshots.sh` is a local helper for that manual
 regenerate-and-compare — it is not run by CI.)
+
+## Local stack (`/otel-local`)
+
+`tests/snapshots/local-stack/` holds the golden `otel-local.compose.yaml` and `otel-local.env`
+that `/otel-local` writes for `fixtures/nodejs-greenfield` (its app listens on 3000, so Grafana is
+remapped to host 3001). `tests/check-snapshots.sh` diffs a fresh run against them, and the
+`local-stack-e2e` CI job starts the stack from the golden compose file and asserts a trace comes
+back through Grafana's datasource proxy (`tests/e2e/local-stack.sh`). The image tag must match
+`commands/otel-local.md`; `tests/drift-check.test.sh` fails if the two disagree.
