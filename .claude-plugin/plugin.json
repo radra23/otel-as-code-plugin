@@ -1,18 +1,33 @@
 {
   "name": "otel-as-code",
-  "version": "0.11.1",
-  "description": "OpenTelemetry instrumentation and observability-as-code for any stack",
+  "version": "0.11.2",
+  "description": "See what your services are doing in production. Adds OpenTelemetry tracing, metrics and logs to your code, shows them on a free local dashboard, and generates monitoring setup for Grafana, Datadog, New Relic or Dash0.",
   "author": {
     "name": "radra.gwent",
-    "email": "radra23@users.noreply.github.com"
+    "email": "radra23@users.noreply.github.com",
+    "url": "https://github.com/radra23"
   },
+  "homepage": "https://github.com/radra23/otel-as-code-plugin#readme",
+  "repository": "https://github.com/radra23/otel-as-code-plugin",
   "license": "Apache-2.0",
   "keywords": [
     "opentelemetry",
     "otel",
     "observability",
-    "terraform",
+    "tracing",
+    "metrics",
+    "logs",
     "instrumentation",
+    "monitoring",
+    "collector",
+    "terraform",
+    "grafana",
+    "datadog",
+    "new-relic",
+    "dash0",
     "semconv"
-  ]
+  ],
+  "icon": "./.claude-plugin/icon.png",
+  "documentationUrl": "https://github.com/radra23/otel-as-code-plugin#readme",
+  "supportUrl": "https://github.com/radra23/otel-as-code-plugin/issues"
 }

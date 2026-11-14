@@ -1,0 +1,28 @@
+# cSpell:ignore lgtm radra
+title: otel-as-code
+registryType: utilities
+language: shell
+tags:
+  - claude-code
+  - codex
+  - ai-agent
+  - code-generation
+  - sdk
+  - collector
+  - terraform
+  - semantic-conventions
+urls:
+  repo: https://github.com/radra23/otel-as-code-plugin
+license: Apache 2.0
+description:
+  A Claude Code plugin and set of Codex skills that scan a repository, detect
+  its services, and generate OpenTelemetry SDK bootstrap code for Node.js,
+  Python, .NET, Go, Ruby, and Rust, or Java agent configuration. It also
+  generates otelcol-contrib Collector configurations and Terraform for
+  dashboards, alerts, and SLOs on Grafana, Datadog, New Relic, and Dash0, and
+  can start a local grafana/otel-lgtm stack to view the first traces, logs, and
+  metrics.
+authors:
+  - name: radra23
+    url: https://github.com/radra23
+createdAt: 2026-11-14
