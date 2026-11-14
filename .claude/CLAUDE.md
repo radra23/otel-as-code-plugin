@@ -49,6 +49,9 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
   blocked an inline `py -c` that normalised a path (0.11.5, "Command path can't be followed"), while
   the same logic in a file run as `py "${CLAUDE_PLUGIN_ROOT}/hooks/<file>.py" ...` passes: put new
   hook logic in a plugin file, and check a preview of the slim build in the portal before release.
+  The 0.11.7 submission was then refused by policy: from a non-Verified organization the directory
+  accepts no command hooks and no scripts (only Markdown, text, JSON, YAML, images), so the plugin
+  is not listed there; it ships through its own marketplace (see docs/listing/plugin-directory.md).
 
 ## Shell
 - GitHub Actions runs `run:` blocks as `bash -eo pipefail`; reproduce CI shell logic with that, not the local zsh (zsh doesn't word-split unquoted `$VAR` — use literal args/arrays).

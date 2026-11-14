@@ -4,6 +4,31 @@ Draft only. Nothing here has been submitted, and no form was opened. Prepared 20
 otel-as-code 0.11.2, repository
 https://github.com/radra23/otel-as-code-plugin, license Apache-2.0.
 
+## Outcome (2026-11-14): refused by directory policy, not listed
+
+Submitted v0.11.7 (`directory` @ `fc61a21`). The security scan passed, then an automatic policy
+check refused the version with two blocking findings, both conditional on the submitting
+organization being **Verified** ("Anthropic knows your organization is a real company"; there is
+no application, and an individual account does not qualify):
+
+- **Hooks of type command accepted only from Verified organizations.** Every hook must go,
+  whatever its type.
+- **Files outside the allowed types accepted only from Verified organizations.** Only Markdown,
+  text, JSON, YAML and images may ship; any script or program, or anything starting with `#!`,
+  is refused.
+
+A version that complied would drop the three hooks (the overwrite guard, semconv lint, session
+summary, and the business-attribute confirmation check) and `scripts/write_context.py` (the
+validated cache writer from #211) and `scripts/lgtm_check.py`. That would ship the plugin without
+the guardrails the README presents as its core, so the decision was not to list a reduced
+version. The plugin is distributed through its own marketplace
+(`/plugin marketplace add radra23/otel-as-code-plugin`), with every guardrail.
+
+The submission was left in "Needs changes" (withdrawing it is optional). The `directory` branch
+and its workflow stay in place, so a resubmission is one Validate away if the rules change or
+the plugin is ever submitted from a Verified organization. The rest of this file is the
+submission as it was prepared.
+
 ## Sources read
 
 Official pages (fetched 2026-11-14):
