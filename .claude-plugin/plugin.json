@@ -1,6 +1,6 @@
 {
   "name": "otel-as-code",
-  "version": "0.11.3",
+  "version": "0.11.4",
   "description": "See what your services are doing in production. Adds OpenTelemetry tracing, metrics and logs to your code, shows them on a free local dashboard, and generates monitoring setup for Grafana, Datadog, New Relic or Dash0.",
   "author": {
     "name": "radra.gwent",

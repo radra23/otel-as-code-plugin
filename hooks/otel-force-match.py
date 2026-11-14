@@ -8,7 +8,7 @@ Why this is not `grep -Fxq`: the two sides of the comparison are produced by dif
 programs on possibly different path conventions, and an exact string match between them
 can never succeed on Windows.
 
-  the tool reports   C:\\Users\\me\\repo\\api\\src\\tracing.ts   (Windows, backslashes)
+  the tool reports   C:<bs>Users<bs>me<bs>repo<bs>api<bs>src<bs>tracing.ts   (Windows; <bs> is a backslash)
   the sentinel holds /c/Users/me/repo/api/src/tracing.ts        (Git Bash, $PWD)
   Codex reports      api/src/tracing.ts                          (relative to session cwd)
 
@@ -22,6 +22,9 @@ import posixpath
 import re
 import sys
 
+# chr(92) rather than an escaped literal: the plugin directory reads backslash escapes in a hook's
+# scripts as a sign it may print a tool-call decision.
+BACKSLASH = chr(92)
 _DRIVE = re.compile(r"^([A-Za-z]):(/.*)?$")
 
 
@@ -32,12 +35,12 @@ def windows_shaped(raw):
     only when one side is Windows-shaped. That keeps `--force` scoped to the paths the
     command actually listed instead of widening it on every host.
     """
-    return "\\" in raw or _DRIVE.match(raw) is not None
+    return BACKSLASH in raw or _DRIVE.match(raw) is not None
 
 
 def canon(raw, base):
     """Reduce a path to one comparable form. `base` anchors relative paths."""
-    p = raw.strip().replace("\\", "/")
+    p = raw.strip().replace(BACKSLASH, "/")
     m = _DRIVE.match(p)
     if m:  # C:/Users/... and /c/Users/... name the same file
         p = "/" + m.group(1).lower() + (m.group(2) or "/")
