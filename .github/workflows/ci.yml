@@ -47,6 +47,9 @@ jobs:
       - name: Run routing-eval scorer tests (offline; the eval itself is workflow_dispatch only)
         run: bash tests/routing-eval.test.sh
 
+      - name: Directory build (slim plugin folder for Anthropic's directory)
+        run: bash tests/directory-build.test.sh
+
       - name: Run freshness-contract test (scanner identityInputs ↔ /otel-init regex; #150 uncovered services)
         run: bash tests/hooks/freshness-contract.test.sh
 
@@ -617,6 +620,10 @@ jobs:
         run: |
           npm install -g @anthropic-ai/claude-code@2.1.311
           claude plugin validate . --strict
+          # The slim folder the directory branch publishes must pass on its own as well.
+          OUT="$(mktemp -d)/plugin"
+          bash scripts/build-directory.sh "$OUT"
+          claude plugin validate "$OUT" --strict
 
   # #128: the plugin's install cache is keyed on .claude-plugin/plugin.json's version string,
   # so a behavior change that lands without a version bump is invisible to already-installed

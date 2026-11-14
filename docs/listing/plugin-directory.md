@@ -60,10 +60,13 @@ should own it long term.
 ### Step 2. Source
 
 - **Repository**: `radra23/otel-as-code-plugin`
-- **Plugin path (optional)**: leave empty. `.claude-plugin/plugin.json` is at the repository root.
-- **Branch or tag (optional)**: leave empty to follow the default branch `main`, or enter `main`.
-  Push the 0.11.2 version bump to `main` before selecting **Validate**, because "A validation
-  result applies to one commit."
+- **Plugin path (optional)**: leave empty. The `directory` branch has the plugin at its root.
+- **Branch or tag (optional)**: `directory`. That branch is a slim build of `main` (only what the
+  plugin runs: commands, agents, skills, hooks, two scripts, README, LICENSE) that
+  `.github/workflows/directory-branch.yml` republishes on every push to `main`, so the directory
+  never sees the fixtures, tests or CI. Shortcut: type `radra23/otel-as-code-plugin@directory` in
+  the Repository field. "A validation result applies to one commit", so validate after the latest
+  publish.
 
 Then **Validate**. The repository is public (checked with `gh repo view`: `"visibility":"PUBLIC"`),
 so the private-repository steps do not apply.
