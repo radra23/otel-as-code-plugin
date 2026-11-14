@@ -85,6 +85,24 @@ check "the same refresh succeeds once businessAttrs is carried over (merge, not 
   'python3 "$SCRIPT" --output "$TMPD/out8.json" --existing "$TMPD/existing_attrs.json" \
      --plugin-root "$(pwd)" < "$TMPD/carried_attrs.json"'
 
+# Rule 4: business attributes need "confirmed": true on every write, first scan included. The
+# commands write the cache through this script, which hooks/write-guard.sh never sees.
+make_json "$NOW" "$REAL_VERSION" '[{"name":"order.value","kind":"histogram","confirmed":true}]' '[{"id":"svc1","name":"checkout-api"}]' > "$TMPD/confirmed_attr.json"
+make_json "$NOW" "$REAL_VERSION" '[{"name":"order.value","kind":"histogram","confirmed":true},{"name":"cart.size","kind":"gauge"}]' '[{"id":"svc1","name":"checkout-api"}]' > "$TMPD/unconfirmed_attr.json"
+make_json "$NOW" "$REAL_VERSION" '[{"name":"cart.size","kind":"gauge","confirmed":"yes"}]' '[{"id":"svc1","name":"checkout-api"}]' > "$TMPD/truthy_attr.json"
+
+check "a confirmed business attribute is written" \
+  'python3 "$SCRIPT" --output "$TMPD/out_conf.json" --plugin-root "$(pwd)" < "$TMPD/confirmed_attr.json" >/dev/null \
+     && test -f "$TMPD/out_conf.json"'
+check "an unconfirmed business attribute is refused on a first write, and nothing is written" \
+  '! (python3 "$SCRIPT" --output "$TMPD/out_unconf.json" --plugin-root "$(pwd)" < "$TMPD/unconfirmed_attr.json") 2>/dev/null \
+     && test ! -f "$TMPD/out_unconf.json"'
+check "the refusal names the unconfirmed attribute" \
+  '{ python3 "$SCRIPT" --output "$TMPD/out_unconf2.json" --plugin-root "$(pwd)" < "$TMPD/unconfirmed_attr.json" 2>&1 || true; } | grep -q "cart.size"'
+check "only a literal true counts as confirmed (\"yes\" is refused)" \
+  '! (python3 "$SCRIPT" --output "$TMPD/out_truthy.json" --plugin-root "$(pwd)" < "$TMPD/truthy_attr.json") 2>/dev/null \
+     && test ! -f "$TMPD/out_truthy.json"'
+
 python3 -c "
 import json
 d = json.load(open('$TMPD/existing_attrs.json'))
