@@ -39,5 +39,13 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
   `workflow_dispatch` only. Don't loosen `score.py` to pass: its rules are pinned by
   `tests/routing-eval.test.sh`.
 
+- Anthropic's plugin directory follows the `directory` branch, a slim build of `main` that
+  `.github/workflows/directory-branch.yml` publishes with `scripts/build-directory.sh`: only what
+  the plugin uses at run time (commands, agents, skills, the Claude Code hooks, the scripts named
+  through `${CLAUDE_PLUGIN_ROOT}`, `backends.txt`, README, LICENSE). A new file a command or hook
+  reaches through `${CLAUDE_PLUGIN_ROOT}` must be added to the build script; `tests/directory-build.test.sh`
+  fails if it is missing. Hooks must name every program they run (literal `python3`/`python`, paths
+  from `${CLAUDE_PLUGIN_ROOT}`): the directory blocks a hook whose program is computed.
+
 ## Shell
 - GitHub Actions runs `run:` blocks as `bash -eo pipefail`; reproduce CI shell logic with that, not the local zsh (zsh doesn't word-split unquoted `$VAR` — use literal args/arrays).
