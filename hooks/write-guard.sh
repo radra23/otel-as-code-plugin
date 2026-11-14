@@ -54,13 +54,13 @@ fi
 # that interpreter's folder first on PATH rather than being executed as a variable.
 if [ -n "${OTEL_HOOK_PYTHON:-}" ]; then PATH="$(dirname "$OTEL_HOOK_PYTHON"):$PATH"; fi
 PY=""
-if printf '' | python3 -c 'pass' >/dev/null 2>&1; then PY=python3
-elif printf '' | python -c 'pass' >/dev/null 2>&1; then PY=python
+if python3 -c 'pass' </dev/null >/dev/null 2>/dev/null; then PY=python3
+elif python -c 'pass' </dev/null >/dev/null 2>/dev/null; then PY=python
 fi
 py() { if [ "$PY" = python3 ]; then python3 "$@"; else python "$@"; fi; }
 if [ -z "$PY" ]; then
   echo "otel-as-code write-guard: no WORKING python found: python3/python are absent or do not run" >&2
-  echo "(on Windows, \`python3\` may be a Microsoft Store alias stub that is on PATH but errors when run)." >&2
+  echo "(on Windows, python3 may be a Microsoft Store alias stub that is on PATH but errors when run)." >&2
   echo "Blocking this write (fail closed). Install a real Python 3, or set OTEL_HOOK_PYTHON to its path." >&2
   exit 2
 fi
@@ -91,20 +91,20 @@ case "$FILE_PATH" in
   */.claude/otel-context.json|.claude/otel-context.json)
     CONTENT=$(echo "$INPUT" | py -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_input',{}).get('content',''))" 2>/dev/null || echo "")
     if [ -n "$CONTENT" ]; then
-      UNCONFIRMED=$(printf '%s' "$CONTENT" | py -c "
+      UNCONFIRMED=$(py -c "
 import sys, json
 try:
     d = json.load(sys.stdin)
 except Exception:
-    sys.exit(0)  # not full-file JSON (e.g. an Edit) — cannot validate, allow
+    sys.exit(0)  # not full-file JSON (e.g. an Edit): cannot validate, so it passes
 attrs = d.get('businessAttrs', []) or []
-print('\n'.join(a.get('name', '?') for a in attrs if isinstance(a, dict) and a.get('confirmed') is not True))
-" 2>/dev/null || echo "")
+print(chr(10).join(a.get('name', '?') for a in attrs if isinstance(a, dict) and a.get('confirmed') is not True))
+" <<<"$CONTENT" 2>/dev/null || echo "")
       if [ -n "$UNCONFIRMED" ]; then
         echo "otel-as-code write-guard: refusing to write unconfirmed business attribute(s) to otel-context.json:" >&2
-        printf '%s\n' "$UNCONFIRMED" | sed 's/^/  - /' >&2
-        echo "Business attributes require explicit approval (\"confirmed\": true) before write." >&2
-        echo "Re-run /otel-business-attrs and approve each attribute." >&2
+        echo "$UNCONFIRMED" | sed 's/^/  - /' >&2
+        echo 'Business attributes must carry "confirmed": true before they are written.' >&2
+        echo "Re-run /otel-business-attrs and confirm each attribute." >&2
         exit 2
       fi
     fi
@@ -122,14 +122,13 @@ fi
 #
 # Both sides are normalised before comparison rather than compared as raw strings. The tool
 # reports `file_path` in the host's own convention — on Windows a backslashed
-# `C:\Users\me\repo\src\tracing.ts` — while the sentinel is written from a shell where the
+# `C:<backslash>Users<backslash>me<backslash>repo<backslash>src<backslash>tracing.ts`, while the sentinel is written from a shell where the
 # same file is `/c/Users/me/repo/src/tracing.ts`, and Codex's apply_patch reports paths
 # relative to the session cwd. An exact-string match can never succeed across those shapes,
 # which silently turned --force into a no-op. See hooks/otel-force-match.py.
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 FORCE_FILE="$PROJECT_DIR/.claude/.otel-force"
-if [ -f "$FORCE_FILE" ] && py "${CLAUDE_PLUGIN_ROOT}/hooks/otel-force-match.py" \
-     "$FILE_PATH" "$PROJECT_DIR" "$FORCE_FILE" 2>/dev/null; then
+if [ -f "$FORCE_FILE" ] && py "${CLAUDE_PLUGIN_ROOT}/hooks/otel-force-match.py" "$FILE_PATH" "$PROJECT_DIR" "$FORCE_FILE" 2>/dev/null; then
   exit 0
 fi
 

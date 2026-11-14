@@ -311,6 +311,11 @@ outcome." The command descriptions now say what they are not for, for example `/
   generated Terraform's vendor keys), "Hook can approve tool calls" on the PreToolUse hook,
   image files the code could run, and "Scripts the validator couldn't follow". Most notes come
   from submitting the whole repo (fixtures, tests); the slim `directory` branch addresses those.
+- **Hook can approve tool calls (cleared in 0.11.4):** the scanner flags a PreToolUse hook whose
+  text could print a decision: `printf` conversions, backslash escapes, `2>&1`, and the words
+  "allow" or "approve" inside quoted strings. `write-guard.sh` never approves anything (it only
+  exits 2 to block), and with those patterns removed from it and the files it runs, the slim
+  build validates with 5 holds instead of 6.
 
 - **Version**: 0.11.2 must be on `main` before you select Validate (done once the listing PR merges).
 - **Likely reviewer hold**: the checklist says a hook script that runs "calls to other files in the
