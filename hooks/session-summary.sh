@@ -5,11 +5,14 @@
 
 set -euo pipefail
 
+# Named from ${CLAUDE_PLUGIN_ROOT} (see write-guard.sh); defaults to the plugin folder for the tests.
+CLAUDE_PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+
 # Generated-file vocabulary, shared with write-guard.sh so the two cannot drift: a file the
 # guard protects is a file this summary reports.
 # Guarded so a broken install cannot violate this hook's always-exit-0 contract.
 # shellcheck source=hooks/otel-paths.sh
-if ! . "$(dirname "${BASH_SOURCE[0]}")/otel-paths.sh" 2>/dev/null; then
+if ! . "${CLAUDE_PLUGIN_ROOT}/hooks/otel-paths.sh" 2>/dev/null; then
   exit 0  # no vocabulary, nothing to report; never fail a SessionEnd hook
 fi
 
@@ -48,8 +51,7 @@ else
   done
   # Supported backends come from the plugin's single source of truth (backends.txt).
   # Guarded so a missing file can never break this always-exit-0 hook.
-  PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-  for vendor in $(cat "$PLUGIN_ROOT/backends.txt" 2>/dev/null || true); do
+  for vendor in $(cat "${CLAUDE_PLUGIN_ROOT}/backends.txt" 2>/dev/null || true); do
     [ -f "infra/observability/${vendor}/main.tf" ] && CHANGED_OTEL+=("infra/observability/${vendor}/main.tf")
   done
 fi

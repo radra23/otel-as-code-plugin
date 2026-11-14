@@ -18,14 +18,19 @@ set -euo pipefail
 #   - an unrelated project's hand-written tracing.js / main.tf (no marker) is never blocked, and
 #   - our own output is caught wherever --output-dir put it (not only under */observability/*).
 
+# Every file this hook runs or loads is named from ${CLAUDE_PLUGIN_ROOT}, never computed from the
+# script's own location: Anthropic's plugin directory refuses a hook whose program it cannot read
+# by name. Claude Code sets the variable; the tests and the Codex bridge run this script directly,
+# so it defaults to the plugin folder above this file.
+CLAUDE_PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+
 # Generated-file vocabulary, shared with session-summary.sh so the two cannot drift.
 # Guarded: under `set -e` a failed source would abort with exit 1, which this hook's contract
-# reads as BLOCK — bricking every Write/Edit in the repo over a broken install. An absent guard
+# reads as BLOCK, bricking every Write/Edit in the repo over a broken install. An absent guard
 # with a loud message is the better failure than a session where nothing can be written.
 # shellcheck source=hooks/otel-paths.sh
-OTEL_PATHS_LIB="$(dirname "${BASH_SOURCE[0]}")/otel-paths.sh"
-if ! . "$OTEL_PATHS_LIB" 2>/dev/null; then
-  echo "otel-as-code write-guard: cannot load $OTEL_PATHS_LIB — overwrite protection is OFF." >&2
+if ! . "${CLAUDE_PLUGIN_ROOT}/hooks/otel-paths.sh" 2>/dev/null; then
+  echo "otel-as-code write-guard: cannot load ${CLAUDE_PLUGIN_ROOT}/hooks/otel-paths.sh: overwrite protection is OFF." >&2
   echo "Reinstall the plugin; until then generated OTel files are not protected." >&2
   exit 0
 fi
@@ -44,20 +49,17 @@ fi
 # actually executing it, and the first WORKING one wins (a real Python is frequently present as
 # `python` even when `python3` is the stub). If none run, FAIL CLOSED — a guard whose failure
 # mode is "allow everything, print nothing" cannot be relied on.
-# OTEL_HOOK_PYTHON overrides the probe (the tests set it — empty — to simulate no interpreter);
-# when set it is the ONLY candidate, and must itself run.
-py_runs() { printf '' | "$@" -c 'pass' >/dev/null 2>&1; }
-
+# The interpreter is only ever run by its literal name, `python3` or `python`, so the plugin
+# directory can see what runs. OTEL_HOOK_PYTHON (the path of a python3/python outside PATH) puts
+# that interpreter's folder first on PATH rather than being executed as a variable.
+if [ -n "${OTEL_HOOK_PYTHON:-}" ]; then PATH="$(dirname "$OTEL_HOOK_PYTHON"):$PATH"; fi
 PY=""
-if [ "${OTEL_HOOK_PYTHON+set}" = "set" ]; then
-  if [ -n "$OTEL_HOOK_PYTHON" ] && py_runs "$OTEL_HOOK_PYTHON"; then PY="$OTEL_HOOK_PYTHON"; fi
-else
-  for cand in python3 python; do
-    if command -v "$cand" >/dev/null 2>&1 && py_runs "$cand"; then PY="$cand"; break; fi
-  done
+if printf '' | python3 -c 'pass' >/dev/null 2>&1; then PY=python3
+elif printf '' | python -c 'pass' >/dev/null 2>&1; then PY=python
 fi
+py() { if [ "$PY" = python3 ]; then python3 "$@"; else python "$@"; fi; }
 if [ -z "$PY" ]; then
-  echo "otel-as-code write-guard: no WORKING python found — python3/python are absent or do not run" >&2
+  echo "otel-as-code write-guard: no WORKING python found: python3/python are absent or do not run" >&2
   echo "(on Windows, \`python3\` may be a Microsoft Store alias stub that is on PATH but errors when run)." >&2
   echo "Blocking this write (fail closed). Install a real Python 3, or set OTEL_HOOK_PYTHON to its path." >&2
   exit 2
@@ -67,8 +69,8 @@ fi
 INPUT=$(cat)
 
 # Extract tool name and file path (portable; avoids jq dependency)
-TOOL=$(echo "$INPUT" | "$PY" -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_name',''))" 2>/dev/null || echo "")
-FILE_PATH=$(echo "$INPUT" | "$PY" -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_input',{}).get('file_path',''))" 2>/dev/null || echo "")
+TOOL=$(echo "$INPUT" | py -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_name',''))" 2>/dev/null || echo "")
+FILE_PATH=$(echo "$INPUT" | py -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_input',{}).get('file_path',''))" 2>/dev/null || echo "")
 
 # Only guard Write and Edit tools
 if [ "$TOOL" != "Write" ] && [ "$TOOL" != "Edit" ]; then
@@ -87,9 +89,9 @@ fi
 # are validated; Edits that don't carry full JSON content can't be checked and pass through.
 case "$FILE_PATH" in
   */.claude/otel-context.json|.claude/otel-context.json)
-    CONTENT=$(echo "$INPUT" | "$PY" -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_input',{}).get('content',''))" 2>/dev/null || echo "")
+    CONTENT=$(echo "$INPUT" | py -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_input',{}).get('content',''))" 2>/dev/null || echo "")
     if [ -n "$CONTENT" ]; then
-      UNCONFIRMED=$(printf '%s' "$CONTENT" | "$PY" -c "
+      UNCONFIRMED=$(printf '%s' "$CONTENT" | py -c "
 import sys, json
 try:
     d = json.load(sys.stdin)
@@ -126,7 +128,7 @@ fi
 # which silently turned --force into a no-op. See hooks/otel-force-match.py.
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 FORCE_FILE="$PROJECT_DIR/.claude/.otel-force"
-if [ -f "$FORCE_FILE" ] && "$PY" "$(dirname "${BASH_SOURCE[0]}")/otel-force-match.py" \
+if [ -f "$FORCE_FILE" ] && py "${CLAUDE_PLUGIN_ROOT}/hooks/otel-force-match.py" \
      "$FILE_PATH" "$PROJECT_DIR" "$FORCE_FILE" 2>/dev/null; then
   exit 0
 fi
