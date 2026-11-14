@@ -219,9 +219,11 @@ They parse the hook payload with Python (`python3`, falling back to `python`), n
      in the environment.
    - A full-file Write to `.claude/otel-context.json` contains a business attribute without
      `"confirmed": true` (the user must approve each one in `/otel-business-attrs`).
-   - No working Python interpreter is found. The guard then fails closed and blocks every Write
-     and Edit in the session, with a message saying to install Python 3 or set `OTEL_HOOK_PYTHON`.
-     Reviewer note: this applies in any repository while the plugin is enabled.
+   - No working Python interpreter is found, and the target is a file the guard protects (a
+     generated file, a Terraform module file, or `.claude/otel-context.json`), or its name can't
+     be read. The guard then fails closed with a message saying to install Python 3 or set
+     `OTEL_HOOK_PYTHON`. Since 0.11.8, writes to any other file go ahead, so the plugin no longer
+     blocks unrelated editing on a machine without Python.
    - If its helper `hooks/otel-paths.sh` cannot be loaded, it allows the write and prints that
      overwrite protection is off (it does not block).
 2. **semconv-lint** (`hooks/semconv-lint.sh`), PostToolUse, matcher `Write|Edit`. Reads the file

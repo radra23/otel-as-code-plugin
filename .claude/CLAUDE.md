@@ -48,7 +48,10 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
   from `${CLAUDE_PLUGIN_ROOT}`): the directory blocks a hook whose program is computed. It also
   blocked an inline `py -c` that normalised a path (0.11.5, "Command path can't be followed"), while
   the same logic in a file run as `py "${CLAUDE_PLUGIN_ROOT}/hooks/<file>.py" ...` passes: put new
-  hook logic in a plugin file, and check a preview of the slim build in the portal before release.
+  hook logic in a plugin file, and check a preview of the slim build in the portal before any
+  resubmission. Since 0.11.8 the build does not pass that check (write-guard's no-Python branch reads
+  the file name with plain shell, which the portal's static check can't follow); that was accepted
+  because the directory refuses the plugin by policy anyway, and must be revisited before submitting.
   The 0.11.7 submission was then refused by policy: from a non-Verified organization the directory
   accepts no command hooks and no scripts (only Markdown, text, JSON, YAML, images), so the plugin
   is not listed there; it ships through its own marketplace (see docs/listing/plugin-directory.md).
