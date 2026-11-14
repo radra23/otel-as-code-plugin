@@ -144,8 +144,9 @@ What it runs, and when:
 - **Hooks** (`hooks/hooks.json`, bash plus Python, no network calls). The write guard blocks
   overwriting a marker-carrying generated file without `--force`, and a full write of
   `.claude/otel-context.json` that holds an unconfirmed business attribute. It fails closed: if it
-  finds no working Python, it blocks every Write and Edit and says how to fix it (install Python 3,
-  or set `OTEL_HOOK_PYTHON`). Semconv lint is advisory unless strict mode is on, and runs after the
+  finds no working Python, it blocks writes to the files it protects (generated files, Terraform
+  module files, the context cache) and says how to fix it (install Python 3, or set
+  `OTEL_HOOK_PYTHON`); writes to any other file go ahead unchecked. Semconv lint is advisory unless strict mode is on, and runs after the
   write, so it can report but not undo it. Session summary only prints.
 - **`/otel-local`** runs `docker compose` to start `grafana/otel-lgtm` (a public image from Docker
   Hub, about 1 GB on first pull), with every port bound to `127.0.0.1`, and checks it through

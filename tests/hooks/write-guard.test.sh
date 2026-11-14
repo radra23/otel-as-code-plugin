@@ -211,36 +211,48 @@ else
 fi
 rm -rf "$TMP"
 
-# Test 10: no python interpreter available -> FAIL CLOSED (block, exit 2), even for a file that
-# would normally be ALLOWED (a brand-new non-OTel file). Proves the guard never silently fails
-# open when it can't parse the payload. The hook runs its interpreter only by the literal names
-# python3/python (the plugin directory refuses a computed program), so absence is simulated with
+# Test 10: no python interpreter available. The guard can't parse the payload, so it reads the
+# target's file name with plain shell and FAILS CLOSED (exit 2) only for a file it protects; any
+# other file goes ahead, so a machine without Python can still edit the rest of the repo. The hook
+# runs its interpreter only by the literal names python3/python, so absence is simulated with
 # stubs of both names first on PATH that fail the way a missing command does.
 NOPY=$(mktemp -d)
 for n in python3 python; do printf '#!/bin/sh\nexit 127\n' > "$NOPY/$n"; chmod +x "$NOPY/$n"; done
-INPUT='{"tool_name":"Write","tool_input":{"file_path":"src/brand-new.js"}}'
-actual_exit=0
-echo "$INPUT" | PATH="$NOPY:$PATH" bash "$HOOK" > /dev/null 2>&1 || actual_exit=$?
-if [ "$actual_exit" -eq 2 ]; then
-  echo "PASS: fail closed (block) when python is unavailable"
-  PASS=$((PASS+1))
-else
-  echo "FAIL: fail-closed on missing python (expected 2, got $actual_exit)"
-  FAIL=$((FAIL+1))
-fi
+nopy_exit() {  # nopy_exit <file_path as it appears in the JSON payload>
+  local rc=0
+  echo "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$1\",\"content\":\"x\"}}" \
+    | PATH="$NOPY:$PATH" bash "$HOOK" > /dev/null 2>&1 || rc=$?
+  echo "$rc"
+}
+for case_ in "src/brand-new.js:0" "README.md:0" "src/tracing.js:2" "infra/main.tf:2" \
+             ".claude/otel-context.json:2" ".Claude/Otel-Context.json:2" "otel-java.env:2" \
+             "C:\\\\repo\\\\src\\\\tracing.js:2" "C:\\\\repo\\\\src\\\\app.js:0"; do
+  target=${case_%:*}; want=${case_##*:}
+  got=$(nopy_exit "$target")
+  if [ "$got" = "$want" ]; then
+    echo "PASS: no python + $target -> exit $want"
+    PASS=$((PASS+1))
+  else
+    echo "FAIL: no python + $target (expected $want, got $got)"
+    FAIL=$((FAIL+1))
+  fi
+done
+# A payload whose file name can't be read fails closed: the guard can't tell what it would allow.
+rc=0; echo '{"tool_name":"Write","tool_input":{}}' | PATH="$NOPY:$PATH" bash "$HOOK" > /dev/null 2>&1 || rc=$?
+if [ "$rc" -eq 2 ]; then echo "PASS: no python + unreadable file name -> fail closed"; PASS=$((PASS+1)); else echo "FAIL: no python + unreadable file name (expected 2, got $rc)"; FAIL=$((FAIL+1)); fi
 rm -rf "$NOPY"
 
 # Test 10b (#33): an interpreter that RESOLVES but does not RUN (the Windows Store `python3`
-# alias stub: on PATH, `command -v` succeeds, but executing it errors) must FAIL CLOSED, not
-# silently allow the write. Both names are the Store stub here. Target a brand-new file that
-# would otherwise be ALLOWED, so a pass can only mean the guard blocked because it could not
-# verify, not because the file was protected.
+# alias stub: on PATH, `command -v` succeeds, but executing it errors) is the same as no python:
+# a protected file FAILS CLOSED. Both names are the Store stub here. The target is a brand-new
+# tracing.js, which a working guard would let through, so a block can only mean the guard
+# could not verify.
 STUBDIR=$(mktemp -d)
 for n in python3 python; do
   printf '#!/bin/sh\necho "Python was not found; run without arguments to install from the Microsoft Store" >&2\nexit 9\n' > "$STUBDIR/$n"
   chmod +x "$STUBDIR/$n"
 done
-INPUT='{"tool_name":"Write","tool_input":{"file_path":"src/brand-new.js"}}'
+INPUT='{"tool_name":"Write","tool_input":{"file_path":"src/tracing.js"}}'
 actual_exit=0
 echo "$INPUT" | PATH="$STUBDIR:$PATH" bash "$HOOK" > /dev/null 2>&1 || actual_exit=$?
 if [ "$actual_exit" -eq 2 ]; then
