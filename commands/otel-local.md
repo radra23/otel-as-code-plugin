@@ -28,7 +28,7 @@ similar loaders never pick it up. A deployed build never sees it.
   stop. Writes nothing, starts nothing, exits non-zero if a file would change.
 - `--down`: stop the stack and offer to remove the two files (Step 8). Nothing else runs.
 
-The pinned image is **`grafana/otel-lgtm:0.40.0`**. This line is the single source of the tag:
+The pinned image is **`grafana/otel-lgtm:0.41.0`**. This line is the single source of the tag:
 `scripts/drift_check.py` reads it, and `tests/drift-check.test.sh` asserts the golden
 `tests/snapshots/local-stack/otel-local.compose.yaml` carries the same one.
 
@@ -104,7 +104,7 @@ choice; drop the "because" clause when it is 3000.
 name: otel-local
 services:
   lgtm:
-    image: grafana/otel-lgtm:0.40.0
+    image: grafana/otel-lgtm:0.41.0
     ports:
       - "127.0.0.1:<G>:3000"   # Grafana UI; host <G> because the app listens on 3000
       - "127.0.0.1:4317:4317"   # OTLP gRPC
@@ -173,7 +173,7 @@ The first run pulls the image (about 1 GB). Then poll `http://localhost:<G>/api/
 Print, with the real port and service name:
 
 ```
-✓ Local stack running on your machine (grafana/otel-lgtm:0.40.0). Nothing leaves this machine.
+✓ Local stack running on your machine (grafana/otel-lgtm:0.41.0). Nothing leaves this machine.
 
 1. Start <SERVICE_NAME> against it:
      <RUN_LINE>

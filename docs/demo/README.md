@@ -40,7 +40,7 @@ The flow is the recommended first run: `/otel-init`, yes to "see this running lo
 first trace read back from the local Grafana stack. The fixture's app listens on 3000, so the
 port line shows Grafana moving to 3001.
 
-Off camera, before `asciinema rec`: start Docker and run `docker pull grafana/otel-lgtm:0.40.0`,
+Off camera, before `asciinema rec`: start Docker and run `docker pull grafana/otel-lgtm:0.41.0`,
 so the ~1 GB pull is not in the take.
 
 | # | Type | What the viewer should see |
