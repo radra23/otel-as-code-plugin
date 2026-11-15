@@ -88,12 +88,9 @@ body=$(curl -fsS -X POST -H 'Content-Type: application/json' -d '{"sku":"s1","qu
   && ok "python: the enriched route handler still answers" || { bad "python: response changed: $body"; cat app.log; }
 code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{"sku":"s1"}' http://localhost:8900/inventory/reserve)
 [ "$code" = 422 ] && ok "python: the handler kept its signature (a bad body is still rejected with 422)" || bad "python: expected 422 for a bad body, got $code"
-# Read back while the app is still up: uvicorn re-raises SIGTERM after its graceful shutdown, so
-# Python's exit handlers never run and the SDK's last batch is not flushed on stop. The batch
-# processor exports on its own within 5 s, which --wait covers.
+stop    # the bootstrap flushes on SIGTERM (#295), so the span is read back after the stop
 out=$(span --service enrich-inventory --name inventory.reserve_stock) && ! printf '%s' "$out" | grep -q "a root span" \
   && ok "python: inventory.reserve_stock arrived, inside the request's trace" || { bad "python: inventory.reserve_stock missing or a root span"; echo "$out"; cat app.log; }
-stop
 enrich remove --root . >/dev/null
 cmp -s app.py "$WORK/app.before.py" \
   && ok "python: enrich.py remove restored app.py byte for byte" || bad "python: app.py differs after removal"

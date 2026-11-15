@@ -253,6 +253,22 @@ jobs:
   # #173: a real `next start` is built from the golden hook and sent SIGTERM half a second after the
   # last request; the spans must still reach a slow OTLP sink. Separate from the compose e2e because
   # it needs to signal the process and read what a backend received after it exited.
+  # The generated Python bootstrap under real servers (uvicorn, uvicorn --workers, gunicorn with
+  # the uvicorn worker, gunicorn sync, waitress): one request, then SIGTERM half a second later,
+  # and the request's span must have reached a local OTLP/gRPC sink. No Docker.
+  python-sigterm-flush:
+    name: Python SIGTERM flush (#295)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: bash tests/e2e/python-sigterm-flush.sh
+      - name: The same with the --experimental bootstrap (adds the logs pipeline)
+        run: TRACING_PY="$PWD/tests/snapshots/instrument/python/tracing.experimental.py" bash tests/e2e/python-sigterm-flush.sh
+
   nextjs-sigterm-flush:
     name: Next.js SIGTERM flush (#173)
     runs-on: ubuntu-latest

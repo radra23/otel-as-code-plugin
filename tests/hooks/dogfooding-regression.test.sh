@@ -695,6 +695,35 @@ check "#118 Rust maturity is Traces Beta, Metrics Stable, Logs Stable" \
   'grep -qE "^\| Traces +\| Beta " <<<"$RUST_TABLE" && grep -qE "^\| Metrics +\| Stable " <<<"$RUST_TABLE" && grep -qE "^\| Logs +\| Stable " <<<"$RUST_TABLE"'
 check "#118 Rust logs are no longer gated as Development" \
   '! grep -qE "^\| Logs .*Development" <<<"$RUST_TABLE" && ! grep -qE "^\| Rust .*Development" "$MATURITY"'
+# --- #295: the Python bootstrap flushes on SIGTERM, not only at a normal exit ------------------
+# The behavior is proven on real servers by tests/e2e/python-sigterm-flush.sh. These keep the
+# generator's template and both goldens saying the same thing, so the proof stays about what
+# /otel-instrument actually writes.
+PYGEN="agents/instrumentation-gen.md"
+PYSNAP="tests/snapshots/instrument/python/tracing.py"
+PYEXP="tests/snapshots/instrument/python/tracing.experimental.py"
+check "#295 the generator's Python template ends with the golden's flush section, verbatim" \
+  'python3 -c "
+import sys
+snap = open(sys.argv[1], encoding=\"utf-8\").read()
+tail = snap[snap.index(\"def instrument_fastapi(app):\"):]
+sys.exit(0 if tail.rstrip() in open(sys.argv[2], encoding=\"utf-8\").read() else 1)" "$PYSNAP" "$PYGEN"'
+check "#295 the experimental golden differs from the default one only by the logger provider" \
+  'python3 -c "
+import sys
+a = open(sys.argv[1], encoding=\"utf-8\").read(); b = open(sys.argv[2], encoding=\"utf-8\").read()
+ta = a[a.index(\"def instrument_fastapi(app):\"):]; tb = b[b.index(\"def instrument_fastapi(app):\"):]
+sys.exit(0 if ta.replace(\"(_tracer_provider, _meter_provider)\", \"(_tracer_provider, _meter_provider, _logger_provider)\") == tb else 1)" "$PYSNAP" "$PYEXP"'
+for f in "$PYSNAP" "$PYEXP"; do
+  check "#295 $(basename "$f") registers atexit, a SIGTERM handler and the app shutdown flush" \
+    'grep -q "^    atexit.register(shutdown)$" "$f" && grep -q "signal.signal(signal.SIGTERM, _on_sigterm)" "$f" && grep -q "^    _flush_on_app_shutdown(app)$" "$f"'
+  check "#295 $(basename "$f") gives every provider shutdown_on_exit=False (one owner for the exit flush)" \
+    '[ "$(grep -c "Provider(" "$f")" = "$(grep -c "shutdown_on_exit=False" "$f")" ]'
+done
+check "#295 the entry-file wiring no longer tells the user to register atexit themselves" \
+  '! grep -q "^atexit.register(shutdown)$" "$PYGEN" && grep -q "Do not add .atexit.register(shutdown). to the entry file" "$PYGEN"'
+check "#295 the generator explains why all three flush paths stay" \
+  'grep -q "^### Why three flush paths (#295)" "$PYGEN"'
 # --- #122c: Nuxt -------------------------------------------------------------------------------
 # nuxt sits in the same "do not collapse to other" rule as nextjs and rails, both of which had a
 # fixture; nuxt had none, so nothing exercised its guidance. Building a real Nitro app showed the
