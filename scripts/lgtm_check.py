@@ -17,8 +17,17 @@ proves. Standard library only; JSON over plain http to localhost.
       empty for traces that are there. Prints exactly what it asked and what came back.
       Exit 0 found, 1 nothing found, 2 Grafana or Tempo unreachable.
       --search-json reads a saved search response instead of calling Grafana (offline tests).
+
+  lgtm_check.py span --grafana URL --service NAME --name SPAN [--parent PARENT] [--status error]
+                     [--since SECONDS] [--wait SECONDS] [--trace-json FILE]
+      Did a span called SPAN reach Tempo for NAME, and what is it nested under? Same route as
+      `traces` (datasource proxy, explicit start/end): a TraceQL search for the span, then the
+      trace itself. Prints the span's duration, status and its parent's name. With --parent, the
+      parent must have that name; with --status error, only a span that recorded an error counts.
+      Exit 0 found (and the parent matches), 1 not found or a different parent, 2 unreachable. --trace-json reads a saved trace instead of calling Grafana.
 """
 import argparse
+import base64
 import json
 import socket
 import sys
@@ -100,6 +109,91 @@ def cmd_traces(args):
     return 1
 
 
+def span_search_url(grafana, service, name, start, end, status=None):
+    q = '{resource.service.name="%s" && name="%s"%s}' % (service, name, " && status=error" if status == "error" else "")
+    qs = urllib.parse.urlencode({"q": q, "start": start, "end": end, "limit": 5})
+    return f"{grafana.rstrip('/')}/api/datasources/proxy/uid/tempo/api/search?{qs}"
+
+
+def span_id(raw):
+    """Tempo returns span ids base64-encoded; OTLP/JSON elsewhere uses hex. Compare as hex."""
+    if not raw:
+        return ""
+    if len(raw) == 16 and all(c in "0123456789abcdefABCDEF" for c in raw):
+        return raw.lower()
+    try:
+        return base64.b64decode(raw).hex()
+    except ValueError:
+        return raw
+
+
+def spans_in(trace):
+    """Every span of one Tempo trace document as {id, parent, name, ms}."""
+    if isinstance(trace.get("trace"), dict):
+        trace = trace["trace"]
+    out = []
+    for rs in trace.get("batches") or trace.get("resourceSpans") or []:
+        for ss in rs.get("scopeSpans") or []:
+            for sp in ss.get("spans") or []:
+                ms = (int(sp.get("endTimeUnixNano", 0)) - int(sp.get("startTimeUnixNano", 0))) / 1e6
+                code = str((sp.get("status") or {}).get("code", ""))
+                out.append({"id": span_id(sp.get("spanId")), "parent": span_id(sp.get("parentSpanId")),
+                            "name": sp.get("name", "?"), "ms": ms,
+                            "error": code in ("STATUS_CODE_ERROR", "2")})
+    return out
+
+
+def find_span(trace, name, status=None):
+    """(span, parent name or None) for the first span called `name`, or (None, None)."""
+    spans = spans_in(trace)
+    by_id = {sp["id"]: sp for sp in spans}
+    for sp in spans:
+        if sp["name"] == name and (status != "error" or sp["error"]):
+            parent = by_id.get(sp["parent"])
+            return sp, parent["name"] if parent else None
+    return None, None
+
+
+def cmd_span(args):
+    if args.trace_json:
+        with open(args.trace_json) as f:
+            traces = [json.load(f)]
+        print(f"checked: saved trace {args.trace_json} for a span named {args.name}")
+    else:
+        deadline = time.time() + args.wait
+        while True:
+            end = int(time.time())
+            url = span_search_url(args.grafana, args.service, args.name, end - args.since, end, args.status)
+            try:
+                base = args.grafana.rstrip("/") + "/api/datasources/proxy/uid/tempo/api/traces/"
+                traces = [fetch(base + t["traceID"]) for t in (fetch(url).get("traces") or [])[:1]]
+                reached = True
+            except (urllib.error.URLError, OSError, ValueError) as e:
+                traces, reached, err = [], False, e
+            if traces or time.time() >= deadline:
+                break
+            time.sleep(2)
+        print(f"checked: Tempo search via Grafana's datasource proxy, service.name={args.service}, "
+              f"span name={args.name}, last {args.since}s (start/end set explicitly)")
+        print(f"  {url}")
+        if not reached:
+            print(f"unreachable: {err}")
+            return 2
+    for trace in traces:
+        sp, parent = find_span(trace, args.name, args.status)
+        if sp:
+            under = f'nested under "{parent}"' if parent else "with no parent in this trace (a root span)"
+            state = "recorded an error" if sp["error"] else "no error"
+            print(f'found: span "{args.name}" took {sp["ms"]:.1f} ms, {state}, {under}')
+            if args.parent and parent != args.parent:
+                print(f'mismatch: expected it nested under "{args.parent}"')
+                return 1
+            return 0
+    what = "no span" if args.status != "error" else "no span with an error"
+    print(f"found: {what} named {args.name}" + ("" if args.trace_json else " for that service in that window"))
+    return 1
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -111,8 +205,19 @@ def main(argv=None):
     pt.add_argument("--since", type=int, default=900)
     pt.add_argument("--wait", type=int, default=0)
     pt.add_argument("--search-json")
+    ps = sub.add_parser("span")
+    ps.add_argument("--grafana", default="http://localhost:3000")
+    ps.add_argument("--service")
+    ps.add_argument("--name", required=True)
+    ps.add_argument("--parent")
+    ps.add_argument("--status", choices=["error"])
+    ps.add_argument("--since", type=int, default=900)
+    ps.add_argument("--wait", type=int, default=0)
+    ps.add_argument("--trace-json")
     args = p.parse_args(argv)
-    return cmd_ports(args) if args.cmd == "ports" else cmd_traces(args)
+    if args.cmd == "span" and not args.trace_json and not args.service:
+        p.error("span needs --service (or --trace-json)")
+    return {"ports": cmd_ports, "traces": cmd_traces, "span": cmd_span}[args.cmd](args)
 
 
 if __name__ == "__main__":

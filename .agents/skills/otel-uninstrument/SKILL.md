@@ -26,7 +26,11 @@ command removes instrumentation bootstraps only — never `otelcol-*.yaml` or Te
 gate alone would NOT keep collector configs safe (they carry the same marker) — scoping the
 candidate set via `otel_bootstrap_globs` is what does.
 
-Args: `$ARGUMENTS` (e.g. `--service api`, `--all`, `--dry-run`, `--force`).
+With `--enrichment` (after `$otel-enrich`), none of the above runs: run `scripts/enrich.py list`
+and `scripts/enrich.py remove` from this repo, as the command's "Removing enrichment" section
+says. It deletes the marker blocks in the user's code and leaves the bootstrap alone.
+
+Args: `$ARGUMENTS` (e.g. `--service api`, `--all`, `--enrichment`, `--dry-run`, `--force`).
 
 Codex note: deletion is `rm`, not `Write`/`Edit`, so `.codex/hooks.json` (write-guard) does not
 gate it — the confirmation prompt is the safety gate, and `--force` only skips that prompt (it

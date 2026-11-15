@@ -59,6 +59,9 @@ jobs:
       - name: README guardrails match the hook configs and command flags (#252)
         run: bash tests/readme-guardrails.test.sh
 
+      - name: enrich.py edits to hand-written code, applied, run and removed (/otel-enrich, #276)
+        run: bash tests/enrich.test.sh
+
       - name: Run freshness-contract test (scanner identityInputs ↔ /otel-init regex; #150 uncovered services)
         run: bash tests/hooks/freshness-contract.test.sh
 
@@ -299,6 +302,28 @@ jobs:
 
       - name: Local stack end to end
         run: bash tests/e2e/local-stack.sh
+
+  # /otel-enrich: spans added by scripts/enrich.py to a Node.js app and a Python (FastAPI) app,
+  # run against the pinned local stack. Each span must arrive nested where the code nests it, a
+  # thrown error must be recorded and still reach the caller, and removal must restore every file.
+  enrich-e2e:
+    name: /otel-enrich spans reach the local stack
+    runs-on: ubuntu-latest
+    # Image pull, npm install and pip install dominate.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Enriched spans end to end
+        run: bash tests/e2e/enrich.sh
 
   validate-codex-bridge:
     name: Validate Codex bridge
