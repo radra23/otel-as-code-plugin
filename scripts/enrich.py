@@ -59,6 +59,10 @@ SHARED_IDS = (TRACER_ID, METER_ID)
 METRIC_PREFIX = "metric-"      # ids of metric enrichments; they need the meter block, spans the tracer
 METRIC_KINDS = ("counter", "histogram", "gauge")
 METRIC_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.\-/]{0,254}$")
+# A histogram's default buckets (0, 5, 10, 25, ... 10000) suit milliseconds and counts. In seconds
+# everything under 5 s lands in one bucket and every quantile reads 2.5, so a histogram recorded in
+# seconds gets the boundaries the HTTP semantic conventions recommend for durations.
+SECONDS_BOUNDS = "0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10"
 UNIT_RE = re.compile(r"^[A-Za-z0-9{}_/%.*\- ]{1,63}$")
 JS_EXTS = (".js", ".cjs", ".mjs")
 PY_EXTS = (".py",)
@@ -771,11 +775,15 @@ def cmd_metric(args):
             f"{indent}{record_call(lang, var, kind, value)}{nl}",
             f"{indent}{c} otel-as-code: enrich end {mid}{nl}"]
     creator = {"counter": "counter", "histogram": "histogram", "gauge": "gauge"}[kind]
+    seconds = kind == "histogram" and unit == "s"
     if lang == "py":
-        opts = f', unit="{unit}"' if unit else ""
+        opts = (f', unit="{unit}"' if unit else "") + \
+               (f", explicit_bucket_boundaries_advisory=[{SECONDS_BOUNDS}]" if seconds else "")
         make = f'{var} = _otel_meter.create_{creator}("{args.name}"{opts})'
     else:
-        opts = f", {{ unit: '{unit}' }}" if unit else ""
+        fields = ([f"unit: '{unit}'"] if unit else []) + \
+                 ([f"advice: {{ explicitBucketBoundaries: [{SECONDS_BOUNDS}] }}"] if seconds else [])
+        opts = f", {{ {', '.join(fields)} }}" if fields else ""
         make = f"const {var} = otelMeter.create{creator.capitalize()}('{args.name}'{opts});"
     instrument = [f"{c} otel-as-code: enrich begin {mid}{nl}", make + nl, f"{c} otel-as-code: enrich end {mid}{nl}"]
     meter_block = next(((b, e) for bid, b, e in blocks if bid == METER_ID), None)
@@ -802,6 +810,10 @@ def cmd_metric(args):
         raise Refused(f"the edited {rel} would not parse ({after}); nothing written. "
                       f"Line {args.at} is not a place a new statement can go, or --value is not valid there.")
     sys.stdout.writelines(difflib.unified_diff(lines, out, f"a/{rel}", f"b/{rel}"))
+    if kind == "histogram" and not seconds:
+        print(f"note: no bucket boundaries are set for unit {unit!r}, so the SDK's defaults apply "
+              f"(0, 5, 10, 25, 50, 75, 100, 250, 500, 750, 1000, 2500, 5000, 7500, 10000). If the values "
+              f"are much smaller or larger than that, the quantiles will be coarse.")
     note = dependency_note(lang, full, args.root)
     if note:
         print(note)

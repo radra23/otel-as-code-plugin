@@ -181,7 +181,8 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/enrich.py" metric --root <repo root> --fi
 ```
 
 The script reads the kind and unit from the cache, and refuses a name that is not a confirmed
-entry there. Show its diff unchanged, then one sentence on what it counts or records and when:
+entry there. A histogram in seconds gets duration bucket boundaries (5 ms to 10 s); for any other
+unit the SDK's default buckets apply and the script prints a `note:` saying so, which you pass on. Show its diff unchanged, then one sentence on what it counts or records and when:
 "This counts one `com.myorg.checkout.order_placed` each time checkout succeeds; a failed charge
 is not counted." On `REFUSED:`, report the reason; for *the middle of a statement*, *closes a
 block*, *would never run*, pick another line of the same handler and preview again.

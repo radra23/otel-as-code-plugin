@@ -27,12 +27,12 @@ proves. Standard library only; JSON over plain http to localhost.
       Exit 0 found (and the parent matches), 1 not found or a different parent, 2 unreachable.
       --trace-json reads a saved trace instead of calling Grafana.
 
-  lgtm_check.py query --grafana URL --expr PROMQL [--positive] [--wait SECONDS] [--names REGEX]
-                      [--result-json FILE]
+  lgtm_check.py query --grafana URL --expr PROMQL [--positive] [--max N] [--wait SECONDS]
+                      [--names REGEX] [--result-json FILE]
       Does a dashboard panel's query return data? Runs PROMQL as an instant query against the
       stack's Prometheus, through Grafana's datasource proxy. Prints how many series came back
-      and the first value. Exit 0 when a series has a real number (with --positive, above zero),
-      1 when nothing or only NaN came back, 2 unreachable. On exit 1, --names REGEX also prints
+      and the first value. Exit 0 when a series has a real number (with --positive, above zero;
+      with --max, no value above N), 1 when nothing or only NaN came back, 2 unreachable. On exit 1, --names REGEX also prints
       the metric names Prometheus does have that match it, which is usually the answer (a metric
       is stored under its name with dots as underscores, its unit and, for a counter, _total).
       --result-json reads a saved query response instead of calling Grafana.
@@ -252,6 +252,9 @@ def cmd_query(args):
             print(f"unreachable: {err}")
             return 2
     series, values = numbers_in(body)
+    if values and args.max is not None and max(values) > args.max:
+        print(f"found: {series} series; first value {values[0]:g}, above the expected maximum {args.max:g}")
+        return 1
     if values and (not args.positive or max(values) > 0):
         print(f"found: {series} series; first value {values[0]:g}")
         return 0
@@ -295,6 +298,7 @@ def main(argv=None):
     pq.add_argument("--grafana", default="http://localhost:3000")
     pq.add_argument("--expr")
     pq.add_argument("--positive", action="store_true")
+    pq.add_argument("--max", type=float)
     pq.add_argument("--wait", type=int, default=0)
     pq.add_argument("--names")
     pq.add_argument("--result-json")

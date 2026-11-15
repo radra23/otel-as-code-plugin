@@ -370,7 +370,7 @@ check "metric node: the meter block and the instrument sit after the directive, 
   'sed -n 2p "$N/$OJS" | grep -q "enrich begin otel-meter" && grep -B2 -F "$RET" "$N/$OJS" | head -1 | grep -q "otelOrderPlaced.add(1);"'
 metric --root "$N" --file $OJS --function checkout --at "$(ln_of "$N/$OJS" "$RET")" --where before "${M_DUR[@]}" --value "(Date.now() - startedAt) / 1000" >/dev/null
 check "metric node: a histogram records the given expression, and reuses the meter block" \
-  'grep -q "^  otelPaymentDuration.record((Date.now() - startedAt) / 1000);$" "$N/$OJS" && [ "$(grep -c "enrich begin otel-meter" "$N/$OJS")" = 1 ] && grep -q "createHistogram(.com.example.checkout.payment_duration., { unit: .s. })" "$N/$OJS"'
+  'grep -q "^  otelPaymentDuration.record((Date.now() - startedAt) / 1000);$" "$N/$OJS" && [ "$(grep -c "enrich begin otel-meter" "$N/$OJS")" = 1 ] && grep -q "createHistogram(.com.example.checkout.payment_duration., { unit: .s., advice: { explicitBucketBoundaries: \[0.005, 0.01, .*, 10\] } });$" "$N/$OJS"'
 metric --root "$N" --file $OJS --function checkout --at "$(ln_of "$N/$OJS" "const lines = await loadLines")" --where after --name com.example.checkout.cart_lines --meter-name enrich-orders --value "lines.length" >/dev/null
 check "metric node: a gauge with no unit in the cache gets no unit, placed after the named line" \
   'grep -q "^const otelCartLines = otelMeter.createGauge(.com.example.checkout.cart_lines.);$" "$N/$OJS" && grep -A2 "const lines = await loadLines" "$N/$OJS" | tail -1 | grep -q "otelCartLines.record(lines.length);"'
@@ -502,6 +502,14 @@ check "metric python: a histogram goes after a multi-line statement, at the stat
 enrich span --root "$P" --file app.py --function reserve_stock --span-name inventory.reserve_stock --tracer-name inventory-api >/dev/null
 check "metric python: a span added afterwards gets its own tracer block, outside the meter block" \
   'python3 -m py_compile "$P/app.py" && [ "$(grep -c "enrich begin otel-tracer\|enrich begin otel-meter" "$P/app.py")" = 2 ]'
+out=$(metric --root "$P" --file app.py --function get_stock --at "$(ln_of "$P/app.py" 'return {"sku": sku')" --where before --name com.example.checkout.payment_duration --meter-name t --value "0.01" --dry-run)
+check "metric python: a histogram in seconds gets duration bucket boundaries" \
+  'echo "$out" | grep -q "create_histogram(\"com.example.checkout.payment_duration\", unit=\"s\", explicit_bucket_boundaries_advisory=\[0.005, 0.01, .*, 10\])$"'
+printf 'def h(n):\n    x = n\n    return x\n' > "$P/h.py"
+out=$(metric --root "$P" --file h.py --function h --at 2 --where after "${PY_QTY[@]}" --value "n" --dry-run 2>&1)
+check "metric python: a histogram in another unit keeps the default buckets and says so" \
+  'echo "$out" | grep -q "^note: no bucket boundaries are set for unit .{item}." && echo "$out" | grep -q "create_histogram(\"com.example.inventory.reserved_quantity\", unit=\"{item}\")$"'
+rm -f "$P/h.py"
 check "metric python: the enriched file passes semconv-lint in strict mode" 'lint_ok "$P/app.py"'
 refused "metric python: after a return is refused" "$P" "would never run" metric --context "$CTX" --root "$P" --file app.py --function reserve_stock --at "$(ln_of "$P/app.py" "$PRET")" --where after --name com.example.checkout.order_placed --meter-name t
 refused "metric python: after a raise is refused" "$P" "would never run" metric --context "$CTX" --root "$P" --file app.py --function reserve_stock --at "$(ln_of "$P/app.py" "raise HTTPException")" --where after --name com.example.checkout.order_placed --meter-name t

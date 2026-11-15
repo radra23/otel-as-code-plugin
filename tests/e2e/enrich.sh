@@ -102,8 +102,10 @@ checkout_ok; checkout_ok; sleep 7; checkout_ok; checkout_ok; checkout_ok
 NODE_JOB="storefront/enrich-orders"     # Prometheus's job label is <service.namespace>/<service.name>
 panel_ok "node: the golden counter panel's query returns data" \
   "$(golden_expr com_example_checkout_order_placed_total "$NODE_JOB")" "com_example_checkout.*" --positive
-panel_ok "node: the golden histogram panel's p50 query returns data" \
-  "$(golden_expr 'histogram_quantile(0.50, sum(rate(com_example_checkout_payment_duration' "$NODE_JOB")" "com_example_checkout.*"
+# The checkouts take about 5 ms. With the SDK's default buckets every quantile under 5 s reads
+# 2.5; the boundaries enrich.py sets for a histogram in seconds must give a real figure.
+panel_ok "node: the golden histogram panel's p50 query returns a duration well under a second" \
+  "$(golden_expr 'histogram_quantile(0.50, sum(rate(com_example_checkout_payment_duration' "$NODE_JOB")" "com_example_checkout.*" --positive --max 0.1
 out=$(python3 "$SRC/scripts/lgtm_check.py" query --grafana "http://localhost:$GRAFANA_PORT" --wait 30 \
         --expr "sum(com_example_checkout_order_placed_total{job=\"$NODE_JOB\"})")
 printf '%s' "$out" | grep -q "first value 6$" \

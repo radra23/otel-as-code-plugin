@@ -87,6 +87,9 @@ check "query: a NaN-only result exits 1 and says the metric exists but has no nu
 check "query: zero passes without --positive" 'python3 $CHECK query --result-json "$qdir/zero.json" >/dev/null'
 python3 $CHECK query --result-json "$qdir/zero.json" --positive >/dev/null; rc=$?
 check "query: zero fails with --positive" '[ "$rc" -eq 1 ]'
+python3 $CHECK query --result-json "$qdir/value.json" --max 0.1 >/dev/null; rc=$?
+check "query: a value above --max fails" '[ "$rc" -eq 1 ]'
+check "query: a value under --max passes" 'python3 $CHECK query --result-json "$qdir/value.json" --max 1 >/dev/null'
 qurl=$(python3 -c "import sys; sys.path.insert(0, '../../scripts'); import lgtm_check as m; print(m.prom_url('http://localhost:3001/', 'query', {'query': 'sum(up)'}))")
 check "query: the live query goes through Grafana's prometheus datasource proxy" \
   '[ "$qurl" = "http://localhost:3001/api/datasources/proxy/uid/prometheus/api/v1/query?query=sum%28up%29" ]'
