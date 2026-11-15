@@ -32,6 +32,9 @@ jobs:
       - name: Run semconv-lint tests
         run: bash tests/hooks/semconv-lint.test.sh
 
+      - name: Run semconv-lint no-Python tests (#253)
+        run: bash tests/hooks/semconv-lint-no-python.test.sh
+
       - name: Run session-summary tests
         run: bash tests/hooks/session-summary.test.sh
 
@@ -184,6 +187,9 @@ jobs:
 
       - name: Run semconv-lint tests
         run: bash tests/hooks/semconv-lint.test.sh
+
+      - name: Run semconv-lint no-Python tests (#253)
+        run: bash tests/hooks/semconv-lint-no-python.test.sh
 
       - name: Run session-summary tests
         run: bash tests/hooks/session-summary.test.sh

@@ -231,7 +231,8 @@ They parse the hook payload with Python (`python3`, falling back to `python`), n
    prints warnings and exits 0. Exits 2 only in strict mode, turned on by `OTEL_STRICT=1` or a
    `.claude/.otel-strict` file, and then only for severe findings (service.* resource attributes
    set as span attributes, and the deprecated `http.method`, `http.url`, `http.status_code`,
-   `deployment.environment`), or when strict mode is on and no Python is found. As a PostToolUse
+   `deployment.environment`). With no working Python no rule can run, so it exits 0 in both
+   modes; in strict mode it says the checks did not run. As a PostToolUse
    hook it runs after the write, so exit 2 sends the message back to Claude; it does not undo the
    write.
 3. **session-summary** (`hooks/session-summary.sh`), SessionEnd. Lists generated OTel files that
