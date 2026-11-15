@@ -687,11 +687,14 @@ check "goldens use the otlp exporter alias, matching that decision" \
 # --- #118: Rust maturity row matches upstream opentelemetry-rust 0.33 --------------------------
 MATURITY="skills/language-maturity/SKILL.md"
 # Since the generator shipped, Rust has its own signal table in the supported section.
-rust_table() { sed -n "/^### Rust$/,/^## /p" "$MATURITY"; }
+# Read once into a variable, not piped into each grep: `grep -q` exits at its first match, and
+# under pipefail a sed still writing then dies of SIGPIPE and fails the check (about 3% of runs
+# on Linux).
+RUST_TABLE=$(sed -n "/^### Rust$/,/^## /p" "$MATURITY")
 check "#118 Rust maturity is Traces Beta, Metrics Stable, Logs Stable" \
-  'rust_table | grep -qE "^\| Traces +\| Beta " && rust_table | grep -qE "^\| Metrics +\| Stable " && rust_table | grep -qE "^\| Logs +\| Stable "'
+  'grep -qE "^\| Traces +\| Beta " <<<"$RUST_TABLE" && grep -qE "^\| Metrics +\| Stable " <<<"$RUST_TABLE" && grep -qE "^\| Logs +\| Stable " <<<"$RUST_TABLE"'
 check "#118 Rust logs are no longer gated as Development" \
-  '! rust_table | grep -qE "^\| Logs .*Development" && ! grep -qE "^\| Rust .*Development" "$MATURITY"'
+  '! grep -qE "^\| Logs .*Development" <<<"$RUST_TABLE" && ! grep -qE "^\| Rust .*Development" "$MATURITY"'
 # --- #122c: Nuxt -------------------------------------------------------------------------------
 # nuxt sits in the same "do not collapse to other" rule as nextjs and rails, both of which had a
 # fixture; nuxt had none, so nothing exercised its guidance. Building a real Nitro app showed the
