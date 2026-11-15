@@ -102,6 +102,24 @@ Env: `RUNS` (default 3), `JOBS` (default 3), `EVAL_MODEL` (default `claude-opus-
 `evals/results/routing/` (gitignored), with a per-run table of verdict, cost, and wall time.
 A full pass of one condition is 36 runs; expect roughly $15 to $40 and 20 to 40 minutes.
 
+## 0.12.0: `/otel-why` (2026-11-15, condition a, `claude-opus-5-5`, Claude Code 2.1.311)
+
+Before: this branch's cases on 0.11.15's descriptions. After: with `why-is-it-slow` and `/otel-why`,
+and the boundary clauses pointing at it. Three runs per prompt.
+
+| Prompt | Expect | Before routed | After routed | After, skill picked |
+|---|---|---|---|---|
+| checkout is slow, can you find out why? | should route | 0/3 | 3/3 | why-is-it-slow, otel-why |
+| checkout is slow ... base your diagnosis on the traces | should route | 0/3 (3/3 hand-rolled) | 3/3 | why-is-it-slow, otel-why |
+| login times out sometimes, can you figure out why? | should route | 0/3 | 3/3 | why-is-it-slow, otel-why |
+| the 8 setup and local-view prompts | should route | 8 of 8 | 8 of 8 | unchanged |
+| explain what a span is | should not route | 0/3 | 0/3 | |
+| fix the failing test in lib/orders.js | should not route | 0/3 | 0/3 | |
+| the build is slow, can you speed it up? | should not route | 0/3 | 0/3 | |
+
+Should-route prompts routed: 8/11 before, **11/11** after. False triggers: 0/3 both. Cost $15.07
+before, $17.39 after. Condition (b) was not run for this change.
+
 ## Baseline (2026-11-12, otel-as-code 0.9.7 at `main` 5bffc17, `claude-opus-5-5`, Claude Code 2.1.311)
 
 Three runs per prompt per condition.
