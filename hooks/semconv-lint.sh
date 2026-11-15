@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # hooks/semconv-lint.sh
 # PostToolUse hook — advisory semconv lint on OTel file writes.
-# Always exits 0 (advisory only, unless strict mode — see below). Writes warnings to stdout.
+# Always exits 0 (advisory only, unless strict mode, see below). Writes warnings to stdout.
 
 set -euo pipefail
 
@@ -17,14 +17,20 @@ STRICT=0
 STRICT_SENTINEL="${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude/.otel-strict"
 [ -f "$STRICT_SENTINEL" ] && STRICT=1
 
-# A Python that actually runs (see hooks/otel-python.sh). If none does: in strict mode fail
-# closed (exit 2), in advisory (default) mode skip quietly (exit 0).
+# A Python that actually runs (see hooks/otel-python.sh). Without one the payload can't be read,
+# so no rule runs and there is nothing to block on: exit 0 in both modes (#253; strict mode used
+# to exit 2 on every write, notes.txt included). Strict mode says so in one line on stdout, where
+# its findings would have gone, so it is never mistaken for a clean result.
 PY=""
 # shellcheck source=hooks/otel-python.sh
 . "${CLAUDE_PLUGIN_ROOT}/hooks/otel-python.sh" 2>/dev/null || PY=""
 if [ -z "$PY" ]; then
-  echo "otel-as-code semconv-lint: no WORKING python found (python3/python absent or non-functional — on Windows, python3 may be a Store alias stub). Cannot lint this write." >&2
-  [ "$STRICT" -eq 1 ] && exit 2 || exit 0
+  if [ "$STRICT" -eq 1 ]; then
+    echo "otel-as-code semconv-lint: strict mode is on, but no working Python was found, so the semconv checks did not run on this write and nothing was blocked. Install Python 3 or set OTEL_HOOK_PYTHON to run them."
+  else
+    echo "otel-as-code semconv-lint: no working python found (python3/python absent or not runnable; on Windows, python3 may be a Store alias stub). Cannot lint this write." >&2
+  fi
+  exit 0
 fi
 
 INPUT=$(cat)
