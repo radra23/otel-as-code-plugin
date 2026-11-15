@@ -24,7 +24,7 @@ to hand-roll it.
 
 | | |
 |---|---|
-| **Languages** | Node.js, Python, Java, .NET, Go, Ruby, Rust (axum, actix-web) |
+| **Languages** | Node.js, Python, Java, .NET, Go, Ruby, Rust (axum, actix-web), PHP |
 | **Backends** | Grafana, Datadog, New Relic, Dash0 |
 | **Agents** | Claude Code (plugin), Codex (skills) |
 | **Semconv** | pinned to 1.45.0, drift-checked weekly |
@@ -107,7 +107,7 @@ Collector config, and your dashboard queries always match.
 
 | Artifact | Files | Notes |
 |---|---|---|
-| **SDK bootstrap** | `tracing.js`, `tracing.py`, `tracing.go`, `tracing.rb`, `src/telemetry.rs`, `OpenTelemetry.cs`, or `otel-java.env` for the Java agent | Exporters chosen by the standard `OTEL_TRACES_EXPORTER` / `OTEL_METRICS_EXPORTER` / `OTEL_LOGS_EXPORTER` variables (`otlp`, `console`, `none`) |
+| **SDK bootstrap** | `tracing.js`, `tracing.py`, `tracing.go`, `tracing.rb`, `src/telemetry.rs`, `telemetry.php`, `OpenTelemetry.cs`, or `otel-java.env` for the Java agent | Exporters chosen by the standard `OTEL_TRACES_EXPORTER` / `OTEL_METRICS_EXPORTER` / `OTEL_LOGS_EXPORTER` variables (`otlp`, `console`, `none`) |
 | **Collector config** | `otelcol-agent.yaml` or `otelcol-gateway.yaml` | Ready for `otelcol-contrib`. Cardinality guardrails in agent mode, tail sampling in gateway mode |
 | **Terraform module** | `infra/observability/<vendor>/` | Dashboard, alerts, and SLO. You run `plan` and `apply` |
 
@@ -179,6 +179,7 @@ on the spans, on every push (see [`tests/e2e/`](https://github.com/radra23/otel-
 | Ruby | `opentelemetry-instrumentation-all` | Stable | Development (`--experimental`) | Development (`--experimental`) | HTTP :4318 | ✅ |
 | Rust (axum) | generated `src/telemetry.rs` | Beta | Stable | Stable | HTTP :4318 | ✅ |
 | Rust (actix-web) | same `src/telemetry.rs` | Beta | Stable | Stable | HTTP :4318 | not yet: static and hook tests only |
+| PHP | generated `telemetry.php` | Stable | Stable | Stable | HTTP :4318 | not yet: static and hook tests only, never run against a PHP runtime |
 
 **Terraform, live per backend.** Every module is `terraform validate`d on every push. The
 [`tf-live-validate`](https://github.com/radra23/otel-as-code-plugin/blob/main/.github/workflows/tf-live-validate.yml) job goes further: it applies each
@@ -268,10 +269,24 @@ emitting a bootstrap that silently does nothing.
   and logs Stable.
 </details>
 
-**Not yet supported:** PHP is detected and refused with a reason; a generator is at the design
-stage ([#117](https://github.com/radra23/otel-as-code-plugin/issues/117)). Services with no
-application source but native OTel support (third-party images) can get a deployment-config diff
-from `/otel-remediate` instead; v1 covers Keycloak only.
+<details>
+<summary><b>PHP</b></summary>
+
+- Generates `telemetry.php` (in `bootstrap/` when the project has one) and appends a marked
+  dependency block to `composer.json`. The file is the same for every framework; only where it is
+  loaded from and the auto-instrumentation package change: Laravel, Symfony, or a plain PHP app.
+- Auto-instrumentation also needs the PECL `opentelemetry` extension, which the plugin cannot
+  install. That step is printed, like the Java agent's download.
+- Logs go through the Monolog bridge, printed as an add-on only when Monolog is detected.
+- Exports over OTLP/HTTP on `:4318`. Traces, metrics and logs are all Stable.
+- Not yet run against a real PHP runtime: check it with `composer validate`, `php -l
+  telemetry.php` and one real request before relying on it.
+- A service that already lists `open-telemetry/*` in `composer.json` is audited with
+  `/otel-evaluate`, not generated for.
+</details>
+
+**Not yet supported:** services with no application source but native OTel support (third-party
+images) can get a deployment-config diff from `/otel-remediate` instead; v1 covers Keycloak only.
 
 ## Commands
 

@@ -46,10 +46,10 @@ CONTENT=$(cat "$FILE_PATH" 2>/dev/null || echo "")
 # A basename substring check (the old gate) only matched files literally named tracing/telemetry/
 # instrumentation/opentelemetry — the bootstrap/wiring file. Attributes are set in handlers and
 # services, which are never named that. Every official OTel package/namespace, in every one of
-# the seven supported languages, contains the substring "opentelemetry" somewhere in its import path
+# the eight supported languages, contains the substring "opentelemetry" somewhere in its import path
 # or namespace (@opentelemetry/*, opentelemetry.*, io.opentelemetry.*, OpenTelemetry.*,
 # go.opentelemetry.io/*, OpenTelemetry::*) — so a single case-insensitive content check covers all
-# seven without an enumerated per-language import-pattern list to keep in sync.
+# eight without an enumerated per-language import-pattern list to keep in sync.
 #
 # .NET is the one language where that alone under-detects: application code that creates spans
 # via System.Diagnostics.ActivitySource / records metrics via System.Diagnostics.Metrics.Meter
