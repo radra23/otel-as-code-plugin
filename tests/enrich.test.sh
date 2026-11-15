@@ -429,6 +429,14 @@ metric --root "$N" --file $OJS --function checkout --at "$(ln_of "$N/$OJS" "$RET
 refused "metric node: the same metric twice in a file is refused" "$N" "already emits" metric --context "$CTX" --root "$N" --file $OJS --function checkout --at 9 --where before "${M_PLACED[@]}"
 refused "metric node: a line inside an existing enrichment block is refused" "$N" "inside an existing enrichment block" metric --context "$CTX" --root "$N" --file $OJS --function checkout --at "$(ln_of "$N/$OJS" "otelOrderPlaced.add(1);")" --where before "${M_DUR[@]}" --value 1
 
+# The other order: a function that already has a span wrap takes a metric too.
+fresh
+enrich span --root "$N" --file $OJS --function checkout "${SPAN[@]}" >/dev/null
+check "metric node: a metric can be added inside a function that already has a span wrap" \
+  'metric --root "$N" --file $OJS --function checkout --at "$(ln_of "$N/$OJS" "$RET")" --where before "${M_PLACED[@]}" >/dev/null && grep -B2 -F "$RET" "$N/$OJS" | head -1 | grep -q "otelOrderPlaced.add(1);"'
+check "metric node: ... and removing everything still restores the original" \
+  'enrich remove --root "$N" >/dev/null && cmp -s "$N/$OJS" tests/enrich/node-app/lib/orders.js'
+
 # Only what the user confirmed, and only real metrics.
 fresh; AT=$(ln_of "$N/$OJS" "$RET")
 refused "metric: a name that is not in the cache is refused" "$N" "not a confirmed business attribute" metric --context "$CTX" --root "$N" --file $OJS --function checkout --at "$AT" --where before --name com.example.checkout.invented --meter-name t

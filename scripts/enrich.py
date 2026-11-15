@@ -703,7 +703,15 @@ def js_metric_site(lines, text, rel, args, blocks):
                       f"or name a line after the block.")
     idx = args.at - 1 if args.where == "before" else args.at
     offset = sum(len(ln) for ln in lines[:idx])
-    code = dict(js_code(text, body_open))
+    # Our own blocks don't count: a span wrap opens a call at the top of the body and closes it at
+    # the bottom, which would otherwise make every line of the function look bracketed.
+    ours, pos = set(), 0
+    in_block = {i for _, b, e in blocks for i in range(b, e + 1)}
+    for n, ln in enumerate(lines):
+        if n in in_block:
+            ours.update(range(pos, pos + len(ln)))
+        pos += len(ln)
+    code = {i: c for i, c in js_code(text, body_open) if i not in ours}
     depth, prev = 0, ""
     for i in sorted(code):
         if i >= offset:
