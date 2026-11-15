@@ -43,8 +43,9 @@ here), so resolve these paths against otel-as-code's own checkout directory, not
     `apply_patch` reports paths relative to the session cwd; the guard normalises them before
     matching the `.claude/.otel-force` sentinel, so a relative entry there is honoured.
   - confirm-before-write → PreToolUse: **denies** writing an `otel-context.json` that carries an
-    unconfirmed business attribute. NOTE: only whole-file writes are deep-checked; patch-style
-    edits are not — so always present business attributes for explicit confirmation. Present
+    unconfirmed business attribute, for whole-file writes and patch-style edits alike: an
+    `apply_patch` Update is checked on the file as the patch would leave it, and one that can't be
+    applied to the cache is denied. Still present business attributes for explicit confirmation. Present
     them already namespaced (`com.myorg.*`); a bare `biz.*` name is a placeholder, never written.
   - `semconv-lint` → PostToolUse: surfaces semconv warnings on OTel file writes (advisory).
   They load only when Codex runs with **otel-as-code as the git/project root**: Codex discovers

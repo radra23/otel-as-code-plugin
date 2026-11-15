@@ -16,5 +16,5 @@ Follow the canonical procedure in this repo — it is the single source of truth
 
 Args: `$ARGUMENTS`.
 
-Codex note: `.codex/hooks.json` enforces confirm-before-write on whole-file `otel-context.json`
-writes; still confirm all inferred business attributes with the user before writing.
+Codex note: `.codex/hooks.json` enforces confirm-before-write on every `otel-context.json` write,
+whole-file or patch; still confirm all inferred business attributes with the user before writing.
