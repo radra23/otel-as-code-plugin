@@ -51,11 +51,13 @@ def parse_targets(tool_input, cwd=None):
     if not isinstance(cmd, str):
         return []
     targets = []
-    state = {}  # normalised path -> text, None (deleted), or UNAPPLIED/AMBIGUOUS
+    state = {}  # resolved path -> text, None (deleted), or UNAPPLIED/AMBIGUOUS
+    touched = []  # every path the patch names, deletions included
     section = {"kind": None, "path": None, "move_to": None, "lines": []}
 
     def key(path):
-        return os.path.normpath(os.path.join(cwd, path))
+        # One file, one key: symlinks resolved, so an edit through a link replays onto the file.
+        return os.path.realpath(os.path.join(cwd, path))
 
     def current(path):
         if key(path) in state:
@@ -69,6 +71,7 @@ def parse_targets(tool_input, cwd=None):
 
     def flush():
         kind, path, move_to, lines = section["kind"], section["path"], section["move_to"], section["lines"]
+        touched.extend(p for p in (path, move_to) if p is not None)
         if kind == "Add":
             content = "".join(line[1:] + "\n" for line in lines if line.startswith("+"))
         elif kind == "Update" and cwd is not None:
@@ -91,12 +94,14 @@ def parse_targets(tool_input, cwd=None):
                 state[key(move_to)] = content
 
     for line in cmd.splitlines():
-        m = _SECTION.match(line)
-        mv = _MOVE_TO.match(line)
+        # apply_patch trims a line before reading it as a header, so a header with surrounding
+        # spaces is still a header; hunk lines keep their leading " ", "-" or "+".
+        m = _SECTION.match(line.strip())
+        mv = _MOVE_TO.match(line.strip())
         if m:
             flush()
             section = {"kind": m.group(1), "path": m.group(2).strip(), "move_to": None, "lines": []}
-        elif _FRAME.match(line):
+        elif _FRAME.match(line.strip()):
             flush()
             section = {"kind": None, "path": None, "move_to": None, "lines": []}
         elif mv and section["kind"] == "Update":
@@ -104,6 +109,15 @@ def parse_targets(tool_input, cwd=None):
         elif section["kind"] is not None:
             section["lines"].append(line)
     flush()
+    if cwd is not None:
+        # Names that differ only in letter case are one file on macOS and Windows and two on
+        # Linux, so what the patch reads can't be known. Then no target's content can be trusted:
+        # all of them become AMBIGUOUS (the adapter denies only when one of them is the cache).
+        spellings = {}
+        for path in touched:
+            spellings.setdefault(key(path).casefold(), set()).add(key(path))
+        if any(len(keys) > 1 for keys in spellings.values()):
+            targets = [(path, AMBIGUOUS) for path, _ in targets]
     return targets
 
 

@@ -127,6 +127,48 @@ $ADD
 *** End Patch"
 check "Delete, Add, then Update+Move onto the cache is checked on the replayed result" 'denied'
 
+# 12. A section header written with surrounding spaces is still a header to apply_patch, which
+# trims each line; read as hunk text, its target would never be checked.
+fresh
+run_patch $'*** Begin Patch\n  *** Update File: .claude/otel-context.json  \n@@\n     {\n       "name": "biz.checkout.value",\n-      "confirmed": true\n+      "confirmed": false\n     },\n*** End Patch'
+check "an indented Update header on the cache is still checked" 'denied'
+
+# 13. One file under two names. The draft on disk is confirmed; a symlink to it is the name the
+# patch edits and moves, after re-adding the draft with an unconfirmed attribute. Replay must follow
+# the link to the same file.
+fresh
+cp "$T/p/.claude/otel-context.json" "$T/p/.claude/draft.json"
+ln -s draft.json "$T/p/.claude/draft-link.json"
+ADD=$(cd "$T/p" && python3 -c 'import sys; t=open(sys.argv[1]).read().replace("\"confirmed\": true", "\"confirmed\": false", 1); print("\n".join("+" + l for l in t.splitlines()))' .claude/draft.json)
+run_patch "*** Begin Patch
+*** Delete File: .claude/draft.json
+*** Add File: .claude/draft.json
+$ADD
+*** Update File: .claude/draft-link.json
+*** Move to: .claude/otel-context.json
+@@
+-  \"schemaVersion\": \"2\",
++  \"schemaVersion\": \"3\",
+*** End Patch"
+check "an edit through a symlink to a re-added draft is checked on the replayed result" 'denied'
+
+# 14. Names that differ only in letter case are one file on macOS and Windows and two on Linux, so
+# which content apply_patch uses can't be known; a patch that does this and reaches the cache is
+# denied on every platform.
+fresh
+cp "$T/p/.claude/otel-context.json" "$T/p/.claude/draft.json"
+run_patch "*** Begin Patch
+*** Delete File: .claude/draft.json
+*** Add File: .claude/draft.json
+$ADD
+*** Update File: .claude/DRAFT.json
+*** Move to: .claude/otel-context.json
+@@
+-  \"schemaVersion\": \"2\",
++  \"schemaVersion\": \"3\",
+*** End Patch"
+check "one file named in two letter cases in a patch that reaches the cache is denied" 'denied'
+
 # 8. The rule lives in one place: the Codex adapters never test "confirmed" themselves.
 # The rule reads the quoted "confirmed" key; prose such as "unconfirmed" in a message doesn't count.
 check "the Codex adapters hold no copy of the confirmation rule" '! grep -nE "[\"'"'"']confirmed[\"'"'"']" hooks/codex/*.py'
