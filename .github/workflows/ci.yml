@@ -44,6 +44,9 @@ jobs:
       - name: Run Codex hook-adapter tests
         run: bash tests/hooks/codex-adapters.test.sh
 
+      - name: Run Codex context-cache confirmation tests (#254)
+        run: bash tests/hooks/codex-cache-confirm.test.sh
+
       - name: Run drift-check parser tests (offline)
         run: bash tests/drift-check.test.sh
 

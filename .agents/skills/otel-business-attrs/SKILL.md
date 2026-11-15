@@ -17,7 +17,7 @@ Follow the canonical procedure in this repo — it is the single source of truth
 
 Args: `$ARGUMENTS`.
 
-Codex note: `.codex/hooks.json` enforces confirm-before-write for whole-file `otel-context.json`
-writes (an unconfirmed `biz.*` attribute is denied). Patch-style edits are not deep-checked, so
-always present business attributes for explicit confirmation and write `"confirmed": true` only
-on approved ones.
+Codex note: `.codex/hooks.json` enforces confirm-before-write on `otel-context.json` (an
+unconfirmed `biz.*` attribute is denied). Write it with `scripts/write_context.py`; an
+`apply_patch` Update, Move or Delete of it is denied. Still present business attributes for
+explicit confirmation and write `"confirmed": true` only on approved ones.
