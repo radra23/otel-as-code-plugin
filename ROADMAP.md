@@ -116,6 +116,17 @@ just a larger surface to be wrong on. So the near-term work is depth.
   at — and a generator that reshapes values wrongly is worse than one that declines, so this stays
   deliberately unfinished until the reshaping can be proven per case.
 
+## Parked
+
+Ideas that were tested and set aside until there is evidence for them. Each one links the test
+that would bring it back.
+
+- **Symptom-first debugging (`/otel-why`).** "Checkout is slow, find out why": instrument just
+  enough, read the trace, explain the cause. A controlled trial in November 2026 found that
+  reading the code beat tracing on every planted cause that was visible in the code, in about a
+  quarter of the time, and that a trace alone over-claimed CPU time. It comes back only if traces
+  win on causes the code cannot show: [#271](https://github.com/radra23/otel-as-code-plugin/issues/271).
+
 ## Not planned
 
 Saying no in public saves everyone time.
