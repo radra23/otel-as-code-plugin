@@ -12,9 +12,9 @@ import sys
 # Repo root = two levels up from hooks/codex/.
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
-_ADD_UPDATE = re.compile(r"^\*\*\* (Add|Update) File: (.+)$")
+_SECTION = re.compile(r"^\*\*\* (Add|Update|Delete) File: (.+)$")
 _MOVE_TO = re.compile(r"^\*\*\* Move to: (.+)$")
-_FRAME = re.compile(r"^\*\*\* (Delete File|End Patch|Begin Patch)")
+_FRAME = re.compile(r"^\*\*\* (End Patch|Begin Patch)")
 
 
 def read_payload():
@@ -25,19 +25,24 @@ def read_payload():
         return {}
 
 
-# Marks an Update hunk the adapter could not apply to the file on disk, so its result is unknown.
+# An Update hunk whose result is unknown: its lines are not in the file (UNAPPLIED), or they match
+# more than one place, so where apply_patch puts the change can't be known for certain (AMBIGUOUS).
 UNAPPLIED = object()
+AMBIGUOUS = object()
 
 
 def parse_targets(tool_input, cwd=None):
     """Return [(path, full_content_or_None)] for each write target in a Codex payload.
 
     Handles the direct Edit/Write shape (tool_input.file_path) and the apply_patch envelope
-    (patch text in tool_input.command). Add hunks carry their whole content. With `cwd` (the
-    PreToolUse case, before the patch lands), an Update hunk carries the file as the patch would
-    leave it, rebuilt from the file on disk, or UNAPPLIED when its lines can't be found there; a
-    "*** Move to:" destination gets the same content. Without `cwd`, Update content is None.
-    Callers that only need paths iterate `for path, _ in parse_targets(...)`.
+    (patch text in tool_input.command). Add hunks carry their whole content.
+
+    With `cwd` (the PreToolUse case, before the patch lands) the patch is replayed in order on an
+    in-memory copy of the files it touches, starting from disk, so every target carries the file
+    as apply_patch will leave it: an Update builds on an earlier Add, Update or Delete of the same
+    file in the same patch, and a "*** Move to:" destination gets the moved content. An Update
+    whose result can't be known carries UNAPPLIED or AMBIGUOUS. Without `cwd`, Update content is
+    None. Callers that only need paths iterate `for path, _ in parse_targets(...)`.
     """
     fp = tool_input.get("file_path")
     if fp:
@@ -46,68 +51,90 @@ def parse_targets(tool_input, cwd=None):
     if not isinstance(cmd, str):
         return []
     targets = []
-    cur_path, is_add, buf, move_to = None, False, [], None
+    state = {}  # normalised path -> text, None (deleted), or UNAPPLIED/AMBIGUOUS
+    section = {"kind": None, "path": None, "move_to": None, "lines": []}
+
+    def key(path):
+        return os.path.normpath(os.path.join(cwd, path))
+
+    def current(path):
+        if key(path) in state:
+            text = state[key(path)]
+            return UNAPPLIED if text is None else text
+        try:
+            with open(key(path), encoding="utf-8") as f:
+                return f.read()
+        except (OSError, UnicodeDecodeError):
+            return UNAPPLIED
 
     def flush():
-        if cur_path is None:
-            return
-        if is_add:
-            content = "".join(line[1:] + "\n" for line in buf if line.startswith("+"))
-        elif cwd is not None:
-            content = apply_update(os.path.join(cwd, cur_path), buf)
-        else:
+        kind, path, move_to, lines = section["kind"], section["path"], section["move_to"], section["lines"]
+        if kind == "Add":
+            content = "".join(line[1:] + "\n" for line in lines if line.startswith("+"))
+        elif kind == "Update" and cwd is not None:
+            base = current(path)
+            content = base if base in (UNAPPLIED, AMBIGUOUS) else apply_update(base, lines)
+        elif kind == "Update":
             content = None
-        targets.append((cur_path, content))
+        elif kind == "Delete" and cwd is not None:
+            state[key(path)] = None
+            return
+        else:
+            return
+        targets.append((path, content))
+        if cwd is not None:
+            state[key(path)] = content
         if move_to is not None:
             targets.append((move_to, content))
+            if cwd is not None:
+                state[key(path)] = None
+                state[key(move_to)] = content
 
     for line in cmd.splitlines():
-        m = _ADD_UPDATE.match(line)
+        m = _SECTION.match(line)
         mv = _MOVE_TO.match(line)
         if m:
             flush()
-            cur_path, is_add, buf, move_to = m.group(2).strip(), (m.group(1) == "Add"), [], None
+            section = {"kind": m.group(1), "path": m.group(2).strip(), "move_to": None, "lines": []}
         elif _FRAME.match(line):
             flush()
-            cur_path, is_add, buf, move_to = None, False, [], None
-        elif mv and cur_path is not None:
-            move_to = mv.group(1).strip()
-        elif cur_path is not None:
-            buf.append(line)
+            section = {"kind": None, "path": None, "move_to": None, "lines": []}
+        elif mv and section["kind"] == "Update":
+            section["move_to"] = mv.group(1).strip()
+        elif section["kind"] is not None:
+            section["lines"].append(line)
     flush()
     return targets
 
 
-def apply_update(path, hunk_lines):
-    """The text of `path` after an apply_patch Update hunk, or UNAPPLIED.
+def apply_update(text, hunk_lines):
+    """`text` after an apply_patch Update hunk, or UNAPPLIED / AMBIGUOUS.
 
     Each "@@" starts a chunk; text after "@@ " is a line to find first. In a chunk, " " lines are
     context, "-" lines are removed and "+" lines added, so the chunk's old lines (" " and "-") are
-    found in order and replaced by its new lines (" " and "+"). Lines are compared exactly, then
-    ignoring trailing and then surrounding whitespace, as apply_patch itself does.
+    found and replaced by its new lines (" " and "+"). A chunk followed by "*** End of File" must
+    sit at the end of the file. Lines are compared exactly, then ignoring trailing and then
+    surrounding whitespace, as apply_patch does. Old lines found in more than one place give
+    AMBIGUOUS rather than a guess.
     """
-    try:
-        with open(path, encoding="utf-8") as f:
-            text = f.read()
-    except (OSError, UnicodeDecodeError):
-        return UNAPPLIED
     lines = text.split("\n")
     if lines and lines[-1] == "":
         lines.pop()
     chunks = []
     for line in hunk_lines:
         if line.startswith("@@"):
-            chunks.append({"anchor": line[2:].strip(), "lines": []})
+            chunks.append({"anchor": line[2:].strip(), "lines": [], "eof": False})
         elif line.startswith("*** End of File"):
-            continue
+            if chunks:
+                chunks[-1]["eof"] = True
         else:
             if not chunks:
-                chunks.append({"anchor": "", "lines": []})
+                chunks.append({"anchor": "", "lines": [], "eof": False})
             chunks[-1]["lines"].append(line)
     pos = 0
     for chunk in chunks:
         if chunk["anchor"]:
-            at = _find(lines, [chunk["anchor"]], pos)
+            at = _find(lines, [chunk["anchor"]], pos, first=True)
             if at < 0:
                 return UNAPPLIED
             pos = at + 1
@@ -116,7 +143,9 @@ def apply_update(path, hunk_lines):
         if not old:
             at = len(lines)  # a chunk of additions only is appended
         else:
-            at = _find(lines, old, pos)
+            at = _find(lines, old, pos, eof=chunk["eof"])
+            if at is AMBIGUOUS:
+                return AMBIGUOUS
             if at < 0:
                 return UNAPPLIED
         lines[at:at + len(old)] = new
@@ -124,12 +153,20 @@ def apply_update(path, hunk_lines):
     return "\n".join(lines) + "\n"
 
 
-def _find(lines, seq, start):
+def _find(lines, seq, start, first=False, eof=False):
+    """Index of `seq` in `lines` at or after `start`: -1 if absent, AMBIGUOUS if it occurs more
+    than once (unless `first`). With `eof`, only the position ending at the last line counts."""
+    if eof:
+        candidates = [len(lines) - len(seq)] if len(lines) - len(seq) >= start else []
+    else:
+        candidates = range(start, len(lines) - len(seq) + 1)
     for norm in (lambda s: s, str.rstrip, str.strip):
         want = [norm(s) for s in seq]
-        for i in range(start, len(lines) - len(seq) + 1):
-            if [norm(s) for s in lines[i:i + len(seq)]] == want:
-                return i
+        hits = [i for i in candidates if [norm(s) for s in lines[i:i + len(seq)]] == want]
+        if hits:
+            if first or len(hits) == 1:
+                return hits[0]
+            return AMBIGUOUS
     return -1
 
 

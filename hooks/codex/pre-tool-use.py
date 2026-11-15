@@ -9,15 +9,16 @@
 #
 # The confirm-before-write check on otel-context.json runs in write-guard.sh (through
 # hooks/otel-context-check.py), the same code as the Claude Code path; this adapter only hands it
-# the file as the write would leave it. An Update hunk is rebuilt from the file on disk (#254); a
-# direct Edit/Write is passed through unchanged. An Update to the cache that can't be rebuilt
-# can't be checked, so it is denied rather than let through.
+# the file as the write would leave it: the patch is replayed in order from the files on disk
+# (#254), and a direct Edit/Write is passed through unchanged. An Update to the cache whose result
+# can't be known (lines not found, or found in more than one place) can't be checked, so it is
+# denied rather than let through.
 import json
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _bridge import UNAPPLIED, bridge_env, is_context_path, parse_targets, read_payload, run_hook
+from _bridge import AMBIGUOUS, UNAPPLIED, bridge_env, is_context_path, parse_targets, read_payload, run_hook
 
 
 def deny(reason):
@@ -35,11 +36,14 @@ def main():
     env = bridge_env(cwd)
     direct = (payload.get("tool_name"), tool_input) if tool_input.get("file_path") else None
     for path, content in parse_targets(tool_input, cwd):
-        if content is UNAPPLIED:
+        if content is UNAPPLIED or content is AMBIGUOUS:
             if is_context_path(path):
-                deny(f"otel-as-code write-guard: could not apply this patch to {path} to check its "
-                     "business attributes, so it is not let through. Rewrite the file with its full "
-                     "content, or re-run /otel-business-attrs.")
+                why = ("its lines match more than one place in the file, so where the change lands "
+                       "can't be known" if content is AMBIGUOUS else "its lines are not in the file")
+                deny(f"otel-as-code write-guard: could not check this patch to {path} for "
+                     f"unconfirmed business attributes ({why}), so it is not let through. Add more "
+                     "context lines, rewrite the file with its full content, or re-run "
+                     "/otel-business-attrs.")
                 return
             content = None
         proc = run_hook("write-guard.sh", path, content, cwd, env, tool=direct)

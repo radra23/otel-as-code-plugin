@@ -84,8 +84,52 @@ fresh
 OUT=$(codex_payload "$T/p" Edit "$(python3 -c 'import json; print(json.dumps({"file_path":".claude/otel-context.json","old_string":"\"confirmed\": true","new_string":"\"confirmed\": false"}))')" | python3 "$PRE")
 check "direct Edit setting confirmed:false on the cache is denied" 'denied'
 
+# 9. "*** End of File" anchors a chunk to the end of the file. The same three lines also appear
+# mid-file, inside a field that is not a business attribute, so rebuilding at the first match would
+# check a harmless edit while apply_patch flips the real attribute at the end.
+rm -rf "$T/p"; mkdir -p "$T/p/.claude"
+cat > "$T/p/.claude/otel-context.json" <<'JSON'
+{
+  "notes": {"x": [
+    {"name": "biz.checkout.value", "confirmed": true}
+  ]
+}
+,
+  "businessAttrs": [
+    {"name": "biz.checkout.value", "confirmed": true}
+  ]
+}
+JSON
+run_patch $'*** Begin Patch\n*** Update File: .claude/otel-context.json\n@@\n-    {"name": "biz.checkout.value", "confirmed": true}\n+    {"name": "biz.checkout.value", "confirmed": false}\n   ]\n }\n*** End of File\n*** End Patch'
+check "an End-of-File chunk is placed at the end, so the flip is caught" 'denied'
+
+# 10. Lines that match more than one place in the cache can't be placed with certainty: denied.
+fresh
+run_patch $'*** Begin Patch\n*** Update File: .claude/otel-context.json\n@@\n-      "confirmed": true\n+      "confirmed": true\n*** End Patch'
+check "a chunk matching more than one place in the cache is denied" 'denied'
+check "that deny says why" 'echo "$OUT" | grep -qi "more than one place"'
+
+# 11. The patch is replayed in order. On disk the draft holds only confirmed attributes; the patch
+# deletes it, adds it back with an unconfirmed one, then edits it and moves it onto the cache. A
+# rebuild from disk would check the old draft and let the write through.
+fresh
+cp "$T/p/.claude/otel-context.json" "$T/p/.claude/draft.json"
+ADD=$(cd "$T/p" && python3 -c 'import sys; t=open(sys.argv[1]).read().replace("\"confirmed\": true", "\"confirmed\": false", 1); print("\n".join("+" + l for l in t.splitlines()))' .claude/draft.json)
+run_patch "*** Begin Patch
+*** Delete File: .claude/draft.json
+*** Add File: .claude/draft.json
+$ADD
+*** Update File: .claude/draft.json
+*** Move to: .claude/otel-context.json
+@@
+-  \"schemaVersion\": \"2\",
++  \"schemaVersion\": \"3\",
+*** End Patch"
+check "Delete, Add, then Update+Move onto the cache is checked on the replayed result" 'denied'
+
 # 8. The rule lives in one place: the Codex adapters never test "confirmed" themselves.
-check "the Codex adapters hold no copy of the confirmation rule" '! grep -n "confirmed" hooks/codex/*.py'
+# The rule reads the quoted "confirmed" key; prose such as "unconfirmed" in a message doesn't count.
+check "the Codex adapters hold no copy of the confirmation rule" '! grep -nE "[\"'"'"']confirmed[\"'"'"']" hooks/codex/*.py'
 
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
