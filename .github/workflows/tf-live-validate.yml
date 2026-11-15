@@ -17,6 +17,19 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # The vendor list comes from backends.txt, the single source of truth, so a new backend gets a
+  # live leg without editing this file.
+  vendors:
+    name: Read backends.txt
+    runs-on: ubuntu-latest
+    if: github.repository == 'radra23/otel-as-code-plugin'
+    outputs:
+      list: ${{ steps.read.outputs.list }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: read
+        run: echo "list=$(python3 -c 'import json; print(json.dumps(open("backends.txt").read().split()))')" >> "$GITHUB_OUTPUT"
+
   tf-live:
     name: Live apply/readback/destroy
     runs-on: ubuntu-latest
@@ -24,10 +37,11 @@ jobs:
     # Never on forks — secrets are not available there, so it would only ever skip. Keeps the
     # scheduled/dispatch run on the canonical repo.
     if: github.repository == 'radra23/otel-as-code-plugin'
+    needs: vendors
     strategy:
       fail-fast: false   # one vendor failing must not cancel the others
       matrix:
-        vendor: [newrelic, dash0, grafana, datadog]
+        vendor: ${{ fromJSON(needs.vendors.outputs.list) }}
     steps:
       - uses: actions/checkout@v4
 

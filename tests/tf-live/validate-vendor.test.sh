@@ -47,16 +47,16 @@ check "datadog app key but no api key → still SKIPs" 'printf "%s" "$OUT" | gre
 VENDOR_ARG="datadog"     run DATADOG_API_KEY=dummy DATADOG_APP_KEY=dummy
 check "datadog WITH both → gate opens (no SKIP)"    '! printf "%s" "$OUT" | grep -q "^SKIP:"'
 
-# Coverage contract: the workflow matrix, the harness's cred gate, and the golden snapshots are
-# three lists that must agree. A vendor added to the matrix without a gate hits the "not wired"
-# error at runtime — weeks later, in a scheduled run nobody is watching.
-MATRIX_VENDORS="$(sed -n 's/^ *vendor: \[\(.*\)\]/\1/p' .github/workflows/tf-live-validate.yml | tr -d ' ' | tr ',' '\n' | grep .)"
-for v in $MATRIX_VENDORS; do
-  check "matrix vendor '$v' has a credential gate" "grep -qE '^[[:space:]]+$v\)' $H"
-  check "matrix vendor '$v' has a golden snapshot" "[ -f tests/snapshots/$v/main.tf.snap ]"
+# Coverage contract: the workflow matrix, the harness's cred gate, and the golden snapshots must
+# agree. The matrix is read from backends.txt at run time, so every backend listed there needs a
+# gate: a vendor without one hits the "not wired" error at runtime, weeks later, in a scheduled run
+# nobody is watching.
+check "matrix is read from backends.txt, not hand-kept" \
+  'grep -q "vendor: \${{ fromJSON(needs.vendors.outputs.list) }}" .github/workflows/tf-live-validate.yml && grep -q "backends.txt" .github/workflows/tf-live-validate.yml'
+for v in $(cat backends.txt); do
+  check "backend '$v' has a credential gate" "grep -qE '^[[:space:]]+$v\)' $H"
+  check "backend '$v' has a golden snapshot" "[ -f tests/snapshots/$v/main.tf.snap ]"
 done
-check "matrix covers every backend in backends.txt" \
-  '[ -z "$(comm -23 <(sort backends.txt) <(printf "%s\n" $MATRIX_VENDORS | sort))" ]'
 
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

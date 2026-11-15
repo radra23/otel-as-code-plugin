@@ -5,14 +5,9 @@
 
 set -euo pipefail
 
-# Resolve the pinned semconv version from its single source of truth (the semconv-discipline
-# skill) instead of hardcoding it here. Falls back to "unknown" if the skill can't be read.
 # Named from ${CLAUDE_PLUGIN_ROOT} (see write-guard.sh); defaults to the plugin folder for the tests.
 CLAUDE_PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 SEMCONV_SKILL="${CLAUDE_PLUGIN_ROOT}/skills/semconv-discipline/SKILL.md"
-SEMCONV_VERSION=$(grep -oE 'SEMCONV_VERSION:[[:space:]]*[0-9]+\.[0-9]+\.[0-9]+' \
-  "$SEMCONV_SKILL" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-SEMCONV_VERSION="${SEMCONV_VERSION:-unknown}"
 
 # Strict mode: hard-block (exit 2) on SEVERE violations instead of only warning. Opt-in via
 # OTEL_STRICT=1 (env, for CI) or a .claude/.otel-strict sentinel file (mirrors write-guard's
@@ -22,19 +17,11 @@ STRICT=0
 STRICT_SENTINEL="${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude/.otel-strict"
 [ -f "$STRICT_SENTINEL" ] && STRICT=1
 
-# Resolve a JSON parser that ACTUALLY RUNS (jq is not assumed). `command -v` is not enough: on
-# Windows `python3` is commonly an App Execution Alias stub that is on PATH and resolves but
-# errors when run — trusting it left the lint parsing nothing, so strict mode's block guarantee
-# silently evaporated. Verify each candidate by executing it; the first working one wins (a real
-# Python is often `python` when `python3` is the stub). If none run: in strict mode fail closed
-# (exit 2), in advisory (default) mode skip quietly (exit 0). The interpreter runs only by its
-# literal name (see write-guard.sh); OTEL_HOOK_PYTHON puts its folder first on PATH.
-if [ -n "${OTEL_HOOK_PYTHON:-}" ]; then PATH="$(dirname "$OTEL_HOOK_PYTHON"):$PATH"; fi
+# A Python that actually runs (see hooks/otel-python.sh). If none does: in strict mode fail
+# closed (exit 2), in advisory (default) mode skip quietly (exit 0).
 PY=""
-if printf '' | python3 -c 'pass' >/dev/null 2>&1; then PY=python3
-elif printf '' | python -c 'pass' >/dev/null 2>&1; then PY=python
-fi
-py() { if [ "$PY" = python3 ]; then python3 "$@"; else python "$@"; fi; }
+# shellcheck source=hooks/otel-python.sh
+. "${CLAUDE_PLUGIN_ROOT}/hooks/otel-python.sh" 2>/dev/null || PY=""
 if [ -z "$PY" ]; then
   echo "otel-as-code semconv-lint: no WORKING python found (python3/python absent or non-functional — on Windows, python3 may be a Store alias stub). Cannot lint this write." >&2
   [ "$STRICT" -eq 1 ] && exit 2 || exit 0
@@ -62,7 +49,7 @@ CONTENT=$(cat "$FILE_PATH" 2>/dev/null || echo "")
 # the seven supported languages, contains the substring "opentelemetry" somewhere in its import path
 # or namespace (@opentelemetry/*, opentelemetry.*, io.opentelemetry.*, OpenTelemetry.*,
 # go.opentelemetry.io/*, OpenTelemetry::*) — so a single case-insensitive content check covers all
-# six without an enumerated per-language import-pattern list to keep in sync.
+# seven without an enumerated per-language import-pattern list to keep in sync.
 #
 # .NET is the one language where that alone under-detects: application code that creates spans
 # via System.Diagnostics.ActivitySource / records metrics via System.Diagnostics.Metrics.Meter
@@ -92,7 +79,7 @@ SEVERE_MSGS=""
 # mechanism (a same-file window heuristic) isn't precise enough to earn a strict-mode block; see
 # Rule 8's own comment below for the confirmed false-positive that keeps it here.
 severe() {  # $1 = full message (may be multiline)
-  printf '%s\n' "$1"
+  echo "$1"
   SEVERE_MSGS="${SEVERE_MSGS}${1}
 "
   SEVERE=$((SEVERE + 1))
@@ -119,42 +106,33 @@ ATTR_SETTER_GENERAL='(setAttribute|set_attribute|SetTag|AddTag)\('
 ATTR_SETTER_AMBIGUOUS='(setAttribute|set_attribute|SetTag|AddTag|attribute\.(String|Int64?|Float64|Bool|StringSlice|Int64Slice|Float64Slice|BoolSlice)|KeyValue::new)\('
 
 # Rule 1 (severe): service.name / service.version / service.namespace / service.instance.id as a
-# span attribute (must be a Resource attribute instead). See the ATTR_SETTER_GENERAL comment above
-# for why Go is not checked by this rule.
+# span attribute (must be a Resource attribute instead). See the ATTR_SETTER_AMBIGUOUS comment above
+# for why Go and Rust are not checked by this rule.
 if echo "$CONTENT" | grep -qE "${ATTR_SETTER_GENERAL}['\"]service\.(name|version|namespace|instance)"; then
   severe "⚠ otel-lint [$FILE_PATH]: service.name / service.version / service.namespace must be Resource attributes, not span attributes.
   → Move to Resource({ [ATTR_SERVICE_NAME]: '...' }) in SDK initialization."
 fi
 
-# Rule 2 (severe): deprecated http.method. Bare-literal match (not gated on a setter call) — there
-# is no legitimate use of the OLD name in any position, so this is already language-independent.
-if echo "$CONTENT" | grep -qE "['\"]http\.method['\"]"; then
-  severe "⚠ otel-lint [$FILE_PATH]: 'http.method' is deprecated since semconv 1.23.
-  → Replace with 'http.request.method'."
-fi
-
-# Rule 3 (severe): deprecated http.url
-if echo "$CONTENT" | grep -qE "['\"]http\.url['\"]"; then
-  severe "⚠ otel-lint [$FILE_PATH]: 'http.url' is deprecated since semconv 1.23.
-  → Replace with 'url.full'."
-fi
-
-# Rule 4 (severe): deprecated http.status_code
-if echo "$CONTENT" | grep -qE "['\"]http\.status_code['\"]"; then
-  severe "⚠ otel-lint [$FILE_PATH]: 'http.status_code' is deprecated since semconv 1.23.
-  → Replace with 'http.response.status_code'."
-fi
-
-# Rule 4b (severe, #190): deprecated deployment.environment. Bare-literal match, same reasoning as
-# Rules 2-4 — no legitimate use of the OLD name in any position. The quote-anchored boundary is
-# required here specifically: the NEW name `deployment.environment.name` contains the OLD name as
-# a literal prefix, so an unanchored match would false-flag every correct usage. Quoting on both
-# sides (as Rules 2-4 already do) means the match fails the moment `.name` follows, since the
-# closing quote can no longer be adjacent.
-if echo "$CONTENT" | grep -qE "['\"]deployment\.environment['\"]"; then
-  severe "⚠ otel-lint [$FILE_PATH]: 'deployment.environment' is deprecated since semconv 1.27.
-  → Replace with 'deployment.environment.name' (same value, Resource attribute in both forms)."
-fi
+# Rules 2-4, 4b (severe): deprecated attribute names, one row each: OLD|since|replacement.
+# Bare-literal match (not gated on a setter call): there is no legitimate use of the OLD name in
+# any position, so this is already language-independent. The match is quote-anchored on both
+# sides, which 4b (#190) specifically needs: the NEW name `deployment.environment.name` contains
+# the OLD name as a literal prefix, so an unanchored match would false-flag every correct usage;
+# with the closing quote required, the match fails the moment `.name` follows.
+DEPRECATED_ATTRS=(
+  "http.method|1.23|'http.request.method'"
+  "http.url|1.23|'url.full'"
+  "http.status_code|1.23|'http.response.status_code'"
+  "deployment.environment|1.27|'deployment.environment.name' (same value, Resource attribute in both forms)"
+)
+for row in "${DEPRECATED_ATTRS[@]}"; do
+  old_name=${row%%|*}; rest=${row#*|}
+  since=${rest%%|*}; replacement=${rest#*|}
+  if echo "$CONTENT" | grep -qE "['\"]${old_name//./[.]}['\"]"; then
+    severe "⚠ otel-lint [$FILE_PATH]: '$old_name' is deprecated since semconv $since.
+  → Replace with $replacement."
+  fi
+done
 
 # Rule 5: Custom attribute without namespace prefix.
 # Heuristic: an attribute-setter call with a single-word or camelCase key (no dots).
@@ -202,13 +180,16 @@ while IFS= read -r line; do
   [ -n "$line" ] && HIGH_CARD_PATTERNS+=("$line")
 done <<< "$DOTTED_HIGH_CARD"
 HIGH_CARD_PATTERNS+=("${CAMEL_SNAKE_HIGH_CARD[@]}")
+# Each pattern with its dots as a regex bracket class, built once for Rules 7 and 8.
+HIGH_CARD_REGEXES=()
+for attr in "${HIGH_CARD_PATTERNS[@]}"; do HIGH_CARD_REGEXES+=("${attr//./[.]}"); done
 
 # Rule 7 (warning): high-cardinality identifier as a SPAN attribute. Ingest/index cost only,
 # bounded by sampling and span retention — see the cardinality-position table in semconv-discipline
 # for why this is a lower tier than Rule 8 (a metric dimension), not the same finding.
-for attr in "${HIGH_CARD_PATTERNS[@]}"; do
-  escaped_attr=$(printf '%s' "$attr" | sed 's/\./\\./g')
-  if echo "$CONTENT" | grep -qE "${ATTR_SETTER_AMBIGUOUS}['\"]${escaped_attr}['\"]"; then
+for i in "${!HIGH_CARD_PATTERNS[@]}"; do
+  attr=${HIGH_CARD_PATTERNS[$i]}
+  if echo "$CONTENT" | grep -qE "${ATTR_SETTER_AMBIGUOUS}['\"]${HIGH_CARD_REGEXES[$i]}['\"]"; then
     echo "⚠ otel-lint [$FILE_PATH]: High-cardinality attribute '$attr' detected as a span attribute."
     echo "  → Move to span events or structured logs. Or scope to a category (e.g. order.type)."
     WARNINGS=$((WARNINGS+1))
@@ -244,9 +225,9 @@ done
 INSTRUMENT_CTOR_PATTERN='(createCounter|create_counter|CreateCounter|counterBuilder|createHistogram|create_histogram|CreateHistogram|histogramBuilder|createUpDownCounter|create_up_down_counter|CreateUpDownCounter|u64_counter|f64_counter|u64_histogram|f64_histogram|i64_up_down_counter|f64_up_down_counter)\('
 if echo "$CONTENT" | grep -qE "$INSTRUMENT_CTOR_PATTERN"; then
   MUTATE_WINDOW=$(echo "$CONTENT" | grep -B1 -A3 -E '\.(Add|add|Record|record)\(' || true)
-  for attr in "${HIGH_CARD_PATTERNS[@]}"; do
-    escaped_attr=$(printf '%s' "$attr" | sed 's/\./\\./g')
-    if echo "$MUTATE_WINDOW" | grep -qE "['\"]${escaped_attr}['\"]"; then
+  for i in "${!HIGH_CARD_PATTERNS[@]}"; do
+    attr=${HIGH_CARD_PATTERNS[$i]}
+    if echo "$MUTATE_WINDOW" | grep -qE "['\"]${HIGH_CARD_REGEXES[$i]}['\"]"; then
       echo "⚠ otel-lint [$FILE_PATH]: high-cardinality attribute '$attr' used as a METRIC dimension (counter/histogram tag)."
       echo "  → Remove the tag entirely. Unlike a span attribute, a metric dimension cannot be cleaned up after the fact: it is one permanently-retained time series per distinct value, unaffected by sampling."
       WARNINGS=$((WARNINGS+1))
@@ -255,6 +236,10 @@ if echo "$CONTENT" | grep -qE "$INSTRUMENT_CTOR_PATTERN"; then
 fi
 
 if [ "$WARNINGS" -gt 0 ]; then
+  # The pinned semconv version, from its single source of truth (the semconv-discipline skill),
+  # read only when a warning needs it. "unknown" if the skill can't be read.
+  SEMCONV_VERSION=$(grep -oE 'SEMCONV_VERSION:[[:space:]]*[0-9]+\.[0-9]+\.[0-9]+' "$SEMCONV_SKILL" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
+  SEMCONV_VERSION="${SEMCONV_VERSION:-unknown}"
   echo ""
   echo "  $WARNINGS semconv warning(s) — review before committing. (otel-as-code lint, semconv $SEMCONV_VERSION)"
 fi
@@ -265,7 +250,7 @@ fi
 if [ "$STRICT" -eq 1 ] && [ "$SEVERE" -gt 0 ]; then
   {
     echo "otel-as-code semconv-lint (strict): $SEVERE severe violation(s) must be fixed before proceeding:"
-    printf '%s' "$SEVERE_MSGS"
+    echo -n "$SEVERE_MSGS"
   } >&2
   exit 2
 fi
