@@ -56,6 +56,9 @@ jobs:
       - name: Directory build (slim plugin folder for Anthropic's directory)
         run: bash tests/directory-build.test.sh
 
+      - name: README guardrails match the hook configs and command flags (#252)
+        run: bash tests/readme-guardrails.test.sh
+
       - name: Run freshness-contract test (scanner identityInputs ↔ /otel-init regex; #150 uncovered services)
         run: bash tests/hooks/freshness-contract.test.sh
 
