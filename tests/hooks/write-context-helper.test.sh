@@ -205,6 +205,84 @@ d[\"conflicts\"] = []
 print(json.dumps(d))
 " | python3 "$SCRIPT" --output "$TMPD/out16.json" --existing "$TMPD/existing_unresolved.json" --plugin-root "$(pwd)"'
 
+# --- #250: bad input of the wrong shape gets the one-line reason, never a traceback ---
+# refused_cleanly <name> <stdin file> [extra args...]: exit non-zero, a REFUSED: line, no
+# Traceback, and nothing written.
+refused_cleanly() {
+  local name="$1" input="$2"; shift 2
+  local out="$TMPD/out_shape_$RANDOM.json" msg rc
+  msg=$(python3 "$SCRIPT" --output "$out" "$@" < "$input" 2>&1); rc=$?
+  check "$name" '[ "$rc" -ne 0 ] && echo "$msg" | grep -qF "REFUSED:" \
+     && ! echo "$msg" | grep -qF "Traceback" && test ! -e "$out"'
+}
+echo '[]' > "$TMPD/stdin_list.json"
+echo '"a string"' > "$TMPD/stdin_str.json"
+make_json "$NOW" "$REAL_VERSION" '[]' '[1]' > "$TMPD/stdin_svc_int.json"
+python3 -c "
+import json
+json.dump({'schemaVersion': '1.0', 'scannedAt': 123, 'services': []}, open('$TMPD/stdin_time_int.json', 'w'))
+json.dump({'schemaVersion': '1.0', 'scannedAt': '$NOW', 'services': [], 'conflicts': [1]},
+          open('$TMPD/stdin_conflict_int.json', 'w'))
+"
+refused_cleanly "a JSON array on stdin is refused with one line (#250)" "$TMPD/stdin_list.json"
+refused_cleanly "a JSON string on stdin is refused with one line" "$TMPD/stdin_str.json"
+refused_cleanly "a services entry that is not an object is refused" "$TMPD/stdin_svc_int.json"
+refused_cleanly "a non-string scannedAt is refused" "$TMPD/stdin_time_int.json"
+refused_cleanly "a conflicts entry that is not an object is refused" "$TMPD/stdin_conflict_int.json"
+
+mkdir -p "$TMPD/existing_is_dir"
+echo '[]' > "$TMPD/existing_list.json"
+echo '{"services": [1]}' > "$TMPD/existing_svc_int.json"
+echo '{"services": "x"}' > "$TMPD/existing_svc_str.json"
+echo '{"services": [{"id": "a"}], "conflicts": [1]}' > "$TMPD/existing_conflict_int.json"
+refused_cleanly "--existing naming a directory is refused with one line (#250)" "$TMPD/good.json" \
+  --existing "$TMPD/existing_is_dir"
+refused_cleanly "--existing holding a JSON array is refused" "$TMPD/good.json" --existing "$TMPD/existing_list.json"
+refused_cleanly "--existing with a non-object services entry is refused" "$TMPD/good.json" \
+  --existing "$TMPD/existing_svc_int.json"
+refused_cleanly "--existing with services that is not a list is refused" "$TMPD/good.json" \
+  --existing "$TMPD/existing_svc_str.json"
+refused_cleanly "--existing with a non-object conflicts entry is refused" "$TMPD/good.json" \
+  --existing "$TMPD/existing_conflict_int.json" --allow-empty-services
+
+# --- #250: the write is atomic, so an interrupted write leaves the old cache whole ---
+# Run the real script in-process, with json.dump cut off halfway by a KeyboardInterrupt, the
+# way a Ctrl-C or a killed session lands mid-write. The old cache must be byte-for-byte intact,
+# and no temp file may be left beside it.
+mkdir -p "$TMPD/atomic"
+cp "$TMPD/good.json" "$TMPD/atomic/otel-context.json"
+cp "$TMPD/atomic/otel-context.json" "$TMPD/atomic_before.json"
+cat > "$TMPD/interrupt.py" <<'INTERRUPT'
+import json, runpy, sys
+script, output = sys.argv[1], sys.argv[2]
+def cut_off(obj, f, **kw):
+    f.write(json.dumps(obj, **kw)[:40])
+    f.flush()
+    raise KeyboardInterrupt
+json.dump = cut_off
+sys.argv = [script, "--output", output]
+try:
+    runpy.run_path(script, run_name="__main__")
+except KeyboardInterrupt:
+    print("INTERRUPTED")
+INTERRUPT
+INTERRUPTED=$(python3 "$TMPD/interrupt.py" "$SCRIPT" "$TMPD/atomic/otel-context.json" \
+  < "$TMPD/confirmed_attr.json" 2>&1)
+check "the interrupt test really cut the write off mid-way (guards the test itself)" \
+  '[ "$INTERRUPTED" = "INTERRUPTED" ]'
+check "an interrupted write leaves the existing cache intact (#250)" \
+  'cmp -s "$TMPD/atomic/otel-context.json" "$TMPD/atomic_before.json"'
+check "an interrupted write leaves no temp file behind" \
+  '[ "$(ls -A "$TMPD/atomic")" = "otel-context.json" ]'
+check "a normal write over an existing cache replaces it" \
+  'python3 "$SCRIPT" --output "$TMPD/atomic/otel-context.json" < "$TMPD/confirmed_attr.json" >/dev/null \
+     && grep -qF "order.value" "$TMPD/atomic/otel-context.json" \
+     && [ "$(ls -A "$TMPD/atomic")" = "otel-context.json" ]'
+chmod 644 "$TMPD/atomic/otel-context.json"
+check "a replaced cache keeps the old file's permissions, not a temp file's 0600" \
+  'python3 "$SCRIPT" --output "$TMPD/atomic/otel-context.json" < "$TMPD/confirmed_attr.json" >/dev/null \
+     && [ "$(python3 -c "import os,stat,sys; print(oct(stat.S_IMODE(os.stat(sys.argv[1]).st_mode)))" "$TMPD/atomic/otel-context.json")" = "0o644" ]'
+
 # --- --help renders the numbered-list docstring readably (not collapsed run-on prose) ---
 check "--help preserves the docstring's numbered-list line breaks" \
   'python3 "$SCRIPT" --help | grep -qF "2. services going from non-empty to empty"'
