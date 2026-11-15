@@ -86,7 +86,8 @@ is not Node at all.
      ⚠ No service in this repo can be instrumented by /otel-instrument yet.
        portal-web (web/)  — runtime is browser; browser/RUM instrumentation is out of scope
                             for the MVP. Use an OTel browser SDK / RUM product directly.
-       billing (billing/) — no php generator yet (#117).
+       api (api/)         — github.com/gin-gonic/gin required; go instrumentation only covers
+                            net/http-compatible frameworks today (chi, gorilla/mux).
      ```
 3. Validate the chosen service before generating. If it has `generatorSupported: false`, refuse:
    ```

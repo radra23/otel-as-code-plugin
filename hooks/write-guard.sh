@@ -97,23 +97,14 @@ fi
 # Confirm-before-write enforcement for business attributes. Business semantics are never
 # assumed: any business attribute written to the context cache must carry "confirmed": true
 # (set by /otel-business-attrs only after explicit user approval). Block otherwise: this
-# turns the confirmation gate into a structural invariant rather than prose. Full-file Writes
-# are validated; Edits that don't carry full JSON content can't be checked and pass through.
+# turns the confirmation gate into a structural invariant rather than prose. A Write is checked
+# on its content, an Edit on the file as the edit would leave it (hooks/otel-context-check.py).
 # scripts/write_context.py, which the commands use to write the cache, applies the same rule.
 # The path is normalised before matching (backslashes, `.` and `..`, letter case), so another
 # spelling of the same file or a Windows path cannot step around the check. The normalisation
 # lives in otel-force-match.py, the one place this hook already compares paths.
 if py "${CLAUDE_PLUGIN_ROOT}/hooks/otel-force-match.py" --is-context "$FILE_PATH" 2>/dev/null; then
-  UNCONFIRMED=$(echo "$INPUT" | py -c "
-import sys, json
-content = json.load(sys.stdin).get('tool_input', {}).get('content', '')
-try:
-  d = json.loads(content)
-except Exception:
-  sys.exit(0)  # no content, or not full-file JSON (e.g. an Edit): cannot validate, so it passes
-attrs = d.get('businessAttrs', []) or []
-print(chr(10).join(a.get('name', '?') for a in attrs if isinstance(a, dict) and a.get('confirmed') is not True))
-" 2>/dev/null || echo "")
+  UNCONFIRMED=$(echo "$INPUT" | py "${CLAUDE_PLUGIN_ROOT}/hooks/otel-context-check.py" 2>/dev/null || echo "")
   if [ -n "$UNCONFIRMED" ]; then
     echo "otel-as-code write-guard: refusing to write unconfirmed business attribute(s) to otel-context.json:" >&2
     echo "$UNCONFIRMED" | sed 's/^/  - /' >&2
