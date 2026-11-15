@@ -8,13 +8,14 @@ import os
 import re
 import subprocess
 import sys
+import unicodedata
 
 # Repo root = two levels up from hooks/codex/.
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
-_SECTION = re.compile(r"^\*\*\* (Add|Update|Delete) File: (.+)$")
+_ADD_UPDATE = re.compile(r"^\*\*\* (Add|Update) File: (.+)$")
 _MOVE_TO = re.compile(r"^\*\*\* Move to: (.+)$")
-_FRAME = re.compile(r"^\*\*\* (End Patch|Begin Patch)")
+_FRAME = re.compile(r"^\*\*\* (Delete File|End Patch|Begin Patch)")
 
 
 def read_payload():
@@ -25,24 +26,14 @@ def read_payload():
         return {}
 
 
-# An Update hunk whose result is unknown: its lines are not in the file (UNAPPLIED), or they match
-# more than one place, so where apply_patch puts the change can't be known for certain (AMBIGUOUS).
-UNAPPLIED = object()
-AMBIGUOUS = object()
-
-
-def parse_targets(tool_input, cwd=None):
+def parse_targets(tool_input):
     """Return [(path, full_content_or_None)] for each write target in a Codex payload.
 
     Handles the direct Edit/Write shape (tool_input.file_path) and the apply_patch envelope
-    (patch text in tool_input.command). Add hunks carry their whole content.
-
-    With `cwd` (the PreToolUse case, before the patch lands) the patch is replayed in order on an
-    in-memory copy of the files it touches, starting from disk, so every target carries the file
-    as apply_patch will leave it: an Update builds on an earlier Add, Update or Delete of the same
-    file in the same patch, and a "*** Move to:" destination gets the moved content. An Update
-    whose result can't be known carries UNAPPLIED or AMBIGUOUS. Without `cwd`, Update content is
-    None. Callers that only need paths iterate `for path, _ in parse_targets(...)`.
+    (patch text in tool_input.command), reconstructing whole-file content for Add hunks. Used for
+    overwrite protection and the lint; whether a patch may touch the context cache at all is
+    decided separately, by reaches_cache() and cache_add().
+    Callers that only need paths iterate `for path, _ in parse_targets(...)`.
     """
     fp = tool_input.get("file_path")
     if fp:
@@ -51,137 +42,112 @@ def parse_targets(tool_input, cwd=None):
     if not isinstance(cmd, str):
         return []
     targets = []
-    state = {}  # resolved path -> text, None (deleted), or UNAPPLIED/AMBIGUOUS
-    touched = []  # every path the patch names, deletions included
-    section = {"kind": None, "path": None, "move_to": None, "lines": []}
-
-    def key(path):
-        # One file, one key: symlinks resolved, so an edit through a link replays onto the file.
-        return os.path.realpath(os.path.join(cwd, path))
-
-    def current(path):
-        if key(path) in state:
-            text = state[key(path)]
-            return UNAPPLIED if text is None else text
-        try:
-            with open(key(path), encoding="utf-8") as f:
-                return f.read()
-        except (OSError, UnicodeDecodeError):
-            return UNAPPLIED
+    cur_path, is_add, buf = None, False, []
 
     def flush():
-        kind, path, move_to, lines = section["kind"], section["path"], section["move_to"], section["lines"]
-        touched.extend(p for p in (path, move_to) if p is not None)
-        if kind == "Add":
-            content = "".join(line[1:] + "\n" for line in lines if line.startswith("+"))
-        elif kind == "Update" and cwd is not None:
-            base = current(path)
-            content = base if base in (UNAPPLIED, AMBIGUOUS) else apply_update(base, lines)
-        elif kind == "Update":
-            content = None
-        elif kind == "Delete" and cwd is not None:
-            state[key(path)] = None
-            return
-        else:
-            return
-        targets.append((path, content))
-        if cwd is not None:
-            state[key(path)] = content
-        if move_to is not None:
-            targets.append((move_to, content))
-            if cwd is not None:
-                state[key(path)] = None
-                state[key(move_to)] = content
+        if cur_path is not None:
+            targets.append((cur_path, "".join(buf) if is_add else None))
 
     for line in cmd.splitlines():
-        # apply_patch trims a line before reading it as a header, so a header with surrounding
-        # spaces is still a header; hunk lines keep their leading " ", "-" or "+".
-        m = _SECTION.match(line.strip())
-        mv = _MOVE_TO.match(line.strip())
+        m = _ADD_UPDATE.match(line)
+        mv = _MOVE_TO.match(line)
         if m:
             flush()
-            section = {"kind": m.group(1), "path": m.group(2).strip(), "move_to": None, "lines": []}
-        elif _FRAME.match(line.strip()):
+            cur_path, is_add, buf = m.group(2).strip(), (m.group(1) == "Add"), []
+        elif _FRAME.match(line):
             flush()
-            section = {"kind": None, "path": None, "move_to": None, "lines": []}
-        elif mv and section["kind"] == "Update":
-            section["move_to"] = mv.group(1).strip()
-        elif section["kind"] is not None:
-            section["lines"].append(line)
+            cur_path, is_add, buf = None, False, []
+        elif mv:
+            targets.append((mv.group(1).strip(), None))
+        elif cur_path is not None and is_add and line.startswith("+"):
+            buf.append(line[1:] + "\n")
     flush()
-    if cwd is not None:
-        # Names that differ only in letter case are one file on macOS and Windows and two on
-        # Linux, so what the patch reads can't be known. Then no target's content can be trusted:
-        # all of them become AMBIGUOUS (the adapter denies only when one of them is the cache).
-        spellings = {}
-        for path in touched:
-            spellings.setdefault(key(path).casefold(), set()).add(key(path))
-        if any(len(keys) > 1 for keys in spellings.values()):
-            targets = [(path, AMBIGUOUS) for path, _ in targets]
     return targets
 
 
-def apply_update(text, hunk_lines):
-    """`text` after an apply_patch Update hunk, or UNAPPLIED / AMBIGUOUS.
+# --- The context cache ----------------------------------------------------------------------
+# The confirmation check itself lives in hooks/otel-context-check.py (run by write-guard.sh) and
+# needs the whole file as it will be. An apply_patch Update, Move or Delete gives a diff, and
+# rebuilding the result here would be a second patch parser that can disagree with apply_patch's
+# own (#254: every attempt to mirror it was bypassed by some parsing difference). So a patch that
+# could reach the cache is let through only as one full-file Add; anything else is denied, and the
+# real file is checked again from disk after a patch lands (post-tool-use.py).
 
-    Each "@@" starts a chunk; text after "@@ " is a line to find first. In a chunk, " " lines are
-    context, "-" lines are removed and "+" lines added, so the chunk's old lines (" " and "-") are
-    found and replaced by its new lines (" " and "+"). A chunk followed by "*** End of File" must
-    sit at the end of the file. Lines are compared exactly, then ignoring trailing and then
-    surrounding whitespace, as apply_patch does. Old lines found in more than one place give
-    AMBIGUOUS rather than a guess.
-    """
-    lines = text.split("\n")
-    if lines and lines[-1] == "":
-        lines.pop()
-    chunks = []
-    for line in hunk_lines:
-        if line.startswith("@@"):
-            chunks.append({"anchor": line[2:].strip(), "lines": [], "eof": False})
-        elif line.startswith("*** End of File"):
-            if chunks:
-                chunks[-1]["eof"] = True
-        else:
-            if not chunks:
-                chunks.append({"anchor": "", "lines": [], "eof": False})
-            chunks[-1]["lines"].append(line)
-    pos = 0
-    for chunk in chunks:
-        if chunk["anchor"]:
-            at = _find(lines, [chunk["anchor"]], pos, first=True)
-            if at < 0:
-                return UNAPPLIED
-            pos = at + 1
-        old = [l[1:] for l in chunk["lines"] if l[:1] in (" ", "-") or l == ""]
-        new = [l[1:] for l in chunk["lines"] if l[:1] in (" ", "+") or l == ""]
-        if not old:
-            at = len(lines)  # a chunk of additions only is appended
-        else:
-            at = _find(lines, old, pos, eof=chunk["eof"])
-            if at is AMBIGUOUS:
-                return AMBIGUOUS
-            if at < 0:
-                return UNAPPLIED
-        lines[at:at + len(old)] = new
-        pos = at + len(new)
-    return "\n".join(lines) + "\n"
+CACHE_NAME = "otel-context.json"
+_HEADERISH = re.compile(r"^\*\*\* (?:(?:Add|Update|Delete) File|Move to): (.+)$")
 
 
-def _find(lines, seq, start, first=False, eof=False):
-    """Index of `seq` in `lines` at or after `start`: -1 if absent, AMBIGUOUS if it occurs more
-    than once (unless `first`). With `eof`, only the position ending at the last line counts."""
-    if eof:
-        candidates = [len(lines) - len(seq)] if len(lines) - len(seq) >= start else []
-    else:
-        candidates = range(start, len(lines) - len(seq) + 1)
-    for norm in (lambda s: s, str.rstrip, str.strip):
-        want = [norm(s) for s in seq]
-        hits = [i for i in candidates if [norm(s) for s in lines[i:i + len(seq)]] == want]
-        if hits:
-            if first or len(hits) == 1:
-                return hits[0]
-            return AMBIGUOUS
-    return -1
+def _fold(text):
+    """Text compared the way a case-insensitive filesystem might: Unicode-normalised, case-folded."""
+    return unicodedata.normalize("NFKC", text).casefold()
+
+
+def resolves_to_cache(path, cwd):
+    """True when `path` is the cache, or reaches it through a symlink or hard link."""
+    full = os.path.join(cwd, path)
+    if is_context_path(_fold(path)) or is_context_path(_fold(os.path.realpath(full))):
+        return True
+    cache = os.path.join(cwd, ".claude", CACHE_NAME)
+    try:
+        return os.path.exists(full) and os.path.exists(cache) and os.path.samefile(full, cache)
+    except OSError:
+        return False
+
+
+def patch_paths(tool_input):
+    """Every path a write names: the direct file_path, or the path on every header-like line of a
+    patch, indented or not and inside a hunk or not (more than apply_patch reads, never fewer)."""
+    if tool_input.get("file_path"):
+        return [tool_input["file_path"]]
+    cmd = tool_input.get("command")
+    if not isinstance(cmd, str):
+        return []
+    found = (_HEADERISH.match(line.strip()) for line in cmd.splitlines())
+    return [m.group(1).strip() for m in found if m]
+
+
+def reaches_cache(tool_input, cwd):
+    """True when this write could touch the context cache. Errs towards True: every header-like
+    line is read, indented or not and inside a hunk or not, and its path counts when it names the
+    cache in any case or Unicode form or reaches it through a link. Mentions of the cache in file
+    content ("+" lines) don't count, so docs that talk about it can still be edited."""
+    return any(resolves_to_cache(path, cwd) for path in patch_paths(tool_input))
+
+
+def cache_add(cmd):
+    """(path, content) when the patch is exactly one "*** Add File:" of the cache, by its own
+    name, with nothing but "+" lines; otherwise None. The lines are taken as written, not
+    trimmed, so the Add this accepts is the same one parse_targets() reads and write-guard checks;
+    only surrounding whitespace and a heredoc wrapper are dropped, as apply_patch drops them."""
+    if not isinstance(cmd, str):
+        return None
+    lines = cmd.strip().splitlines()
+    if len(lines) >= 4 and lines[0] in ("<<EOF", "<<'EOF'", '<<"EOF"') and lines[-1].endswith("EOF"):
+        lines = lines[1:-1]
+    if len(lines) < 3 or lines[0] != "*** Begin Patch" or lines[-1] != "*** End Patch":
+        return None
+    m = re.match(r"^\*\*\* Add File: (.+)$", lines[1])
+    if not m or not is_context_path(m.group(1).strip()):
+        return None
+    if not all(line.startswith("+") for line in lines[2:-1]):
+        return None
+    return m.group(1).strip(), "".join(line[1:] + "\n" for line in lines[2:-1])
+
+
+def unconfirmed_on_disk(path, cwd):
+    """Names of unconfirmed business attributes in the cache file at `path` as it is on disk,
+    found by hooks/otel-context-check.py. Empty when the file can't be read."""
+    try:
+        with open(os.path.join(cwd, path), encoding="utf-8") as f:
+            content = f.read()
+    except (OSError, UnicodeDecodeError):
+        return []
+    synth = {"tool_name": "Write", "tool_input": {"file_path": path, "content": content}}
+    proc = subprocess.run(
+        [sys.executable, os.path.join(ROOT, "hooks", "otel-context-check.py")],
+        input=json.dumps(synth), text=True, capture_output=True, cwd=cwd,
+    )
+    return [n for n in proc.stdout.splitlines() if n.strip()]
 
 
 def bridge_env(cwd):
