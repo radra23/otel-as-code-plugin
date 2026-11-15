@@ -23,7 +23,7 @@ mkdir -p "$OUT/.claude-plugin" "$OUT/hooks" "$OUT/scripts"
 # marketplace rather than one plugin.
 cp "$ROOT/.claude-plugin/plugin.json" "$ROOT/.claude-plugin/icon.png" "$OUT/.claude-plugin/"
 # Claude Code hooks only; hooks/codex/ is the Codex bridge and runs from a repo checkout.
-for f in hooks.json write-guard.sh semconv-lint.sh session-summary.sh otel-paths.sh otel-force-match.py; do
+for f in hooks.json write-guard.sh semconv-lint.sh session-summary.sh otel-paths.sh otel-python.sh otel-force-match.py; do
   cp "$ROOT/hooks/$f" "$OUT/hooks/"
 done
 # Scripts the commands run through ${CLAUDE_PLUGIN_ROOT}; drift_check.py is CI-only.

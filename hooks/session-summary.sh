@@ -70,7 +70,7 @@ echo ""
 
 for f in "${CHANGED_OTEL[@]}"; do
   case "$f" in
-    *tracing.js|*tracing.ts|*tracing.mjs|*tracing.cjs|*tracing.mts|*tracing.cts)
+    *tracing.[jt]s|*tracing.[cm][jt]s)
       echo "- Added Node.js OTel SDK bootstrap (\`$f\`)" ;;
     *tracing.py)
       echo "- Added Python OTel SDK bootstrap (\`$f\`)" ;;
