@@ -95,6 +95,8 @@ for f in "${CHANGED_OTEL[@]}"; do
       echo "- Added OpenTelemetry Java agent config (\`$f\`)" ;;
     *OpenTelemetry.cs)
       echo "- Added .NET OTel SDK wiring (\`$f\`)" ;;
+    *otel-probe.js|*otel_probe.py)
+      echo "- Temporary /otel-why probe helper, still in place: remove with \`/otel-uninstrument --probes\` (\`$f\`)" ;;
     *otelcol-agent.yaml)
       echo "- Added OTel Collector agent config (\`$f\`)" ;;
     *otelcol-gateway.yaml)

@@ -33,6 +33,15 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
 - Terraform golden snapshots: `tests/snapshots/<vendor>/main.tf.snap`, self-contained (inline `variable` blocks) so CI validates `main.tf` standalone. `terraform` isn't installed — download a pinned binary to validate; introspect unfamiliar providers with `terraform providers schema -json`.
 - `scripts/drift_check.py` (weekly `drift-check` CI job; also `workflow_dispatch`) reports when the pinned semconv / OTel-SDK / TF-provider versions fall behind upstream — informational, never fails CI (`tests/drift-check.test.sh` keeps its pin parsers honest offline). When it flags drift: bump the pins, regenerate the affected snapshots, re-validate. Exception: a NuGet row marked **drops <tfm>** (#229) is not a bump target — that release has no asset for the golden `.csproj`'s TargetFramework (`net10.0` since #229; .NET 8/9 left support 2026-11-10), and NuGet's silent `.NETStandard` fallback compiles but exports nothing over OTLP/gRPC. The .NET pins move only together with the golden TargetFramework, re-proven by the live e2e trace-flow job (a clean `dotnet build` is not evidence; `tests/e2e/dotnet-placement.sh` fails on the SDK's "doesn't support net" warning for the same reason), and the generator prints `--version`-pinned 1.20.x lines for a `net8.0`/`net9.0` project rather than the bare form.
 
+- `/otel-why` splits evidence from interpretation: `scripts/trace_summary.py` computes the evidence
+  table from the local stack's traces (self time, share, sequential vs parallel siblings, probe CPU),
+  and the diagnosis must quote it. Change what counts as evidence there, with a test on the recorded
+  Tempo fixtures in `tests/why/traces/` (re-record with `tests/e2e/why.sh --record`), never in the
+  command's prose. Probes are applied and removed only by `scripts/probes.py`, which records each
+  edit's exact original in `.claude/otel-probes.json`; never let removal depend on the model
+  remembering what it changed. The helper names are their own group in `hooks/otel-paths.sh`, outside
+  `otel_bootstrap_globs`, so plain `/otel-uninstrument` never reaches them.
+
 - `evals/routing/` measures whether a fresh session picks this plugin (`claude plugin eval` for
   only-this-plugin, `run-headless.sh` for a full personal plugin set, one scorer `score.py` for
   both). Run it before and after any command/skill `description` change; it is billed, so it is

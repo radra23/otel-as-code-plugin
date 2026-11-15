@@ -1,0 +1,32 @@
+[
+  {
+    "id": "inventory-require",
+    "file": "lib/inventory.js",
+    "find": "const db = require('./db');\n",
+    "replace": "const db = require('./db');\n// otel-as-code: probe begin inventory-require\nconst { probe } = require('../otel-probe');\n// otel-as-code: probe end inventory-require\n"
+  },
+  {
+    "id": "get-product",
+    "file": "lib/inventory.js",
+    "find": "    const product = await db.getProduct(item.sku);\n",
+    "replace": "    // otel-as-code: probe begin get-product\n    const product = await probe('db.getProduct', () => db.getProduct(item.sku));\n    // otel-as-code: probe end get-product\n"
+  },
+  {
+    "id": "orders-require",
+    "file": "lib/orders.js",
+    "find": "const pricing = require('./pricing');\n",
+    "replace": "const pricing = require('./pricing');\n// otel-as-code: probe begin orders-require\nconst { probe } = require('../otel-probe');\n// otel-as-code: probe end orders-require\n"
+  },
+  {
+    "id": "load-lines",
+    "file": "lib/orders.js",
+    "find": "  const lines = await inventory.loadLines(cart);\n",
+    "replace": "  // otel-as-code: probe begin load-lines\n  const lines = await probe('inventory.loadLines', () => inventory.loadLines(cart));\n  // otel-as-code: probe end load-lines\n"
+  },
+  {
+    "id": "sign-order",
+    "file": "lib/orders.js",
+    "find": "  return { ...order, signature: signOrder(order), status: 'confirmed' };\n",
+    "replace": "  // otel-as-code: probe begin sign-order\n  return { ...order, signature: probe('orders.signOrder', () => signOrder(order)), status: 'confirmed' };\n  // otel-as-code: probe end sign-order\n"
+  }
+]

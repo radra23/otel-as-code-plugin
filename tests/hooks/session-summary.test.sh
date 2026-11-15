@@ -89,6 +89,10 @@ OUT=$(run_setup "echo x > tracing.js && git add tracing.js && git commit -qm ini
 expect "a staged rename reports the new path" has '`new dir/tracing.js`' "$OUT"
 expect "a staged rename does not report the old path as its own file" lacks '(`tracing.js`)' "$OUT"
 
+# A probe helper left behind after /otel-why is reported with how to remove it.
+OUT=$(run_setup "echo x > otel-probe.js")
+expect "a leftover otel-probe.js is reported with the --probes cleanup" has '/otel-uninstrument --probes' "$OUT"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

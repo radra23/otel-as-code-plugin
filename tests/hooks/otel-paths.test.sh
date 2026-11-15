@@ -47,5 +47,16 @@ check "is_generated_path false for a user's .env"                            '! 
 check "is_generated_path true for OpenTelemetry.cs"  'otel_is_generated_path /x/OpenTelemetry.cs'
 check "is_generated_path false for a hand-written file" '! otel_is_generated_path /x/server.js'
 
+# /otel-why probe helpers: guarded and reported, but out of the bootstrap set, so only
+# /otel-uninstrument --probes (scripts/probes.py, through its manifest) removes them.
+check "bootstrap globs EXCLUDE otel-probe.js"  '! has otel-probe.js'
+check "bootstrap globs EXCLUDE otel_probe.py"  '! has otel_probe.py'
+check "all-generated globs include otel-probe.js" 'has_all otel-probe.js'
+check "all-generated globs include otel_probe.py" 'has_all otel_probe.py'
+check "is_generated_path true for otel-probe.js (guard protects it)" 'otel_is_generated_path /x/otel-probe.js'
+check "is_generated_path true for otel_probe.py (guard protects it)" 'otel_is_generated_path /x/otel_probe.py'
+check "the probe helper names match the helpers scripts/probes.py writes" \
+  '[ "$(python3 -c "import sys; sys.path.insert(0, \"scripts\"); import probes; print(\" \".join(sorted(probes.HELPERS.values())))")" = "$(printf "%s\n" "${OTEL_PROBE_FIXED_NAMES[@]}" | sort | tr "\n" " " | sed "s/ $//")" ]'
+
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

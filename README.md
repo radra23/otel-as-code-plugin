@@ -40,6 +40,46 @@ claude plugin install otel-as-code@otel-as-code
 [Using with Codex](#using-with-codex). To hack on the plugin itself, see
 [Development](#development).
 
+## Why is my app slow?
+
+Ask your agent the way you'd ask a colleague: "checkout is slow", "login times out sometimes".
+You don't need to know a command. otel-as-code measures the request instead of guessing from the
+code, and shows you what it measured before it tells you what it thinks.
+
+What happens, in plain words:
+
+1. It finds the code behind the request you named.
+2. If the service has no instrumentation yet, it adds the standard setup (that stays: you keep
+   it afterwards).
+3. It asks to add 2 to 5 temporary **probes**: one line around each suspect call that records how
+   long it took. They don't change what your code does.
+4. It starts a free trace viewer on your machine (`/otel-local`), runs the request (or asks you
+   to), and reads the results back. Nothing leaves your machine.
+5. It shows a table, then explains it. Each row is one **span**: one timed step of the request.
+   **Self** is the time spent in that step itself, not in the steps it called.
+
+From a checkout that took 650 ms:
+
+```text
+| # | Span          | From  | Per request | Total (median) | Self (median) | CPU    | Share | Shape                               |
+|---|---------------|-------|-------------|----------------|---------------|--------|-------|-------------------------------------|
+| 1 | db.getProduct | probe | 30          | 639.8 ms       | 639.8 ms      | 5.8 ms | 98%   | 30 one after another, ~21.2 ms each |
+
+Stands out: #1 db.getProduct, 98% of request time.
+Shape: 30 calls one after another under inventory.loadLines, ~21.2 ms each; each waits for the previous one to finish.
+Elapsed vs CPU: 639.8 ms elapsed, 5.8 ms CPU, so this time is mostly waiting, not computing.
+```
+
+Here that means one database lookup per item in the cart, each waiting for the last: 30 trips
+instead of one. When the table can't tell (busy on the CPU or stuck waiting on a lock, say), the
+agent says so and names the next check. When nothing stands out, it says that rather than invent
+a cause. Afterwards it offers to take the probes out (`/otel-uninstrument --probes` puts the
+original lines back exactly); the standard setup stays.
+
+You can also call it directly: `/otel-why "checkout is slow"`. It supports probes in Node.js
+(CommonJS) and Python; other languages get the standard setup, which already times every request,
+outbound call and database query.
+
 ## See your first span in a few minutes
 
 In Claude Code, inside your repo:
@@ -320,6 +360,7 @@ images) can get a deployment-config diff from `/otel-remediate` instead; v1 cove
 | `/otel-backend <vendor>` | Generate Terraform for `grafana`, `datadog`, `newrelic`, or `dash0` |
 | `/otel-uninstrument` | Remove the bootstrap files `/otel-instrument` generated (marker-gated) |
 | `/otel-local` | Start a free local Grafana stack (`grafana/otel-lgtm`) in Docker, wired to one service; `--down` stops it |
+| `/otel-why "<symptom>"` | Find out why a request is slow or fails sometimes: probes the suspect code, runs it on the local stack, and explains the cause from the measured trace evidence |
 | `/otel-remediate` | Print a deployment-config diff for a service with native OTel but no app source to bootstrap (v1: Keycloak) |
 
 ## Flags
@@ -341,6 +382,9 @@ images) can get a deployment-config diff from `/otel-remediate` instead; v1 cove
 | `--self-hosted` | backend (grafana) | Target self-hosted Grafana: a burn-rate alert rule instead of `grafana_slo`, which is Cloud-only |
 | `--yes` | backend | Answer yes to confirmation prompts, for CI or another agent. Never implies `--force` |
 | `--all` | uninstrument | Remove every marker-carrying bootstrap in the repo |
+| `--probes` | uninstrument | Remove only `/otel-why`'s probes and their helper, restoring the original lines exactly; the baseline stays |
+| `--route "<METHOD> <path>"` | why | The request behind the symptom, when you know it |
+| `--requests <N>` | why | How many requests to send, one after another, when the route is safe to repeat (default 20) |
 | `--local-ignore` | init | Write ignore rules to `.git/info/exclude` instead of `.gitignore`, for repos you must leave clean |
 | `--no-cache-write` | evaluate | Audit without writing anything to disk, not even the context cache |
 

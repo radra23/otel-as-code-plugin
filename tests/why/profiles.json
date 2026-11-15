@@ -1,0 +1,10 @@
+{
+  "clean":      {"env": {"CART_SEED": "small", "DB_ROUND_TRIP_MS": "5", "PROMO_DELAY_MS": "5", "SIGN_WORK": "1000"},
+                 "expect": null},
+  "n-plus-one": {"env": {"CART_SEED": "large", "DB_ROUND_TRIP_MS": "20", "PROMO_DELAY_MS": "5", "SIGN_WORK": "1000"},
+                 "expect": "db.getProduct"},
+  "slow-call":  {"env": {"CART_SEED": "small", "DB_ROUND_TRIP_MS": "5", "PROMO_DELAY_MS": "600", "SIGN_WORK": "1000"},
+                 "expect": "GET"},
+  "cpu-bound":  {"env": {"CART_SEED": "small", "DB_ROUND_TRIP_MS": "5", "PROMO_DELAY_MS": "5", "SIGN_WORK": "3000000"},
+                 "expect": "orders.signOrder"}
+}

@@ -38,10 +38,15 @@ OTEL_EXTS=(js mjs cjs ts mts cts py go cs rb php rs)
 # service in the repo, so /otel-uninstrument, which works per service, must never reach it (nor a
 # service's otel-local.env, which /otel-local --down removes together with the stack). They carry
 # the same marker, so again only construction keeps them out of the destructive set.
+#
+# The probe helpers (/otel-why) are a fourth group, for the opposite reason: they are not part of
+# the baseline a user keeps. scripts/probes.py writes and removes them through its manifest, and
+# /otel-uninstrument removes them only with --probes, so the bootstrap set must not reach them.
 OTEL_BOOTSTRAP_FIXED_NAMES=(otel-java.env OpenTelemetry.cs)
 OTEL_COLLECTOR_FIXED_NAMES=(otelcol-agent.yaml otelcol-gateway.yaml)
 OTEL_LOCAL_STACK_FIXED_NAMES=(otel-local.compose.yaml otel-local.env)
-OTEL_FIXED_NAMES=("${OTEL_BOOTSTRAP_FIXED_NAMES[@]}" "${OTEL_COLLECTOR_FIXED_NAMES[@]}" "${OTEL_LOCAL_STACK_FIXED_NAMES[@]}")
+OTEL_PROBE_FIXED_NAMES=(otel-probe.js otel_probe.py)
+OTEL_FIXED_NAMES=("${OTEL_BOOTSTRAP_FIXED_NAMES[@]}" "${OTEL_COLLECTOR_FIXED_NAMES[@]}" "${OTEL_LOCAL_STACK_FIXED_NAMES[@]}" "${OTEL_PROBE_FIXED_NAMES[@]}")
 
 # otel_is_generated_basename <basename> — true when the basename is one this plugin
 # generates. Matching is exact (not a suffix glob), so a user's `request-tracing.js` is
@@ -98,13 +103,13 @@ otel_bootstrap_globs() {
   done
 }
 
-# otel_all_generated_globs: EVERY generated name (bootstrap + Collector + local-stack fixed
-# names). For read-only reporting (session-summary) that should surface those too. Never hand
+# otel_all_generated_globs: EVERY generated name (bootstrap + Collector + local-stack + probe
+# fixed names). For read-only reporting (session-summary) that should surface those too. Never hand
 # this to a destructive consumer.
 otel_all_generated_globs() {
   local name
   otel_bootstrap_globs
-  for name in "${OTEL_COLLECTOR_FIXED_NAMES[@]}" "${OTEL_LOCAL_STACK_FIXED_NAMES[@]}"; do
+  for name in "${OTEL_COLLECTOR_FIXED_NAMES[@]}" "${OTEL_LOCAL_STACK_FIXED_NAMES[@]}" "${OTEL_PROBE_FIXED_NAMES[@]}"; do
     echo "$name"
   done
 }

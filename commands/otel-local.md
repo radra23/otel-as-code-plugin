@@ -1,5 +1,5 @@
 ---
-description: "See this service's traces, logs and metrics on your machine: start a free local Grafana stack (grafana/otel-lgtm) in Docker and point the service at it. Not for diagnosing one slow or failing request."
+description: "See this service's traces, logs and metrics on your machine: start a free local Grafana stack (grafana/otel-lgtm) in Docker and point the service at it. Not for finding out why one request is slow or failing (that is otel-why)."
 argument-hint: "[--service <id>] [--force] [--dry-run] [--down]"
 ---
 

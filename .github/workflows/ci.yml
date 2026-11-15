@@ -59,6 +59,12 @@ jobs:
       - name: README guardrails match the hook configs and command flags (#252)
         run: bash tests/readme-guardrails.test.sh
 
+      - name: trace_summary.py evidence table on recorded Tempo traces (/otel-why)
+        run: bash tests/trace-summary.test.sh
+
+      - name: probes.py apply/remove and the probe helpers (/otel-why)
+        run: bash tests/probes.test.sh
+
       - name: Run freshness-contract test (scanner identityInputs ↔ /otel-init regex; #150 uncovered services)
         run: bash tests/hooks/freshness-contract.test.sh
 
@@ -299,6 +305,25 @@ jobs:
 
       - name: Local stack end to end
         run: bash tests/e2e/local-stack.sh
+
+  # /otel-why: the why-checkout fixture with one planted cause per profile (N+1, slow outbound
+  # call, CPU-bound work, and a clean run), probed through scripts/probes.py, run against the
+  # pinned local stack. Asserts the evidence, not the model: scripts/trace_summary.py must rank
+  # each planted span first, find nothing in the clean run, and probes.py must restore the app.
+  why-e2e:
+    name: /otel-why evidence on planted causes
+    runs-on: ubuntu-latest
+    # Image pull and npm install dominate; four profiles of 10 requests add ~1 min.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Planted causes rank first
+        run: bash tests/e2e/why.sh
 
   validate-codex-bridge:
     name: Validate Codex bridge

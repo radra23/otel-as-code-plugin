@@ -1,5 +1,5 @@
 ---
-description: "First-run setup for lasting observability: scan the repo, detect service boundaries, and prime the context cache. Not for diagnosing one slow or failing request."
+description: "First-run setup for lasting observability: scan the repo, detect service boundaries, and prime the context cache. Not for finding out why one request is slow or failing (that is otel-why)."
 argument-hint: "[--local-ignore]"
 ---
 

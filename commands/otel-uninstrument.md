@@ -1,9 +1,9 @@
 ---
 description: Remove the OTel SDK bootstrap files /otel-instrument generated for a service (marker-gated)
-argument-hint: "[--service <id>] [--all] [--dry-run] [--force]"
+argument-hint: "[--service <id>] [--all] [--probes] [--dry-run] [--force]"
 ---
 
-# /otel-uninstrument [--service <id>] [--all] [--dry-run] [--force]
+# /otel-uninstrument [--service <id>] [--all] [--probes] [--dry-run] [--force]
 
 Reverse `/otel-instrument`: remove the SDK bootstrap files it generated for a service. This is the
 rollback path for #50 — it undoes instrumentation artifacts **only**, never Collector configs
@@ -30,8 +30,31 @@ only skips that prompt.
   bootstraps rather than scoping to one service. Mutually exclusive with `--service`.
 - `--dry-run` — print the removal plan and the by-hand instructions, delete nothing, and exit
   non-zero if anything **would** be removed (so it composes in CI, matching the other commands).
+- `--probes`: remove only `/otel-why`'s probe spans and their helper, and leave the baseline
+  bootstrap alone. See "Removing probes" below; none of the other steps run.
 - `--force` — skip the confirmation prompt. Does not widen what is eligible: the marker gate still
   applies, so `--force` can never delete a hand-written file.
+
+## Removing probes (`--probes`)
+
+`/otel-why` applies its probes through `scripts/probes.py`, which records each edit's exact
+original text in `.claude/otel-probes.json`. Removal is that script, never a hand edit:
+
+```
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/probes.py" remove --root <repo root>     # add --dry-run for --dry-run
+```
+
+It restores every probed file (an edit the user made outside the probe blocks is kept), deletes
+the helper (`otel-probe.js` / `otel_probe.py`), and removes the manifest, all or nothing. Report
+its output as-is. On `REFUSED:` (a probe block or the helper was edited after it was applied),
+nothing was changed: say which probe, and that restoring it would throw that edit away, so the
+user undoes the edit or removes that probe by hand. With nothing recorded it says so and exits 0.
+Without `--force`, show `probes.py list` and ask first. This never touches the bootstrap, the
+cache, or the local stack.
+
+Without `--probes`, if `.claude/otel-probes.json` exists, say in the Step 7 summary that probes
+are still in place and point at `/otel-uninstrument --probes`: the helper and the probe names
+(`otel_bootstrap_globs` does not include them) are never removed by the baseline path.
 
 ## Step 1: Load context
 

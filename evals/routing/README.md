@@ -11,7 +11,7 @@ secret).
 
 ## Prompts
 
-Twelve cases under `cases/`, each a fresh session on a clean copy of the fixture.
+Fourteen cases under `cases/`, each a fresh session on a clean copy of the fixture.
 
 | Case | Expect | Prompt |
 |---|---|---|
@@ -21,19 +21,24 @@ Twelve cases under `cases/`, each a fresh session on a clean copy of the fixture
 | `monitoring-before-launch` | should route | we need monitoring before launch, can you set it up? |
 | `set-up-observability` | should route | set up observability for this app |
 | `traces-to-grafana` | should route | send this service's traces to Grafana |
-| `checkout-is-slow` | should not route | checkout is slow, can you find out why? |
+| `checkout-is-slow` | should route | checkout is slow, can you find out why? |
 | `explain-span` | should not route | explain what a span is |
 | `fix-failing-test` | should not route | fix the failing test in lib/orders.js |
-| `diagnose-slow-checkout-with-traces` | should not route | checkout is slow, can you find out why? Instrument the service with OpenTelemetry, run it, hit POST /checkout 20 times, and base your diagnosis on the traces: span names, durations, counts. |
+| `diagnose-slow-checkout-with-traces` | should route | checkout is slow, can you find out why? Instrument the service with OpenTelemetry, run it, hit POST /checkout 20 times, and base your diagnosis on the traces: span names, durations, counts. |
+| `login-times-out-sometimes` | should route | login times out sometimes, can you figure out why? |
+| `the-build-is-slow` | should not route | the build is slow, can you speed it up? |
 | `see-traces-locally` | should route | I want to see my traces locally |
 | `telemetry-on-my-machine` | should route | show me this service's telemetry on my machine |
 
-`diagnose-slow-checkout-with-traces` guards the debugging boundary. It asks for OpenTelemetry,
-but as a means to a diagnosis, and the plugin's flow writes a committed production bootstrap
-that a one-off investigation does not want; a scratch tracer the session writes itself is the
-expected outcome, so hand-rolled is a pass here and only a routed run counts against it. If a
-description change ever makes it route, the eval shows the plugin taking over debugging tasks
-before that ships. It was added after the 0.9.7 baseline below and fails there; see that section.
+The symptom cases (`checkout-is-slow`, `diagnose-slow-checkout-with-traces`,
+`login-times-out-sometimes`) should route since 0.12.0, to `otel-why`. Until then they guarded
+the opposite boundary: the plugin's only flow wrote a committed production bootstrap that a
+one-off investigation did not want, so a scratch tracer the session wrote itself was the expected
+outcome. `/otel-why` changed that: it keeps the bootstrap on purpose, adds probes it removes
+exactly, and reads the evidence from the local stack, which a hand-rolled tracer did not do in the
+trial behind it (the agent instrumented every function it already suspected, and once called a
+span "CPU"). `the-build-is-slow` is the near miss that keeps the symptom wording honest: "slow"
+about something that is not a running app's request must not route.
 
 The fixture is `fixtures/nodejs-greenfield` plus `fixture-overlay/`: a checkout path with a
 sequential per-item DB loop (so "checkout is slow" has a real answer that code reading finds)

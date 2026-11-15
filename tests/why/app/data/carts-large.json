@@ -1,0 +1,126 @@
+{
+  "cart-1": {
+    "items": [
+      {
+        "sku": "sku-0",
+        "qty": 1
+      },
+      {
+        "sku": "sku-3",
+        "qty": 1
+      },
+      {
+        "sku": "sku-6",
+        "qty": 1
+      },
+      {
+        "sku": "sku-9",
+        "qty": 1
+      },
+      {
+        "sku": "sku-12",
+        "qty": 1
+      },
+      {
+        "sku": "sku-15",
+        "qty": 1
+      },
+      {
+        "sku": "sku-18",
+        "qty": 1
+      },
+      {
+        "sku": "sku-21",
+        "qty": 1
+      },
+      {
+        "sku": "sku-24",
+        "qty": 1
+      },
+      {
+        "sku": "sku-27",
+        "qty": 1
+      },
+      {
+        "sku": "sku-30",
+        "qty": 1
+      },
+      {
+        "sku": "sku-33",
+        "qty": 1
+      },
+      {
+        "sku": "sku-36",
+        "qty": 1
+      },
+      {
+        "sku": "sku-39",
+        "qty": 1
+      },
+      {
+        "sku": "sku-42",
+        "qty": 1
+      },
+      {
+        "sku": "sku-45",
+        "qty": 1
+      },
+      {
+        "sku": "sku-48",
+        "qty": 1
+      },
+      {
+        "sku": "sku-51",
+        "qty": 1
+      },
+      {
+        "sku": "sku-54",
+        "qty": 1
+      },
+      {
+        "sku": "sku-57",
+        "qty": 1
+      },
+      {
+        "sku": "sku-60",
+        "qty": 1
+      },
+      {
+        "sku": "sku-63",
+        "qty": 1
+      },
+      {
+        "sku": "sku-66",
+        "qty": 1
+      },
+      {
+        "sku": "sku-69",
+        "qty": 1
+      },
+      {
+        "sku": "sku-72",
+        "qty": 1
+      },
+      {
+        "sku": "sku-75",
+        "qty": 1
+      },
+      {
+        "sku": "sku-78",
+        "qty": 1
+      },
+      {
+        "sku": "sku-81",
+        "qty": 1
+      },
+      {
+        "sku": "sku-84",
+        "qty": 1
+      },
+      {
+        "sku": "sku-87",
+        "qty": 1
+      }
+    ]
+  }
+}
