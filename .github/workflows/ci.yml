@@ -465,7 +465,7 @@ jobs:
           grep -q 'orders:create_app()' fixtures/python-flask-app/Dockerfile
           absent grep -rqi opentelemetry fixtures/python-flask-app
 
-      - name: Check php-laravel-app fixture (#122e — refused until #117 ships a generator)
+      - name: Check php-laravel-app fixture (#122e, the PHP generator's golden input since #117)
         run: |
           absent() { if "$@"; then echo "::error::must be absent, but this matched: $*"; exit 1; fi; }  # a bare `! cmd` does not fail a step under bash -e
           grep -q '"laravel/framework"' fixtures/php-laravel-app/composer.json

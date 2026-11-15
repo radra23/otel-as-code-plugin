@@ -8,7 +8,7 @@
 > of the same shape, and every concrete line item that isn't done yet has a linked tracking issue —
 > comment there rather than only in this file if you want to weigh in.
 
-Current release: **0.11.9**. Node.js, Python, Java, .NET, Go, Ruby, and Rust (axum, actix-web) instrumentation, Terraform
+Current release: **0.11.10**. Node.js, Python, Java, .NET, Go, Ruby, and Rust (axum, actix-web) instrumentation, Terraform
 for Grafana, Datadog, New Relic, and Dash0, semconv pinned at 1.45.0. Since 0.2.0 the command set
 has grown past generation: `/otel-uninstrument` rolls instrumentation back behind an ownership
 marker, `/otel-remediate` proposes a deployment-config diff for services that have no application
@@ -57,8 +57,9 @@ just a larger surface to be wrong on. So the near-term work is depth.
   same pattern: running a real Django project showed `DjangoInstrumentor().instrument()` has one
   valid position (after `DJANGO_SETTINGS_MODULE`, before `get_wsgi_application()`). The old
   "at module load time" instruction could land before it and break every request. A PHP
-  refusal fixture (Laravel) pins today's "detected, in scope, no generator yet" path, and
-  surfaced a refusal message that called every unsupported service a browser bundle. The axum
+  refusal fixture (Laravel) pinned the "detected, in scope, no generator yet" path, and
+  surfaced a refusal message that called every unsupported service a browser bundle; it is now
+  the PHP generator's golden input. The axum
   fixture that sat beside it is now the Rust generator's golden input. Ongoing:
   [#122](https://github.com/radra23/otel-as-code-plugin/issues/122).
 - **Keep the pins honest — and the guidance with them.** The weekly drift-check CI job reports
@@ -93,8 +94,10 @@ just a larger surface to be wrong on. So the near-term work is depth.
   axum itself shipped at before its own e2e proof landed as a separate follow-up). semconv-lint
   also now covers both frameworks' attribute-setter call shape (`KeyValue::new(`) and metric
   instrument constructors (`u64_counter(`, etc.), closing
-  [#118](https://github.com/radra23/otel-as-code-plugin/issues/118). PHP is at the design stage
-  ([#117](https://github.com/radra23/otel-as-code-plugin/issues/117)).
+  [#118](https://github.com/radra23/otel-as-code-plugin/issues/118). PHP now generates
+  ([#117](https://github.com/radra23/otel-as-code-plugin/issues/117)): `telemetry.php` for
+  Laravel, Symfony or plain PHP, verified by static and hook tests only, with no PHP runtime in
+  CI yet.
 - **Cardinality and cost budgets as generated policy — shipped.** `/otel-collector
   --cardinality-budget <N>` (gateway mode, `--experimental`) generates a proactive spend ceiling
   via the `cardinality_guardian` processor (verified against the real binary — neither of the
