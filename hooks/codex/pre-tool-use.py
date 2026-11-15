@@ -24,8 +24,8 @@ from _bridge import bridge_env, cache_add, is_context_path, parse_targets, reach
 
 CACHE_PATCH_REASON = (
     "otel-as-code write-guard: this patch changes .claude/otel-context.json in a way whose business "
-    "attributes can't be checked before it lands (an Update, Move or Delete, or an Add mixed with "
-    "other changes). Write the cache with scripts/write_context.py, as the /otel-* commands do, or "
+    "attributes can't be checked before it lands (an Update, Move or Delete, an Add mixed with other "
+    "changes, or an Add that is not valid JSON). Write the cache with scripts/write_context.py, as the /otel-* commands do, or "
     "as a single full-file \"*** Add File: .claude/otel-context.json\" patch."
 )
 
@@ -44,16 +44,21 @@ def main():
     cwd = payload.get("cwd") or os.getcwd()
     env = bridge_env(cwd)
     direct = (payload.get("tool_name"), tool_input) if tool_input.get("file_path") else None
+    targets = parse_targets(tool_input)
     if reaches_cache(tool_input, cwd):
         if direct and not is_context_path(tool_input["file_path"]):
             deny("otel-as-code write-guard: this write reaches .claude/otel-context.json through "
                  "another name (a link or an alias), so its business attributes can't be checked. "
                  "Write the cache by its own path.")
             return
-        if not direct and cache_add(tool_input.get("command")) is None:
-            deny(CACHE_PATCH_REASON)
-            return
-    for path, content in parse_targets(tool_input):
+        if not direct:
+            add = cache_add(tool_input.get("command"))
+            if add is None:
+                deny(CACHE_PATCH_REASON)
+                return
+            # The one target, with the content cache_add() read as apply_patch will write it.
+            targets = [add]
+    for path, content in targets:
         proc = run_hook("write-guard.sh", path, content, cwd, env, tool=direct)
         if proc.returncode == 2:  # exit 2 = block/fail-closed in write-guard.sh
             deny((proc.stderr or "otel-as-code guardrail blocked this write.").strip())

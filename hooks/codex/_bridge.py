@@ -18,6 +18,13 @@ _MOVE_TO = re.compile(r"^\*\*\* Move to: (.+)$")
 _FRAME = re.compile(r"^\*\*\* (Delete File|End Patch|Begin Patch)")
 
 
+def patch_lines(cmd):
+    """The patch's lines as apply_patch reads them: split on "\n" only, with one trailing "\r"
+    dropped per line. str.splitlines() would also split on U+2028, \x0b, \x85 and others, which
+    apply_patch keeps inside a line."""
+    return [line[:-1] if line.endswith("\r") else line for line in cmd.split("\n")]
+
+
 def read_payload():
     """Parse the Codex hook JSON from stdin; return {} on failure (fail open)."""
     try:
@@ -48,13 +55,15 @@ def parse_targets(tool_input):
         if cur_path is not None:
             targets.append((cur_path, "".join(buf) if is_add else None))
 
-    for line in cmd.splitlines():
-        m = _ADD_UPDATE.match(line)
-        mv = _MOVE_TO.match(line)
+    for line in patch_lines(cmd):
+        # Headers are read trimmed, as apply_patch reads them, so an indented header still names
+        # a target for the overwrite guard. Reading a hunk line as a header only adds a target.
+        m = _ADD_UPDATE.match(line.strip())
+        mv = _MOVE_TO.match(line.strip())
         if m:
             flush()
             cur_path, is_add, buf = m.group(2).strip(), (m.group(1) == "Add"), []
-        elif _FRAME.match(line):
+        elif _FRAME.match(line.strip()):
             flush()
             cur_path, is_add, buf = None, False, []
         elif mv:
@@ -102,7 +111,7 @@ def patch_paths(tool_input):
     cmd = tool_input.get("command")
     if not isinstance(cmd, str):
         return []
-    found = (_HEADERISH.match(line.strip()) for line in cmd.splitlines())
+    found = (_HEADERISH.match(line.strip()) for line in patch_lines(cmd))
     return [m.group(1).strip() for m in found if m]
 
 
@@ -116,12 +125,14 @@ def reaches_cache(tool_input, cwd):
 
 def cache_add(cmd):
     """(path, content) when the patch is exactly one "*** Add File:" of the cache, by its own
-    name, with nothing but "+" lines; otherwise None. The lines are taken as written, not
-    trimmed, so the Add this accepts is the same one parse_targets() reads and write-guard checks;
-    only surrounding whitespace and a heredoc wrapper are dropped, as apply_patch drops them."""
+    name, with nothing but "+" lines, whose content is valid JSON; otherwise None. The header is
+    taken as written, not trimmed, and lines are split as apply_patch splits them, so the content
+    returned is the file apply_patch would write. Content that isn't valid JSON can't be checked
+    (otel-context-check.py passes it), so it is refused here instead. Surrounding whitespace and a
+    heredoc wrapper are dropped, as apply_patch drops them."""
     if not isinstance(cmd, str):
         return None
-    lines = cmd.strip().splitlines()
+    lines = patch_lines(cmd.strip())
     if len(lines) >= 4 and lines[0] in ("<<EOF", "<<'EOF'", '<<"EOF"') and lines[-1].endswith("EOF"):
         lines = lines[1:-1]
     if len(lines) < 3 or lines[0] != "*** Begin Patch" or lines[-1] != "*** End Patch":
@@ -131,7 +142,12 @@ def cache_add(cmd):
         return None
     if not all(line.startswith("+") for line in lines[2:-1]):
         return None
-    return m.group(1).strip(), "".join(line[1:] + "\n" for line in lines[2:-1])
+    content = "".join(line[1:] + "\n" for line in lines[2:-1])
+    try:
+        json.loads(content)
+    except ValueError:
+        return None
+    return m.group(1).strip(), content
 
 
 def unconfirmed_on_disk(path, cwd):
