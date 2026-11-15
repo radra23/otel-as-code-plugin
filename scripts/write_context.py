@@ -28,11 +28,13 @@ actual write, and enforces in code the rules a transcription can't reliably chec
      sees, so the rule has to live here too or it is not enforced at all.
 
 Exit 0 and a written file on success. Exit 1 with a one-line reason and NOTHING written on any
-safety-rule failure, including an I/O or parse error encountered while enforcing a rule --
+safety-rule failure, including an I/O or parse error encountered while enforcing a rule, or an
+input (stdin or --existing) that is not a context object of the expected shape --
 refusing to write is always safer than writing something wrong, or crashing with a traceback
 instead of the one-line reason this script exists to produce, the same principle this plugin
 applies everywhere else (instrumentation-gen's "emitting wrong code is worse than emitting
-none").
+none"). The file is written to a temp file beside the cache and renamed over it, so an
+interrupted write (Ctrl-C, a full disk, a killed session) leaves the old cache whole.
 
 Usage:
     <scanner JSON on stdin> | python3 scripts/write_context.py \\
@@ -43,7 +45,9 @@ Usage:
 """
 import argparse
 import json
+import os
 import sys
+import tempfile
 from datetime import datetime, timezone, timedelta
 
 # How far scannedAt may drift from this script's own clock before it's treated as implausible
@@ -58,6 +62,49 @@ TOP_LEVEL_USER_OWNED = ["businessAttrs", "confirmedAt", "namespace", "deployment
 def fail(msg):
     print(f"REFUSED: {msg}", file=sys.stderr)
     sys.exit(1)
+
+
+def check_shape(doc, label):
+    """Refuse a document the checks below can't safely read: they call .get() on the document,
+    on every services[] and conflicts[] entry, and parse scannedAt as a string."""
+    if not isinstance(doc, dict):
+        fail(f"{label} is a JSON {type(doc).__name__}, not an object -- not a valid context object.")
+    for key in ("services", "conflicts"):
+        entries = doc.get(key, [])
+        if not isinstance(entries, list):
+            fail(f"{label} '{key}' is not a list -- not a valid context object.")
+        for i, entry in enumerate(entries):
+            if not isinstance(entry, dict):
+                fail(f"{label} {key}[{i}] is {entry!r}, not an object -- not a valid context object.")
+    if "scannedAt" in doc and doc["scannedAt"] is not None and not isinstance(doc["scannedAt"], str):
+        fail(f"{label} scannedAt {doc['scannedAt']!r} is not a string timestamp.")
+
+
+def write_atomically(path, doc):
+    """Write doc to a temp file in path's directory, then rename it over path: os.replace is
+    atomic on the same filesystem, so a reader sees the old cache or the new one, never half."""
+    target = os.path.realpath(path)  # replace a symlink's target, not the link itself
+    try:
+        mode = os.stat(target).st_mode & 0o7777
+    except FileNotFoundError:
+        umask = os.umask(0)
+        os.umask(umask)
+        mode = 0o666 & ~umask  # what a plain open(path, "w") would have created
+    fd, tmp = tempfile.mkstemp(prefix=".otel-context.", suffix=".tmp", dir=os.path.dirname(target))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(doc, f, indent=2)
+            f.write("\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.chmod(tmp, mode)  # mkstemp creates 0600
+        os.replace(tmp, target)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def is_empty(value):
@@ -232,6 +279,7 @@ def main():
         fail(f"stdin is not valid JSON ({e}) -- nothing written. This is exactly the failure mode "
              f"this script exists to catch before it reaches disk.")
 
+    check_shape(new, "stdin")
     if not isinstance(new.get("services"), list):
         fail("'services' is missing or not a list -- not a valid context object.")
     if "schemaVersion" not in new:
@@ -251,6 +299,11 @@ def main():
         except json.JSONDecodeError as e:
             fail(f"--existing {args.existing} is not valid JSON ({e}) -- refusing to merge against "
                  f"a cache that can't actually be read; fix or remove it first.")
+        except (OSError, UnicodeDecodeError) as e:
+            fail(f"could not read --existing {args.existing}: {e} -- refusing to merge against a "
+                 f"cache that can't actually be read; fix or remove it first.")
+        if old is not None:
+            check_shape(old, f"--existing {args.existing}")
 
     if old is not None:
         check_top_level_user_owned(old, new)
@@ -260,9 +313,7 @@ def main():
         check_empty_services(old, new, args.allow_empty_services)
 
     try:
-        with open(args.output, "w", encoding="utf-8") as f:
-            json.dump(new, f, indent=2)
-            f.write("\n")
+        write_atomically(args.output, new)
     except OSError as e:
         fail(f"could not write {args.output}: {e}")
     print(f"OK: wrote {args.output} ({len(new.get('services', []))} service(s))")
