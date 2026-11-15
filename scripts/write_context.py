@@ -83,18 +83,13 @@ def check_per_service_user_owned(old, new):
         if sid is None or sid not in old_by_id:
             continue
         old_svc = old_by_id[sid]
-        if old_svc.get("namespaceSource") == "user-confirmed" and not is_empty(old_svc.get("namespace")) \
-                and is_empty(svc.get("namespace")):
-            fail(
-                f"services[id={sid}].namespace was user-confirmed ({old_svc.get('namespace')!r}) "
-                f"and would be emptied by this refresh."
-            )
-        if old_svc.get("teamSource") == "user-confirmed" and not is_empty(old_svc.get("team")) \
-                and is_empty(svc.get("team")):
-            fail(
-                f"services[id={sid}].team was user-confirmed ({old_svc.get('team')!r}) and "
-                f"would be emptied by this refresh."
-            )
+        for field in ("namespace", "team"):
+            if old_svc.get(f"{field}Source") == "user-confirmed" and not is_empty(old_svc.get(field)) \
+                    and is_empty(svc.get(field)):
+                fail(
+                    f"services[id={sid}].{field} was user-confirmed ({old_svc.get(field)!r}) "
+                    f"and would be emptied by this refresh."
+                )
         if not is_empty(old_svc.get("scopeOverride")) and is_empty(svc.get("scopeOverride")):
             fail(
                 f"services[id={sid}].scopeOverride ({old_svc.get('scopeOverride')!r}) would be "
@@ -143,7 +138,7 @@ def check_user_added_services(old, new):
 
 
 def check_empty_services(old, new, allow_empty_services):
-    old_services = old.get("services", []) if old else []
+    old_services = old.get("services", [])
     new_services = new.get("services", [])
     if old_services and not new_services and not allow_empty_services:
         fail(

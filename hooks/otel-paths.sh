@@ -68,6 +68,19 @@ otel_is_generated_path() {
   otel_is_generated_basename "$(basename "$1")"
 }
 
+# Terraform module files /otel-backend writes. Protected in ANY directory (a custom --output-dir
+# included), but only when they carry the ownership marker, so a hand-written main.tf is untouched.
+OTEL_TF_MODULE_NAMES=(main.tf variables.tf outputs.tf)
+
+# otel_is_tf_module_basename <basename>: true for one of OTEL_TF_MODULE_NAMES (exact match).
+otel_is_tf_module_basename() {
+  local name
+  for name in "${OTEL_TF_MODULE_NAMES[@]}"; do
+    [ "$1" = "$name" ] && return 0
+  done
+  return 1
+}
+
 # otel_bootstrap_globs — the BOOTSTRAP names only (stems×exts + OTEL_BOOTSTRAP_FIXED_NAMES).
 # Printed one per line so callers can feed them straight to `find`/`ls`. Use this to find or act
 # on an SDK bootstrap: it deliberately EXCLUDES the Collector configs, so a destructive consumer

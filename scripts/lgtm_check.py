@@ -27,9 +27,6 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-OTLP_PORTS = (4317, 4318)
-
-
 def port_in_use(port, host="127.0.0.1"):
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.settimeout(0.5)

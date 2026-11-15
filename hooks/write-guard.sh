@@ -41,23 +41,11 @@ if [ "${OTEL_FORCE:-0}" = "1" ]; then
   exit 0
 fi
 
-# Resolve a JSON parser that ACTUALLY RUNS. Parsing the payload needs python (jq is not assumed
-# available). `command -v` is NOT sufficient: on Windows `python3` is commonly an App Execution
-# Alias stub that is on PATH and resolves, but errors at run time ("Python was not found; run
-# without arguments to install from the Microsoft Store") — trusting PATH there left the parse
-# empty and the guard silently allowed every write (#33). So each candidate is verified by
-# actually executing it, and the first WORKING one wins (a real Python is frequently present as
-# `python` even when `python3` is the stub). If none run, FAIL CLOSED — a guard whose failure
-# mode is "allow everything, print nothing" cannot be relied on.
-# The interpreter is only ever run by its literal name, `python3` or `python`, so the plugin
-# directory can see what runs. OTEL_HOOK_PYTHON (the path of a python3/python outside PATH) puts
-# that interpreter's folder first on PATH rather than being executed as a variable.
-if [ -n "${OTEL_HOOK_PYTHON:-}" ]; then PATH="$(dirname "$OTEL_HOOK_PYTHON"):$PATH"; fi
+# A Python that actually runs (python3 or python, by literal name), or PY="" when none does.
+# If the helper itself can't load, PY stays empty and the no-Python branch below decides.
 PY=""
-if python3 -c 'pass' </dev/null >/dev/null 2>/dev/null; then PY=python3
-elif python -c 'pass' </dev/null >/dev/null 2>/dev/null; then PY=python
-fi
-py() { if [ "$PY" = python3 ]; then python3 "$@"; else python "$@"; fi; }
+# shellcheck source=hooks/otel-python.sh
+. "${CLAUDE_PLUGIN_ROOT}/hooks/otel-python.sh" 2>/dev/null || PY=""
 
 # Read JSON from stdin
 INPUT=$(cat)
@@ -79,9 +67,7 @@ if [ -z "$PY" ]; then
   protected=0
   if [ -z "$NAME" ] || [ "$NAME" = "file_path" ]; then protected=1; fi
   if otel_is_generated_basename "$NAME"; then protected=1; fi
-  case "$LOWER" in
-    otel-context.json|main.tf|variables.tf|outputs.tf) protected=1 ;;
-  esac
+  if otel_is_tf_module_basename "$LOWER" || [ "$LOWER" = otel-context.json ]; then protected=1; fi
   if [ "$protected" -eq 0 ]; then
     echo "otel-as-code write-guard: no working python, so this write is not checked ($NAME is not an otel-as-code file)." >&2
     exit 0
@@ -93,16 +79,17 @@ if [ -z "$PY" ]; then
   exit 2
 fi
 
-# Extract tool name and file path (portable; avoids jq dependency)
-TOOL=$(echo "$INPUT" | py -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_name',''))" 2>/dev/null || echo "")
-FILE_PATH=$(echo "$INPUT" | py -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_input',{}).get('file_path',''))" 2>/dev/null || echo "")
+# Tool name and file path in one parse, as "<tool> <path>": a tool name has no space, so the
+# first space splits them and a path that contains spaces stays whole.
+PARSED=$(echo "$INPUT" | py -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_name',''), d.get('tool_input',{}).get('file_path',''))" 2>/dev/null || echo "")
+TOOL=${PARSED%% *}
+FILE_PATH=${PARSED#* }
 
 # Only guard Write and Edit tools
 if [ "$TOOL" != "Write" ] && [ "$TOOL" != "Edit" ]; then
   exit 0
 fi
 
-# If no file path, allow
 if [ -z "$FILE_PATH" ]; then
   exit 0
 fi
@@ -117,24 +104,22 @@ fi
 # spelling of the same file or a Windows path cannot step around the check. The normalisation
 # lives in otel-force-match.py, the one place this hook already compares paths.
 if py "${CLAUDE_PLUGIN_ROOT}/hooks/otel-force-match.py" --is-context "$FILE_PATH" 2>/dev/null; then
-  CONTENT=$(echo "$INPUT" | py -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_input',{}).get('content',''))" 2>/dev/null || echo "")
-  if [ -n "$CONTENT" ]; then
-    UNCONFIRMED=$(py -c "
+  UNCONFIRMED=$(echo "$INPUT" | py -c "
 import sys, json
+content = json.load(sys.stdin).get('tool_input', {}).get('content', '')
 try:
-  d = json.load(sys.stdin)
+  d = json.loads(content)
 except Exception:
-  sys.exit(0)  # not full-file JSON (e.g. an Edit): cannot validate, so it passes
+  sys.exit(0)  # no content, or not full-file JSON (e.g. an Edit): cannot validate, so it passes
 attrs = d.get('businessAttrs', []) or []
 print(chr(10).join(a.get('name', '?') for a in attrs if isinstance(a, dict) and a.get('confirmed') is not True))
-" <<<"$CONTENT" 2>/dev/null || echo "")
-    if [ -n "$UNCONFIRMED" ]; then
-      echo "otel-as-code write-guard: refusing to write unconfirmed business attribute(s) to otel-context.json:" >&2
-      echo "$UNCONFIRMED" | sed 's/^/  - /' >&2
-      echo 'Business attributes must carry "confirmed": true before they are written.' >&2
-      echo "Re-run /otel-business-attrs and confirm each attribute." >&2
-      exit 2
-    fi
+" 2>/dev/null || echo "")
+  if [ -n "$UNCONFIRMED" ]; then
+    echo "otel-as-code write-guard: refusing to write unconfirmed business attribute(s) to otel-context.json:" >&2
+    echo "$UNCONFIRMED" | sed 's/^/  - /' >&2
+    echo 'Business attributes must carry "confirmed": true before they are written.' >&2
+    echo "Re-run /otel-business-attrs and confirm each attribute." >&2
+    exit 2
   fi
 fi
 
@@ -143,42 +128,30 @@ if [ ! -f "$FILE_PATH" ]; then
   exit 0  # File doesn't exist yet — new write is always allowed
 fi
 
-# Path-scoped --force: when a /otel-* command is invoked with --force it writes the absolute
-# paths it intends to overwrite into .claude/.otel-force (one per line) and removes the file
-# afterwards. Honor it only for the listed paths, so --force never blanket-disables the guard.
-#
-# Both sides are normalised before comparison rather than compared as raw strings. The tool
-# reports `file_path` in the host's own convention — on Windows a backslashed
-# `C:<backslash>Users<backslash>me<backslash>repo<backslash>src<backslash>tracing.ts`, while the sentinel is written from a shell where the
-# same file is `/c/Users/me/repo/src/tracing.ts`, and Codex's apply_patch reports paths
-# relative to the session cwd. An exact-string match can never succeed across those shapes,
-# which silently turned --force into a no-op. See hooks/otel-force-match.py.
-PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
-FORCE_FILE="$PROJECT_DIR/.claude/.otel-force"
-if [ -f "$FORCE_FILE" ] && py "${CLAUDE_PLUGIN_ROOT}/hooks/otel-force-match.py" "$FILE_PATH" "$PROJECT_DIR" "$FORCE_FILE" 2>/dev/null; then
-  exit 0
-fi
-
-# Is this a candidate by name? Bootstrap/collector/java-env basenames (derived in otel-paths.sh),
-# OR a Terraform module file in ANY directory (so a custom --output-dir is covered, not just
-# */observability/*).
-candidate=0
-if otel_is_generated_path "$FILE_PATH"; then
-  candidate=1
-fi
-case "$(basename "$FILE_PATH")" in
-  main.tf|variables.tf|outputs.tf) candidate=1 ;;
-esac
-
-# Block only if the existing file actually carries the ownership marker every generator stamps
-# ("Generated by otel-as-code" / "generated by otel-as-code"). This is what keeps the guard from
-# blocking a file we did not generate, and what lets it catch our output regardless of directory.
-blocked=0
-if [ "$candidate" -eq 1 ] && grep -qi 'generated by otel-as-code' "$FILE_PATH" 2>/dev/null; then
-  blocked=1
-fi
-
-if [ "$blocked" -eq 1 ]; then
+# A file is blocked when it is a candidate by name, bootstrap/collector/java-env basenames
+# (derived in otel-paths.sh) OR a Terraform module file in ANY directory (so a custom
+# --output-dir is covered, not just */observability/*), AND the existing file carries the
+# ownership marker every generator stamps ("Generated by otel-as-code" / "generated by
+# otel-as-code"). The marker is what keeps the guard from blocking a file we did not generate,
+# and what lets it catch our output regardless of directory.
+if { otel_is_generated_path "$FILE_PATH" || otel_is_tf_module_basename "$(basename "$FILE_PATH")"; } && grep -qi 'generated by otel-as-code' "$FILE_PATH" 2>/dev/null; then
+  # Path-scoped --force: when a /otel-* command is invoked with --force it writes the absolute
+  # paths it intends to overwrite into .claude/.otel-force (one per line) and removes the file
+  # afterwards. Honor it only for the listed paths, so --force never blanket-disables the guard.
+  # Checked only here, for a write that would otherwise be blocked, so other writes never pay
+  # for the Python call.
+  #
+  # Both sides are normalised before comparison rather than compared as raw strings. The tool
+  # reports `file_path` in the host's own convention: on Windows a backslashed
+  # `C:<backslash>Users<backslash>me<backslash>repo<backslash>src<backslash>tracing.ts`, while the sentinel is written from a shell where the
+  # same file is `/c/Users/me/repo/src/tracing.ts`, and Codex's apply_patch reports paths
+  # relative to the session cwd. An exact-string match can never succeed across those shapes,
+  # which silently turned --force into a no-op. See hooks/otel-force-match.py.
+  PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+  FORCE_FILE="$PROJECT_DIR/.claude/.otel-force"
+  if [ -f "$FORCE_FILE" ] && py "${CLAUDE_PLUGIN_ROOT}/hooks/otel-force-match.py" "$FILE_PATH" "$PROJECT_DIR" "$FORCE_FILE" 2>/dev/null; then
+    exit 0
+  fi
   echo "otel-as-code write-guard: blocking overwrite of existing generated OTel file: $FILE_PATH" >&2
   echo "Re-run the originating /otel-* command with --force to overwrite." >&2
   exit 2
