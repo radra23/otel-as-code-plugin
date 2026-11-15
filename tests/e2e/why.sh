@@ -68,7 +68,7 @@ for name in $(python3 -c "import json; print(' '.join(json.load(open('$SRC/tests
   got=""
   for _ in $(seq 1 30); do
     if python3 "$SRC/scripts/trace_summary.py" --grafana "http://localhost:$GRAFANA_PORT" --service "$service" \
-         --route "POST /checkout" --json "${save[@]}" > "$out" 2>/dev/null \
+         --route "POST /checkout" --json ${save[@]+"${save[@]}"} > "$out" 2>/dev/null \
        && [ "$(python3 -c "import json; print(json.load(open('$out'))['traces'])")" -ge "$REQUESTS" ]; then
       got=1; break
     fi
