@@ -44,5 +44,32 @@ out=$(python3 $CHECK ports --grafana-port "$hp"); rc=$?
 check "a held Grafana port exits 3" '[ "$rc" -eq 3 ]'
 check "the held port is named" 'printf "%s" "$out" | grep -q "^taken: $hp (Grafana)"'
 
+# span: a real Tempo response, saved from the local stack (an Express checkout with nested
+# manual spans), read for one span and its parent.
+NEST=fixtures/tempo-trace-nested.json
+check "span: a nested span is found with its parent's name (base64 span ids decoded)" \
+  'python3 $CHECK span --trace-json $NEST --name db.getProduct | grep -q "nested under \"inventory.loadLines\""'
+check "span: --parent passes when the parent matches" \
+  'python3 $CHECK span --trace-json $NEST --name db.getProduct --parent inventory.loadLines >/dev/null'
+python3 $CHECK span --trace-json $NEST --name db.getProduct --parent "POST /checkout" >/dev/null; rc=$?
+check "span: --parent fails with exit 1 when the parent is another span" '[ "$rc" -eq 1 ]'
+check "span: the root span is reported as having no parent" \
+  'python3 $CHECK span --trace-json $NEST --name "POST /checkout" | grep -q "a root span"'
+python3 $CHECK span --trace-json $NEST --name no.such.span >/dev/null; rc=$?
+check "span: a span that is not in the trace exits 1" '[ "$rc" -eq 1 ]'
+python3 $CHECK span --trace-json $NEST --name db.getProduct --status error >/dev/null; rc=$?
+check "span: --status error does not accept a span without an error" '[ "$rc" -eq 1 ]'
+errtrace=$(mktemp)
+echo '{"batches":[{"scopeSpans":[{"spans":[{"spanId":"aaaaaaaaaaaaaaaa","name":"orders.checkout","startTimeUnixNano":"0","endTimeUnixNano":"5000000","status":{"code":"STATUS_CODE_ERROR"}}]}]}]}' > "$errtrace"
+check "span: --status error accepts a span that recorded one, and says so" \
+  'python3 $CHECK span --trace-json "$errtrace" --name orders.checkout --status error | grep -q "recorded an error"'
+rm -f "$errtrace"
+surl=$(python3 -c "import sys; sys.path.insert(0, '../../scripts'); import lgtm_check as m; print(m.span_search_url('http://localhost:3001', 'svc', 'orders.checkout', 100, 200, 'error'))")
+check "span: the live query uses the tempo proxy, explicit start and end, and the span name" \
+  'case "$surl" in http://localhost:3001/api/datasources/proxy/uid/tempo/api/search\?*start=100*end=200*) true;; *) false;; esac \
+   && python3 -c "import sys,urllib.parse as u; q=u.parse_qs(u.urlsplit(sys.argv[1]).query)[\"q\"][0]; sys.exit(q != \"{resource.service.name=\\\"svc\\\" && name=\\\"orders.checkout\\\" && status=error}\")" "$surl"'
+out=$(python3 $CHECK span --grafana "http://127.0.0.1:$free_port" --service svc --name x 2>&1); rc=$?
+check "span: an unreachable Grafana exits 2 and says unreachable" '[ "$rc" -eq 2 ] && printf "%s" "$out" | grep -q "^unreachable:"'
+
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

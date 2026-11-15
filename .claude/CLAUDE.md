@@ -33,6 +33,16 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
 - Terraform golden snapshots: `tests/snapshots/<vendor>/main.tf.snap`, self-contained (inline `variable` blocks) so CI validates `main.tf` standalone. `terraform` isn't installed — download a pinned binary to validate; introspect unfamiliar providers with `terraform providers schema -json`.
 - `scripts/drift_check.py` (weekly `drift-check` CI job; also `workflow_dispatch`) reports when the pinned semconv / OTel-SDK / TF-provider versions fall behind upstream — informational, never fails CI (`tests/drift-check.test.sh` keeps its pin parsers honest offline). When it flags drift: bump the pins, regenerate the affected snapshots, re-validate. Exception: a NuGet row marked **drops <tfm>** (#229) is not a bump target — that release has no asset for the golden `.csproj`'s TargetFramework (`net10.0` since #229; .NET 8/9 left support 2026-11-10), and NuGet's silent `.NETStandard` fallback compiles but exports nothing over OTLP/gRPC. The .NET pins move only together with the golden TargetFramework, re-proven by the live e2e trace-flow job (a clean `dotnet build` is not evidence; `tests/e2e/dotnet-placement.sh` fails on the SDK's "doesn't support net" warning for the same reason), and the generator prints `--version`-pinned 1.20.x lines for a `net8.0`/`net9.0` project rather than the bare form.
 
+- `/otel-enrich` is the only command that edits code a person wrote, and `scripts/enrich.py` is the
+  only thing that makes or removes those edits. Its edits are INSERT-ONLY: new lines between
+  `otel-as-code: enrich begin/end <id>` markers, never a changed line, so removal deletes the blocks
+  and needs no record of the original (enrichment is committed and outlives any local state file;
+  `.claude/` is gitignored). Keep it that way: a shape that can't be wrapped by adding lines is
+  refused, not rewritten. It writes plain OpenTelemetry API calls, no helper file, so there is no new
+  generated filename for `hooks/otel-paths.sh`. Every new shape or language gets a case in
+  `tests/enrich.test.sh` that RUNS the enriched code against the stub API, and a span assertion in
+  `tests/e2e/enrich.sh`.
+
 - `evals/routing/` measures whether a fresh session picks this plugin (`claude plugin eval` for
   only-this-plugin, `run-headless.sh` for a full personal plugin set, one scorer `score.py` for
   both). Run it before and after any command/skill `description` change; it is billed, so it is

@@ -8,12 +8,13 @@
 > of the same shape, and every concrete line item that isn't done yet has a linked tracking issue —
 > comment there rather than only in this file if you want to weigh in.
 
-Current release: **0.11.15**. Node.js, Python, Java, .NET, Go, Ruby, and Rust (axum, actix-web) instrumentation, Terraform
+Current release: **0.12.0**. Node.js, Python, Java, .NET, Go, Ruby, and Rust (axum, actix-web) instrumentation, Terraform
 for Grafana, Datadog, New Relic, and Dash0, semconv pinned at 1.45.0. Since 0.2.0 the command set
 has grown past generation: `/otel-uninstrument` rolls instrumentation back behind an ownership
 marker, `/otel-remediate` proposes a deployment-config diff for services that have no application
 source to bootstrap, `/otel-local` starts a free local Grafana stack so a first trace, log and
-metric show up on your own machine, and `--dry-run` previews any writing command before it writes. Everything
+metric show up on your own machine, `/otel-enrich` adds a span around one of your own functions
+(Node.js and Python; an insert-only edit it can remove exactly), and `--dry-run` previews any writing command before it writes. Everything
 shipped so far is tracked (closed) under the
 [`0.1.0 MVP — shipped`](https://github.com/radra23/otel-as-code-plugin/milestone/4) milestone.
 
