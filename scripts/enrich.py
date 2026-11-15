@@ -620,6 +620,11 @@ def enriched_files(root, only=None):
         for f in sorted(files):
             if os.path.splitext(f)[1].lower() in JS_EXTS + PY_EXTS:
                 full = os.path.join(d, f)
+                # A symlink could point outside the project (or at a dependency); writes follow
+                # links, so only a real file whose real path is under the root is ever touched.
+                real = os.path.realpath(full)
+                if os.path.islink(full) or not real.startswith(base + os.sep):
+                    continue
                 try:
                     if "otel-as-code: enrich begin" in read(full):
                         out.append((full, os.path.relpath(full, base)))

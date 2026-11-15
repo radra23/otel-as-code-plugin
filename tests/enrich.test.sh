@@ -121,6 +121,16 @@ check "node: the user's own later edit survives, and the rest is byte for byte t
   'tail -1 "$N/lib/orders.js" | grep -q "a later edit by the user" && head -n "$(wc -l < tests/enrich/node-app/lib/orders.js)" "$N/lib/orders.js" | cmp -s - tests/enrich/node-app/lib/orders.js && cmp -s "$N/lib/pricing.js" tests/enrich/node-app/lib/pricing.js'
 check "node: remove with nothing left is a no-op (exit 0)" 'enrich remove --root "$N" | grep -q "nothing to remove"'
 
+# A symlink in the tree that points outside the project is never read for removal or written.
+fresh; mkdir -p "$TMPD/outside"
+printf '// otel-as-code: enrich begin x-y\nconst planted = 1;\n// otel-as-code: enrich end x-y\n' > "$TMPD/outside/victim.js"
+cp "$TMPD/outside/victim.js" "$TMPD/victim.orig.js"
+ln -s "$TMPD/outside/victim.js" "$N/lib/link.js"
+check "node: remove and list ignore a symlink that points outside the project" \
+  'enrich remove --root "$N" | grep -q "nothing to remove" && enrich list --root "$N" | grep -q "no enrichment found" && cmp -s "$TMPD/outside/victim.js" "$TMPD/victim.orig.js"'
+refused "node: span on a symlink that points outside the project is refused" "$N" "outside the project root" span --root "$N" --file lib/link.js --function f --span-name a.b --tracer-name t
+rm "$N/lib/link.js"
+
 # --- removal refusals ---
 fresh; enrich span --root "$N" --file lib/orders.js --function checkout "${SPAN[@]}" >/dev/null
 python3 - "$N/lib/orders.js" <<'PY'
