@@ -1,9 +1,9 @@
 ---
 description: Remove the OTel SDK bootstrap files /otel-instrument generated for a service (marker-gated)
-argument-hint: "[--service <id>] [--all] [--dry-run] [--force]"
+argument-hint: "[--service <id>] [--all] [--enrichment] [--dry-run] [--force]"
 ---
 
-# /otel-uninstrument [--service <id>] [--all] [--dry-run] [--force]
+# /otel-uninstrument [--service <id>] [--all] [--enrichment] [--dry-run] [--force]
 
 Reverse `/otel-instrument`: remove the SDK bootstrap files it generated for a service. This is the
 rollback path for #50 — it undoes instrumentation artifacts **only**, never Collector configs
@@ -30,8 +30,39 @@ only skips that prompt.
   bootstraps rather than scoping to one service. Mutually exclusive with `--service`.
 - `--dry-run` — print the removal plan and the by-hand instructions, delete nothing, and exit
   non-zero if anything **would** be removed (so it composes in CI, matching the other commands).
+- `--enrichment`: remove only what `/otel-enrich` added to hand-written code, and leave the
+  bootstrap alone. See "Removing enrichment" below; none of the other steps run.
 - `--force` — skip the confirmation prompt. Does not widen what is eligible: the marker gate still
   applies, so `--force` can never delete a hand-written file.
+
+## Removing enrichment (`--enrichment`)
+
+`/otel-enrich` adds lines to the user's own code between `otel-as-code: enrich begin <id>` and
+`enrich end <id>` markers, and changes no existing line. Removal is the same script that added
+them, never a hand edit:
+
+```
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/enrich.py" list --root <repo root>
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/enrich.py" remove --root <repo root> [--file <file>] [--id <id>] [--dry-run]
+```
+
+Show the `list` output and, unless `--force`, ask before removing; with `--dry-run`, run
+`remove --dry-run` (exit 1 when something would be removed) and stop. `remove` deletes the marker
+blocks and nothing else, in every file or only the `--file` / `--id` the user named, all or
+nothing, and reports each file. On `REFUSED:` nothing was changed; report the reason as given:
+- *still uses `otelSpan`* (or another name the enrichment defines): a line the user wrote later
+  depends on the span. They delete or change that line first.
+- *no matching end* / *no matching begin*: a marker line was deleted by hand. They fix the markers,
+  or remove that block by hand.
+- *would leave a file that does not parse*: the code around a block was restructured.
+
+This never touches the bootstrap, the cache, or the local stack. A formatter may have re-indented
+the function body while the enrichment was in place; removal leaves that indentation, and the
+project's formatter fixes it.
+
+Without `--enrichment`, enrichment is left in place: it calls the OpenTelemetry API, which does
+nothing once the bootstrap is gone, so the code keeps working. If `enrich.py list` finds any, say
+so in the Step 7 summary and point at `/otel-uninstrument --enrichment`.
 
 ## Step 1: Load context
 

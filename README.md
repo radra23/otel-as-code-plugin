@@ -144,11 +144,15 @@ another one, Codex runs the skills without the hooks.
 
 Two command features keep re-runs safe too:
 
-- **`--dry-run`.** `/otel-instrument`, `/otel-collector`, `/otel-backend`, `/otel-local` and
-  `/otel-uninstrument` can preview a diff (or the removal plan) instead of writing, and exit
+- **`--dry-run`.** `/otel-instrument`, `/otel-collector`, `/otel-backend`, `/otel-local`,
+  `/otel-enrich` and `/otel-uninstrument` can preview a diff (or the removal plan) instead of writing, and exit
   non-zero when something would change, so CI can catch drift. `/otel-init` and
   `/otel-business-attrs` write only the context cache and have no dry run; `/otel-evaluate
   --no-cache-write` writes nothing.
+- **Edits to your own code are opt-in.** Only `/otel-enrich` changes a file you wrote. It shows
+  the diff and asks first, adds lines between `otel-as-code: enrich` markers without changing any
+  existing line, and refuses unless the result still parses. `/otel-uninstrument --enrichment`
+  removes exactly those lines.
 - **Clean rollback.** `/otel-uninstrument` removes the bootstrap files it generated, and only
   those: the marker gate means it cannot delete a hand-written file, even with `--force`.
 
@@ -318,7 +322,8 @@ images) can get a deployment-config diff from `/otel-remediate` instead; v1 cove
 | `/otel-evaluate` | Read-only audit of existing OTel: coverage gaps, semconv conformance, cardinality risks |
 | `/otel-collector [agent\|gateway]` | Generate an `otelcol-contrib` config |
 | `/otel-backend <vendor>` | Generate Terraform for `grafana`, `datadog`, `newrelic`, or `dash0` |
-| `/otel-uninstrument` | Remove the bootstrap files `/otel-instrument` generated (marker-gated) |
+| `/otel-enrich <file>:<function>` | Add a span around one of your own functions (Node.js, Python): an in-place edit, shown as a diff first, insert-only between markers |
+| `/otel-uninstrument` | Remove the bootstrap files `/otel-instrument` generated (marker-gated); `--enrichment` removes what `/otel-enrich` added |
 | `/otel-local` | Start a free local Grafana stack (`grafana/otel-lgtm`) in Docker, wired to one service; `--down` stops it |
 | `/otel-remediate` | Print a deployment-config diff for a service with native OTel but no app source to bootstrap (v1: Keycloak) |
 
@@ -326,8 +331,8 @@ images) can get a deployment-config diff from `/otel-remediate` instead; v1 cove
 
 | Flag | Commands | Effect |
 |---|---|---|
-| `--service <id>` | instrument, backend, uninstrument, remediate | Pick the target service instead of being prompted. `backend` also accepts `all` (one module per service) |
-| `--dry-run` | instrument, collector, backend, uninstrument | Preview a diff without writing; exits non-zero if anything would change |
+| `--service <id>` | instrument, backend, enrich, uninstrument, remediate | Pick the target service instead of being prompted. `backend` also accepts `all` (one module per service) |
+| `--dry-run` | instrument, collector, backend, local, enrich, uninstrument | Preview a diff without writing; exits non-zero if anything would change |
 | `--experimental` | instrument, collector, backend | Unlock pre-Stable semconv and signals |
 | `--fix <ids>` | instrument | Apply only these `/otel-evaluate` findings, in place |
 | `--force` | instrument, collector, backend, uninstrument | **Full regeneration**, overwrites hand edits (see below). For `uninstrument`, skips the confirmation prompt |
@@ -339,8 +344,11 @@ images) can get a deployment-config diff from `/otel-remediate` instead; v1 cove
 | `--kind <dashboard\|alerts\|slo>` | backend | Emit one artifact instead of all three |
 | `--output-dir <path>` | backend | Override the default `infra/observability/<vendor>/` |
 | `--self-hosted` | backend (grafana) | Target self-hosted Grafana: a burn-rate alert rule instead of `grafana_slo`, which is Cloud-only |
-| `--yes` | backend | Answer yes to confirmation prompts, for CI or another agent. Never implies `--force` |
+| `--yes` | backend, enrich | Answer yes to confirmation prompts, for CI or another agent. Never implies `--force` |
 | `--all` | uninstrument | Remove every marker-carrying bootstrap in the repo |
+| `--enrichment` | uninstrument | Remove only the lines `/otel-enrich` added to your code; the bootstrap stays |
+| `--span-name <name>` | enrich | Name the span yourself; the default is `<module>.<function>` |
+| `--line <N>` | enrich | Which definition to wrap, when the function name occurs more than once in the file |
 | `--local-ignore` | init | Write ignore rules to `.git/info/exclude` instead of `.gitignore`, for repos you must leave clean |
 | `--no-cache-write` | evaluate | Audit without writing anything to disk, not even the context cache |
 
