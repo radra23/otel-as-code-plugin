@@ -1,6 +1,6 @@
 ---
 name: otel-enrich
-description: Add a span around one of the user's own functions so it shows up in traces. An in-place edit to hand-written code, shown as a diff first, insert-only between markers, and removable exactly. Node.js and Python services that otel-instrument has already set up. Use when asked to trace or time a specific function.
+description: Add telemetry inside the user's own code, either a span around one function or the business metrics they confirmed, so generated dashboards fill. An in-place edit to hand-written code, shown as a diff first, insert-only between markers, and removable exactly. Node.js and Python services that otel-instrument has already set up. Use when asked to trace or time a specific function, or to emit the confirmed business metrics.
 ---
 
 # otel-enrich (Codex bridge)
@@ -20,7 +20,11 @@ has seen its diff and said yes.** Never write the span into the user's code with
 yourself, and never adjust the lines between the markers by hand. A shape the script refuses is
 reported, not worked around.
 
-Args: `$ARGUMENTS` (e.g. `lib/orders.js:checkout`, `--span-name orders.checkout`, `--dry-run`).
+With `--business`, follow the command's "Business metrics" section: `scripts/enrich.py metric`
+for each confirmed counter, histogram or gauge, one diff and one yes per metric, then record the
+`callSite` through `scripts/write_context.py`.
+
+Args: `$ARGUMENTS` (e.g. `lib/orders.js:checkout`, `--business`, `--span-name orders.checkout`, `--dry-run`).
 
 Codex note: the script edits files from the shell, so `.codex/hooks.json` does not see the edit;
 the diff and the confirmation are the gate. Remove with `$otel-uninstrument --enrichment`.

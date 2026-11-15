@@ -24,11 +24,24 @@ proves. Standard library only; JSON over plain http to localhost.
       `traces` (datasource proxy, explicit start/end): a TraceQL search for the span, then the
       trace itself. Prints the span's duration, status and its parent's name. With --parent, the
       parent must have that name; with --status error, only a span that recorded an error counts.
-      Exit 0 found (and the parent matches), 1 not found or a different parent, 2 unreachable. --trace-json reads a saved trace instead of calling Grafana.
+      Exit 0 found (and the parent matches), 1 not found or a different parent, 2 unreachable.
+      --trace-json reads a saved trace instead of calling Grafana.
+
+  lgtm_check.py query --grafana URL --expr PROMQL [--positive] [--wait SECONDS] [--names REGEX]
+                      [--result-json FILE]
+      Does a dashboard panel's query return data? Runs PROMQL as an instant query against the
+      stack's Prometheus, through Grafana's datasource proxy. Prints how many series came back
+      and the first value. Exit 0 when a series has a real number (with --positive, above zero),
+      1 when nothing or only NaN came back, 2 unreachable. On exit 1, --names REGEX also prints
+      the metric names Prometheus does have that match it, which is usually the answer (a metric
+      is stored under its name with dots as underscores, its unit and, for a counter, _total).
+      --result-json reads a saved query response instead of calling Grafana.
 """
 import argparse
 import base64
 import json
+import math
+import re
 import socket
 import sys
 import time
@@ -194,6 +207,70 @@ def cmd_span(args):
     return 1
 
 
+def prom_url(grafana, path, params):
+    return f"{grafana.rstrip('/')}/api/datasources/proxy/uid/prometheus/api/v1/{path}?{urllib.parse.urlencode(params)}"
+
+
+def numbers_in(body):
+    """(series count, the finite sample values) of an instant-query response."""
+    data = body.get("data") or {}
+    result = data.get("result") or []
+    if data.get("resultType") == "scalar":
+        result = [{"value": result}]
+    out = []
+    for series in result:
+        try:
+            v = float((series.get("value") or [None, "nan"])[1])
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(v):
+            out.append(v)
+    return len(result), out
+
+
+def cmd_query(args):
+    if args.result_json:
+        with open(args.result_json) as f:
+            body = json.load(f)
+        print(f"checked: saved query response {args.result_json}")
+    else:
+        deadline = time.time() + args.wait
+        while True:
+            url = prom_url(args.grafana, "query", {"query": args.expr})
+            try:
+                body = fetch(url)
+                reached = True
+            except (urllib.error.URLError, OSError, ValueError) as e:
+                body, reached, err = {}, False, e
+            series, values = numbers_in(body)
+            if (values and (not args.positive or max(values) > 0)) or time.time() >= deadline:
+                break
+            time.sleep(3)
+        print("checked: Prometheus instant query via Grafana's datasource proxy")
+        print(f"  {args.expr}")
+        if not reached:
+            print(f"unreachable: {err}")
+            return 2
+    series, values = numbers_in(body)
+    if values and (not args.positive or max(values) > 0):
+        print(f"found: {series} series; first value {values[0]:g}")
+        return 0
+    if series and not values:
+        print(f"found: {series} series, but no number yet (NaN: the metric exists and has not changed in the window)")
+    elif values:
+        print(f"found: {series} series, all zero")
+    else:
+        print("found: no data for that query")
+    if args.names and not args.result_json:
+        try:
+            names = fetch(prom_url(args.grafana, "label/__name__/values", {})).get("data") or []
+            hits = [n for n in names if re.search(args.names, n)]
+            print(f"metric names matching /{args.names}/: {', '.join(hits) if hits else 'none'}")
+        except (urllib.error.URLError, OSError, ValueError) as e:
+            print(f"could not list metric names: {e}")
+    return 1
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -214,10 +291,19 @@ def main(argv=None):
     ps.add_argument("--since", type=int, default=900)
     ps.add_argument("--wait", type=int, default=0)
     ps.add_argument("--trace-json")
+    pq = sub.add_parser("query")
+    pq.add_argument("--grafana", default="http://localhost:3000")
+    pq.add_argument("--expr")
+    pq.add_argument("--positive", action="store_true")
+    pq.add_argument("--wait", type=int, default=0)
+    pq.add_argument("--names")
+    pq.add_argument("--result-json")
     args = p.parse_args(argv)
     if args.cmd == "span" and not args.trace_json and not args.service:
         p.error("span needs --service (or --trace-json)")
-    return {"ports": cmd_ports, "traces": cmd_traces, "span": cmd_span}[args.cmd](args)
+    if args.cmd == "query" and not args.result_json and not args.expr:
+        p.error("query needs --expr (or --result-json)")
+    return {"ports": cmd_ports, "traces": cmd_traces, "span": cmd_span, "query": cmd_query}[args.cmd](args)
 
 
 if __name__ == "__main__":

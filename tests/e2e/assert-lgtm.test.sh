@@ -71,5 +71,28 @@ check "span: the live query uses the tempo proxy, explicit start and end, and th
 out=$(python3 $CHECK span --grafana "http://127.0.0.1:$free_port" --service svc --name x 2>&1); rc=$?
 check "span: an unreachable Grafana exits 2 and says unreachable" '[ "$rc" -eq 2 ] && printf "%s" "$out" | grep -q "^unreachable:"'
 
+# query: a panel's PromQL, checked on saved instant-query responses.
+qdir=$(mktemp -d)
+echo '{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[1794772607,"0.4"]}]}}' > "$qdir/value.json"
+echo '{"status":"success","data":{"resultType":"vector","result":[]}}' > "$qdir/empty.json"
+echo '{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[1794772607,"NaN"]}]}}' > "$qdir/nan.json"
+echo '{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[1794772607,"0"]}]}}' > "$qdir/zero.json"
+check "query: a series with a number passes and prints the value" \
+  'python3 $CHECK query --result-json "$qdir/value.json" | grep -q "^found: 1 series; first value 0.4"'
+python3 $CHECK query --result-json "$qdir/empty.json" >/dev/null; rc=$?
+check "query: an empty result exits 1" '[ "$rc" -eq 1 ]'
+out=$(python3 $CHECK query --result-json "$qdir/nan.json"); rc=$?
+check "query: a NaN-only result exits 1 and says the metric exists but has no number yet" \
+  '[ "$rc" -eq 1 ] && printf "%s" "$out" | grep -q "no number yet"'
+check "query: zero passes without --positive" 'python3 $CHECK query --result-json "$qdir/zero.json" >/dev/null'
+python3 $CHECK query --result-json "$qdir/zero.json" --positive >/dev/null; rc=$?
+check "query: zero fails with --positive" '[ "$rc" -eq 1 ]'
+qurl=$(python3 -c "import sys; sys.path.insert(0, '../../scripts'); import lgtm_check as m; print(m.prom_url('http://localhost:3001/', 'query', {'query': 'sum(up)'}))")
+check "query: the live query goes through Grafana's prometheus datasource proxy" \
+  '[ "$qurl" = "http://localhost:3001/api/datasources/proxy/uid/prometheus/api/v1/query?query=sum%28up%29" ]'
+out=$(python3 $CHECK query --grafana "http://127.0.0.1:$free_port" --expr "up" 2>&1); rc=$?
+check "query: an unreachable Grafana exits 2 and says unreachable" '[ "$rc" -eq 2 ] && printf "%s" "$out" | grep -q "^unreachable:"'
+rm -rf "$qdir"
+
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
