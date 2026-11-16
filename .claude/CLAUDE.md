@@ -89,6 +89,14 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
   `tests/e2e/log-trace-ids.sh` (no Docker) requires the ID in the line to EQUAL the request span's
   and each untouched case to be byte-identical. The per-language table is in
   `skills/language-maturity`; a language not run there is "not checked".
+- The Grafana log panel and error-log alert (#279) query Loki through `var.loki_datasource_uid`.
+  Their two LogQL queries are written once, in `terraform-patterns` ("Log panel and error-log
+  alert"); `tests/log-panel.test.sh` requires both Grafana goldens to carry exactly those, and
+  `tests/e2e/log-panel.sh` runs them, read out of the golden, against the local stack's Loki
+  (`lgtm_check.py logs`), including that the alert query returns nothing before an error is
+  logged. Loki's label is `service_name` with the bare name (no `<namespace>/` prefix, unlike
+  Prometheus's `job`), and severity is filtered by `severity_number >= 17`, never by text. The
+  alert's query is proven, its rule evaluation is not. Grafana only so far.
 - The dashboard's runtime row comes from `skills/terraform-patterns/runtime-panels.json`, the one
   table of runtime panels per language (metric, kind, unit, name stability, PromQL). The generator
   reads it and never writes a runtime query from memory. Add or change a panel there only: the

@@ -57,6 +57,7 @@ matrix is safe to run with only some vendors configured.
 | `GRAFANA_URL` | yes | e.g. `https://yourstack.grafana.net` — the module's default is a placeholder |
 | `GRAFANA_SERVICE_ACCOUNT_TOKEN` | yes | service account token with dashboard + alerting write |
 | `GRAFANA_PROMETHEUS_DATASOURCE_UID` | **effectively required** | see caveat below |
+| `GRAFANA_LOKI_DATASOURCE_UID` | needed unless the stack's Loki datasource UID is `grafanacloud-logs` | the error-log alert rule references it (#279); same caveat |
 
 > **Grafana datasource caveat.** The module creates its own folder and dashboard, but
 > `grafana_rule_group` and `grafana_slo` *reference* an existing Prometheus datasource by UID, and

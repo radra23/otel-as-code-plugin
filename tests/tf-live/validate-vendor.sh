@@ -80,6 +80,11 @@ case "$VENDOR" in
     # alert-rule apply fails. That failure is a real finding, not harness noise.
     [ -n "${GRAFANA_PROMETHEUS_DATASOURCE_UID:-}" ] && \
       export TF_VAR_prometheus_datasource_uid="$GRAFANA_PROMETHEUS_DATASOURCE_UID"
+    # The error-log alert rule (#279) references a Loki datasource the same way. The default
+    # `grafanacloud-logs` is the Grafana Cloud convention; set this for any stack whose Loki
+    # datasource has another UID, or that rule's apply fails.
+    [ -n "${GRAFANA_LOKI_DATASOURCE_UID:-}" ] && \
+      export TF_VAR_loki_datasource_uid="$GRAFANA_LOKI_DATASOURCE_UID"
     ;;
   datadog)
     export TF_VAR_datadog_api_key="$DATADOG_API_KEY"

@@ -36,6 +36,16 @@ proves. Standard library only; JSON over plain http to localhost.
       the metric names Prometheus does have that match it, which is usually the answer (a metric
       is stored under its name with dots as underscores, its unit and, for a counter, _total).
       --result-json reads a saved query response instead of calling Grafana.
+
+  lgtm_check.py logs --grafana URL --expr LOGQL [--contains TEXT] [--since SECONDS]
+                     [--wait SECONDS] [--result-json FILE]
+      Does a log panel's or a log alert's query return data? Runs LOGQL as a range query against
+      the stack's Loki, through Grafana's datasource proxy, with explicit start and end. A log
+      query passes when a line came back (with --contains, a line holding TEXT); a metric query
+      (count_over_time and the like) passes when a series has a real number. Prints the first line
+      or value and, for a line, the labels and structured metadata Loki holds for it, which is how
+      a wrong label in a query is usually found. Exit 0 found, 1 nothing, 2 unreachable.
+      --result-json reads a saved query_range response instead of calling Grafana.
 """
 import argparse
 import base64
@@ -274,6 +284,70 @@ def cmd_query(args):
     return 1
 
 
+def loki_url(grafana, params):
+    return f"{grafana.rstrip('/')}/api/datasources/proxy/uid/loki/loki/api/v1/query_range?{urllib.parse.urlencode(params)}"
+
+
+def loki_result(body, contains):
+    """(kind, hits, first) for a query_range response. For streams: the lines (holding `contains`
+    when given) and the first one with its labels. For a matrix: the finite values."""
+    data = body.get("data") or {}
+    kind = data.get("resultType")
+    if kind == "streams":
+        hits = [(line, stream.get("stream") or {})
+                for stream in data.get("result") or []
+                for _, line, *_ in stream.get("values") or []
+                if contains is None or contains in line]
+        return kind, len(hits), hits[0] if hits else None
+    values = []
+    for series in data.get("result") or []:
+        for _, raw in series.get("values") or []:
+            try:
+                v = float(raw)
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(v):
+                values.append(v)
+    return kind, len(values), values[-1] if values else None
+
+
+def cmd_logs(args):
+    if args.result_json:
+        with open(args.result_json) as f:
+            body = json.load(f)
+        print(f"checked: saved Loki response {args.result_json}")
+    else:
+        deadline = time.time() + args.wait
+        while True:
+            end = time.time() + 5
+            params = {"query": args.expr, "start": int((end - args.since) * 1e9), "end": int(end * 1e9), "limit": 200}
+            try:
+                body = fetch(loki_url(args.grafana, params))
+                reached = True
+            except (urllib.error.URLError, OSError, ValueError) as e:
+                body, reached, err = {}, False, e
+            if loki_result(body, args.contains)[1] or time.time() >= deadline:
+                break
+            time.sleep(3)
+        print("checked: Loki range query via Grafana's datasource proxy")
+        print(f"  {args.expr}")
+        if not reached:
+            print(f"unreachable: {err}")
+            return 2
+    kind, count, first = loki_result(body, args.contains)
+    if not count:
+        wanted = f" containing {args.contains!r}" if args.contains else ""
+        print(f"found: nothing{wanted} for that query")
+        return 1
+    if kind == "streams":
+        line, labels = first
+        print(f"found: {count} line(s); first: {line}")
+        print("  labels: " + ", ".join(f"{k}={v}" for k, v in sorted(labels.items())))
+    else:
+        print(f"found: {count} value(s); latest {first:g}")
+    return 0
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -302,12 +376,19 @@ def main(argv=None):
     pq.add_argument("--wait", type=int, default=0)
     pq.add_argument("--names")
     pq.add_argument("--result-json")
+    pl = sub.add_parser("logs")
+    pl.add_argument("--grafana", default="http://localhost:3000")
+    pl.add_argument("--expr", required=True)
+    pl.add_argument("--contains")
+    pl.add_argument("--since", type=int, default=900)
+    pl.add_argument("--wait", type=int, default=0)
+    pl.add_argument("--result-json")
     args = p.parse_args(argv)
     if args.cmd == "span" and not args.trace_json and not args.service:
         p.error("span needs --service (or --trace-json)")
     if args.cmd == "query" and not args.result_json and not args.expr:
         p.error("query needs --expr (or --result-json)")
-    return {"ports": cmd_ports, "traces": cmd_traces, "span": cmd_span, "query": cmd_query}[args.cmd](args)
+    return {"ports": cmd_ports, "traces": cmd_traces, "span": cmd_span, "query": cmd_query, "logs": cmd_logs}[args.cmd](args)
 
 
 if __name__ == "__main__":

@@ -97,5 +97,31 @@ out=$(python3 $CHECK query --grafana "http://127.0.0.1:$free_port" --expr "up" 2
 check "query: an unreachable Grafana exits 2 and says unreachable" '[ "$rc" -eq 2 ] && printf "%s" "$out" | grep -q "^unreachable:"'
 rm -rf "$qdir"
 
+# logs: a log panel's or a log alert's LogQL, checked on saved query_range responses.
+ldir=$(mktemp -d)
+echo '{"status":"success","data":{"resultType":"streams","result":[{"stream":{"service_name":"inventory-api","severity_number":"17"},"values":[["1794772607000000000","stock lookup failed"]]},{"stream":{"service_name":"inventory-api","severity_number":"9"},"values":[["1794772606000000000","reserved sku=A-1"]]}]}}' > "$ldir/streams.json"
+echo '{"status":"success","data":{"resultType":"streams","result":[]}}' > "$ldir/empty.json"
+echo '{"status":"success","data":{"resultType":"matrix","result":[{"metric":{},"values":[[1794772607,"0.5"]]}]}}' > "$ldir/matrix.json"
+echo '{"status":"success","data":{"resultType":"matrix","result":[]}}' > "$ldir/matrix-empty.json"
+out=$(python3 $CHECK logs --expr x --result-json "$ldir/streams.json"); rc=$?
+check "logs: lines pass, and the first one is printed with the labels Loki holds for it" \
+  '[ "$rc" -eq 0 ] && printf "%s" "$out" | grep -q "^found: 2 line(s); first: stock lookup failed" && printf "%s" "$out" | grep -q "labels: service_name=inventory-api, severity_number=17"'
+check "logs: --contains finds a line by its text" \
+  'python3 $CHECK logs --expr x --result-json "$ldir/streams.json" --contains "reserved sku" | grep -q "^found: 1 line(s); first: reserved sku=A-1"'
+python3 $CHECK logs --expr x --result-json "$ldir/streams.json" --contains "no such text" >/dev/null; rc=$?
+check "logs: --contains with no matching line exits 1" '[ "$rc" -eq 1 ]'
+python3 $CHECK logs --expr x --result-json "$ldir/empty.json" >/dev/null; rc=$?
+check "logs: no lines exits 1" '[ "$rc" -eq 1 ]'
+check "logs: a metric query passes on a real number and prints it" \
+  'python3 $CHECK logs --expr x --result-json "$ldir/matrix.json" | grep -q "^found: 1 value(s); latest 0.5"'
+python3 $CHECK logs --expr x --result-json "$ldir/matrix-empty.json" >/dev/null; rc=$?
+check "logs: a metric query with no series exits 1" '[ "$rc" -eq 1 ]'
+lurl=$(python3 -c "import sys; sys.path.insert(0, '../../scripts'); import lgtm_check as m; print(m.loki_url('http://localhost:3001/', {'query': '{a=\"b\"}', 'start': 1, 'end': 2}))")
+check "logs: the live query goes through Grafana's loki datasource proxy, with explicit start and end" \
+  '[ "$lurl" = "http://localhost:3001/api/datasources/proxy/uid/loki/loki/api/v1/query_range?query=%7Ba%3D%22b%22%7D&start=1&end=2" ]'
+out=$(python3 $CHECK logs --grafana "http://127.0.0.1:$free_port" --expr "{a=\"b\"}" 2>&1); rc=$?
+check "logs: an unreachable Grafana exits 2 and says unreachable" '[ "$rc" -eq 2 ] && printf "%s" "$out" | grep -q "^unreachable:"'
+rm -rf "$ldir"
+
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
