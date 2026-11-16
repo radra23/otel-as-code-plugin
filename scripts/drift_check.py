@@ -58,6 +58,11 @@ def latest_pypi(pkg):
     return fetch_json(f"https://pypi.org/pypi/{pkg}/json")["info"]["version"]
 
 
+def latest_go(module):
+    # The module proxy's @latest; module paths are lower-case here, so no case-escaping is needed.
+    return fetch_json(f"https://proxy.golang.org/{module}/@latest")["Version"].lstrip("v")
+
+
 def latest_packagist(pkg):
     """Highest stable version on Packagist. The p2 API returns versions descending with no
     separate stable/dev split, but dev branches (`dev-main`) sort first alphabetically despite
@@ -322,6 +327,14 @@ def python_pins():
     return re.findall(r'"(opentelemetry-[^">=]+)>=([0-9][^"]*)"', _read("agents/instrumentation-gen.md"))
 
 
+def go_pins():
+    """(module, version) for each `go.opentelemetry.io/... vX.Y.Z` line the generator tells Go
+    services to require. Go had no drift coverage until the runtime-metrics module was added
+    (#277): a contrib module that falls behind the SDK line it is released with fails the build."""
+    return re.findall(r"^(go\.opentelemetry\.io/[a-z0-9/._-]+) v([0-9][0-9.]*)$",
+                      _read("agents/instrumentation-gen.md"), re.M)
+
+
 def dotnet_pins():
     """(package, version) for each `dotnet add package <id>  # <version>` line in the .NET
     section of instrumentation-gen.md — the comment carries the pin, since `dotnet add` itself
@@ -447,6 +460,9 @@ def main():
                 f"nuget {pkg}: pinned {pinned} ships no {tfm} asset — a {tfm} project restores the "
                 f"netstandard build, whose OTLP/gRPC export fails silently (#229); pin the last "
                 f"release with a {tfm} group, or move the golden TargetFramework")
+    for module, pinned in go_pins():
+        latest, err = safe(latest_go, module)
+        add(f"go {module}", pinned, latest, err)
     for crate, pinned in rust_pins():
         latest, err = safe(latest_crate, crate)
         add(f"crates.io {crate}", pinned, latest, err, cmp=behind_compatible)

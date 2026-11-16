@@ -36,6 +36,7 @@ services:
     working_dir: /app
     environment:
       OTEL_SERVICE_NAME: "checkout-api"
+      OTEL_METRIC_EXPORT_INTERVAL: "5000"   # runtime metrics are asserted (#277); the default is 60 s
       OTEL_SERVICE_VERSION: "1.4.2"
       OTEL_SERVICE_NAMESPACE: "storefront"
       DEPLOYMENT_ENV: "e2e"
@@ -75,6 +76,7 @@ services:
       # (per-deployment, like node/python). Sourcing the file expands it against this — proving
       # the confirmed value is not baked static and can differ per target (#32).
       DEPLOYMENT_ENV: "e2e"
+      OTEL_METRIC_EXPORT_INTERVAL: "5000"   # runtime metrics are asserted (#277); the default is 60 s
     ports:
       - "8080:8080"   # load is driven from the host (see run.sh)
     volumes:
@@ -125,6 +127,7 @@ services:
       # includes env vars by default). Use a name DISTINCT from node-app's checkout-api — a
       # duplicate service.name would merge in Jaeger and muddy the per-service assertion.
       OTEL_SERVICE_NAME: "checkout-dotnet"
+      OTEL_METRIC_EXPORT_INTERVAL: "5000"   # runtime metrics are asserted (#277); the default is 60 s
       # service.version (1.4.2) and service.namespace (checkout) are set in the golden
       # OpenTelemetry.cs itself; deployment.environment.name reads DEPLOYMENT_ENV at runtime.
       DEPLOYMENT_ENV: "e2e"
@@ -151,6 +154,7 @@ services:
       # The golden tracing.go reads service.name from OTEL_SERVICE_NAME (envOrDefault). Use a
       # name DISTINCT from every other service — a duplicate service.name would merge in Jaeger.
       OTEL_SERVICE_NAME: "search-api"
+      OTEL_METRIC_EXPORT_INTERVAL: "5000"   # runtime metrics are asserted (#277); the default is 60 s
       DEPLOYMENT_ENV: "e2e"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4317"
       PORT: "8080"

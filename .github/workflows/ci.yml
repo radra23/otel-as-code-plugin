@@ -147,6 +147,9 @@ jobs:
       - name: assert-logs unit test
         run: bash tests/e2e/assert-logs.test.sh
 
+      - name: assert-metrics unit test (runtime metrics, #277)
+        run: bash tests/e2e/assert-metrics.test.sh
+
       - name: assert-lgtm unit test (local stack read-back)
         run: bash tests/e2e/assert-lgtm.test.sh
 

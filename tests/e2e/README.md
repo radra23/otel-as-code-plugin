@@ -85,6 +85,10 @@ every push/PR. #4 stays local-only.
    Python app's `reserved sku=...` log (emitted on `/inventory/reserve`, bridged to
    OTLP by the `--experimental` bootstrap) arrived as a log record with
    `service.name=inventory-api`.
+   Then asserts, via `assert-metrics.sh` against `.work/collector-out/metrics.json` (the same
+   overlay's `file/metrics` exporter), that at least one runtime metric arrived for the
+   Node.js, Python, Java, .NET and Go apps, by the prefix each runtime's metrics carry
+   (`nodejs.`/`v8js.`, `process.`/`cpython.`, `jvm.`, `dotnet.`, `go.`).
 6. Always tears down: a `trap ... EXIT` dumps `docker compose logs` for the
    collector and both apps, runs `docker compose down -v --remove-orphans`, and
    removes `tests/e2e/.work/` — regardless of whether the assertions passed.

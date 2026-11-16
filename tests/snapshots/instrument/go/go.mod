@@ -4,6 +4,7 @@ go 1.25.0
 
 require (
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.71.0
+	go.opentelemetry.io/contrib/instrumentation/runtime v0.71.0
 	go.opentelemetry.io/otel v1.46.0
 	go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc v0.22.0
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc v1.46.0
