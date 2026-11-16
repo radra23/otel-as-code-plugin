@@ -9,12 +9,14 @@ proves. Standard library only; JSON over plain http to localhost.
       Is each host port the stack needs (4317, 4318, N) free? Prints one line per port.
       Exit 0 all free, 3 any taken (the caller says which and stops; it never picks another).
 
-  lgtm_check.py traces --grafana URL --service NAME [--since SECONDS] [--wait SECONDS]
-                       [--search-json FILE]
+  lgtm_check.py traces --grafana URL --service NAME [--traceql QUERY] [--since SECONDS]
+                       [--wait SECONDS] [--search-json FILE]
       Did a trace for NAME reach Tempo? Asks Tempo through Grafana's datasource proxy
       (/api/datasources/proxy/uid/tempo/api/search) because the image does not publish Tempo's
       own :3200, and always passes explicit start/end: without them Tempo's search can come back
       empty for traces that are there. Prints exactly what it asked and what came back.
+      --traceql searches with QUERY (a generated alert's trace link carries one) instead of
+      {resource.service.name="NAME"}; a trace still counts only when its root service is NAME.
       Exit 0 found, 1 nothing found, 2 Grafana or Tempo unreachable.
       --search-json reads a saved search response instead of calling Grafana (offline tests).
 
@@ -79,8 +81,8 @@ def cmd_ports(args):
     return 3 if taken else 0
 
 
-def search_url(grafana, service, start, end):
-    q = '{resource.service.name="%s"}' % service
+def search_url(grafana, service, start, end, traceql=None):
+    q = traceql or '{resource.service.name="%s"}' % service
     qs = urllib.parse.urlencode({"q": q, "start": start, "end": end, "limit": 20})
     return f"{grafana.rstrip('/')}/api/datasources/proxy/uid/tempo/api/search?{qs}"
 
@@ -107,7 +109,7 @@ def cmd_traces(args):
     deadline = time.time() + args.wait
     while True:
         end = int(time.time())
-        url = search_url(args.grafana, args.service, end - args.since, end)
+        url = search_url(args.grafana, args.service, end - args.since, end, args.traceql)
         try:
             found = matching_traces(fetch(url), args.service)
             reached = True
@@ -356,6 +358,7 @@ def main(argv=None):
     pt = sub.add_parser("traces")
     pt.add_argument("--grafana", default="http://localhost:3000")
     pt.add_argument("--service", required=True)
+    pt.add_argument("--traceql")
     pt.add_argument("--since", type=int, default=900)
     pt.add_argument("--wait", type=int, default=0)
     pt.add_argument("--search-json")

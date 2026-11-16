@@ -375,6 +375,26 @@ number, `no_data_state = "OK"`).
   **Datadog:** neither, and `log panel: none for Datadog yet` in the summary. For New Relic and
   Dash0 the summary says the log queries were not run against live data.
 
+## What every alert says
+
+Every alert carries what it means, its likely causes and what to check first, in its backend's
+own field. The text comes from a table, never from memory: `Read` the file `alert-text.json` in
+the SAME directory as `terraformPatternsPath` (replace the trailing `SKILL.md` with
+`alert-text.json`) and follow the skill's "What every alert says" section for the field and the
+links per backend.
+
+- Pick the entry by what the alert watches: `error_rate`, `latency`, `error_logs` or
+  `burn_rate`. Copy `meaning`, `causes` and `check` unchanged, in the shape that section gives.
+- **Grafana** (both flavors): also emit `tempo_datasource_uid` (default `grafanacloud-traces` for
+  `cloud`, `tempo` for `self-hosted`) and the `traces_explore_pane` / `traces_explore_url`
+  locals whenever a rule is emitted, and add to the summary: `alerts: each links to the dashboard
+  and a trace search (set tempo_datasource_uid)`.
+- **New Relic**: the dashboard permalink at the end of `description`. **Datadog** and **Dash0**:
+  no links; say `alert links: none for <backend> (no dashboard URL from its resources)` in the
+  summary.
+- If the file cannot be read, emit the alerts without the text and say `alert text: skipped,
+  alert-text.json not readable` in the summary. Never write alert text from memory.
+
 ## Grafana main.tf
 
 Generate using patterns from the `terraform-patterns` skill (grafana section).

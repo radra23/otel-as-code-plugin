@@ -72,6 +72,42 @@ locals {
 - **Do NOT sanitize** a **display title** (`name = "High error rate — ${var.service_name}"`) —
   free text, the real name reads better.
 
+## What every alert says (all backends, #288)
+An alert that only names a threshold sends the person it wakes to the documentation first. Every
+generated alert carries, in its backend's own field, three sentences from `alert-text.json` (next
+to this file): what it means (with the threshold the alert uses), its likely causes, and what to
+check first. The text is written there once per alert kind (`error_rate`, `latency`,
+`error_logs`, `burn_rate`) and copied unchanged; never write alert text from memory, and never
+add a kind here without its entry there. Short on purpose: it is read in a pager or chat
+notification, often on a phone.
+
+| Backend | Where the text goes | Links |
+|---|---|---|
+| Grafana (both flavors) | rule `annotations`: `summary` = the meaning, `description` = `Likely causes: ... Check first: ...` | `dashboard = grafana_dashboard.otel.url`; `traces = local.traces_explore_url`, Explore on `var.tempo_datasource_uid` with the TraceQL query `{resource.service.name="${var.service_name}"}` |
+| New Relic | condition `description`: meaning, causes, first check, then `Dashboard: ${newrelic_one_dashboard.otel.permalink}` | the dashboard permalink only |
+| Datadog | monitor `message`: meaning, causes, first check, then the existing `Notify @your-team.` | none |
+| Dash0 | rule `annotations`: `summary` = the meaning, `description` = causes and first check, both double-quoted (the text contains `: `, which ends a plain YAML scalar) | none |
+
+Rules:
+- **Copy the rendered text exactly.** `tests/alert_text_render.py` renders each backend's lines
+  and `tests/alert-text.test.sh` requires every alert in every golden to carry them byte for byte.
+  The thresholds a meaning names (5%, 500 ms, 14.4x) are the generated alerts' own: change the
+  table and the alerts together.
+- **Only links a backend's own resources can build.** Grafana's dashboard resource exports its
+  URL and the trace search is an Explore URL built from `var.grafana_url`; New Relic's dashboard
+  exports a permalink. Datadog's and Dash0's dashboard resources give no full URL this module can
+  rely on, so their alerts carry none; do not hand-assemble one from a site name.
+- **Grafana's trace link needs the Tempo datasource UID.** Add
+  `variable "tempo_datasource_uid"` (default `grafanacloud-traces`; self-hosted `tempo`, the
+  `/otel-local` stack's UID) and the two locals `traces_explore_pane` and `traces_explore_url`
+  exactly as the goldens have them. A wrong UID does not fail the apply: the link opens Explore
+  on a datasource that does not exist, so say in the summary that it must match the stack.
+- **What is proven.** The TraceQL query behind the Grafana link is run against the local stack's
+  Tempo by `tests/e2e/log-panel.sh`, read out of the golden. That Grafana, New Relic, Datadog or
+  Dash0 shows the text in a notification is not tested: no alert is evaluated anywhere.
+- **A runbook file** (`docs/runbooks/<service>.md`, linked from `runbook_url`) is not generated
+  yet.
+
 ## Workloads without an OTel SDK (scraped metrics)
 
 Some in-scope services emit no OTel SDK telemetry, such as an upstream binary like Keycloak (the
