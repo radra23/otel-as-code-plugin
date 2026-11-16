@@ -313,6 +313,35 @@ an unknown unit, use the name without a suffix and say the same. Never present e
 Say in each panel description that `/otel-enrich --business` adds the code that emits the metric:
 without it the panel is empty, and the user needs to know what to run.
 
+### Runtime panel row (by the service's language, #277)
+Memory, garbage collection, CPU and the event loop, threads or goroutines: metrics the generated
+bootstrap emits with no application code. `runtime-panels.json`, next to this file, is the single
+source of truth for the row: per language, three or four panels with the OpenTelemetry metric
+name, its kind and unit, how settled the name is, and the PromQL in the `grafana` field. Do not
+write a runtime query from memory and do not add a panel that is not in that table: every query in
+it is run against Prometheus by the trace-flow e2e job (`tests/e2e/run.sh`), and a query made up
+here is not.
+
+- **Pick the row by `service.language`** (`nodejs`, `python`, `java`, `dotnet`, `go`). A language
+  under `none` in the table (Ruby, Rust, PHP) gets no row: say so in the summary with the reason
+  given there. A language in neither place also gets no row, reported as "not checked".
+- **Layout.** A `type = "row"` panel titled `Runtime (<label>)` at `y = 16`, directly under the
+  three HTTP panels, then the table's panels side by side at `y = 17`, `h = 8`, each
+  `w = 24 / <number of panels>`. Business panels start under it, at `y = 25`.
+- **Use the `grafana` query as written.** It already filters by `job` with `${var.service_name}`
+  and already carries the unit suffix and `_total`. When the service has a namespace the `job`
+  value changes exactly as for every other panel (see the `job` gotcha above), and nothing else.
+- **Set the axis unit** from `grafanaUnit` (`fieldConfig = { defaults = { unit = "..." } }`).
+- **Description.** `<metric>, emitted by the generated bootstrap with no application code.` When
+  `stability` is not `stable`, add: `Its name is not yet stable in the OpenTelemetry semantic
+  conventions: if the panel goes blank after an SDK upgrade, check whether the metric was
+  renamed.` The bootstrap must be the one `/otel-instrument` writes since 0.16.0; an older one
+  for Python, Go or .NET emits no runtime metrics and leaves the row empty until regenerated.
+- **Grafana only for now.** The Datadog, New Relic and Dash0 dashboards get no runtime row yet:
+  there is no account to run their queries against, and Datadog renames some runtime metrics when
+  it ingests them. Say "runtime row: Grafana only" in the summary for those backends; never
+  translate the PromQL into another query language on the fly.
+
 ### Notification routing (contact points)
 Emit contact points only when the user asks for alert routing. Without one, the generated
 `grafana_rule_group` alerts go through the stack's existing notification policy.

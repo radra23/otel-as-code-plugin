@@ -16,6 +16,15 @@ services:
     # (curl against http://localhost:16686/), and the collector's OTLP exporter has
     # retry_on_failure enabled, so it tolerates jaeger not being immediately ready.
 
+  # Prometheus for the runtime panel queries (#277): the same grafana/otel-lgtm image /otel-local
+  # starts, so a query proven here is proven against what the user's local stack stores. The
+  # collector forwards metrics to it (collector-logs-overlay.yaml); run.sh queries it through
+  # Grafana on host port 3002. Traces still go to jaeger, which the trace assertions read.
+  lgtm:
+    image: grafana/otel-lgtm:0.41.0
+    ports:
+      - "127.0.0.1:3002:3000"   # Grafana (datasource proxy to Prometheus); 3000/3001 are the apps'
+
   collector:
     image: otel/opentelemetry-collector-contrib:0.165.0
     # Golden config + an E2E-only overlay (deep-merged) that also writes received logs to a file
@@ -29,7 +38,7 @@ services:
       - ../snapshots/collector/otelcol-agent.yaml.snap:/etc/otelcol/config.yaml:ro
       - ./collector-logs-overlay.yaml:/etc/otelcol/logs-overlay.yaml:ro
       - ./.work/collector-out:/out   # file exporter writes logs.json here (run.sh makes it world-writable)
-    depends_on: [jaeger]
+    depends_on: [jaeger, lgtm]
 
   node-app:
     image: node:20-bookworm-slim

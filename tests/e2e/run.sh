@@ -16,7 +16,7 @@ cleanup() {
   # metrics/logs pipelines (Jaeger's OTLP receiver only accepts traces) — see the
   # "Expected collector errors" section in README.md before treating those as the failure.
   echo "--- collector + app logs (tail, timestamped) ---"
-  docker compose logs --timestamps --tail=60 jaeger collector node-app python-app java-app nextjs-app dotnet-app go-app ruby-app rust-app 2>/dev/null || true
+  docker compose logs --timestamps --tail=60 jaeger collector lgtm node-app python-app java-app nextjs-app dotnet-app go-app ruby-app rust-app 2>/dev/null || true
   echo "--- jaeger /api/services (what actually landed) ---"
   curl -fsS "http://localhost:16686/api/services" 2>/dev/null && echo || echo "(jaeger /api/services unreachable)"
   docker compose down -v --remove-orphans 2>/dev/null || true
@@ -250,9 +250,22 @@ POLL_TIMEOUT=60 bash assert-metrics.sh --file "$MJ" --service payments-api    --
 POLL_TIMEOUT=60 bash assert-metrics.sh --file "$MJ" --service checkout-dotnet --expect-prefix "dotnet." || rc=1
 POLL_TIMEOUT=60 bash assert-metrics.sh --file "$MJ" --service search-api      --expect-prefix "go." || rc=1
 
+# Runtime panel row (#277): the queries the generated Grafana dashboard charts for each language,
+# read from terraform-patterns' runtime-panels.json, must return data from a real Prometheus. The
+# collector forwards metrics to the lgtm container; the job label there is
+# <service.namespace>/<service.name>. A rate() needs two samples, so Python (30 s export) waits
+# longest.
+GRAFANA="http://localhost:3002"
+for _ in $(seq 1 90); do curl -fsS "$GRAFANA/api/health" >/dev/null 2>&1 && break; sleep 2; done
+bash assert-runtime-panels.sh --grafana "$GRAFANA" --language nodejs --job storefront/checkout-api   --wait 120 || rc=1
+bash assert-runtime-panels.sh --grafana "$GRAFANA" --language python --job storefront/inventory-api  --wait 180 || rc=1
+bash assert-runtime-panels.sh --grafana "$GRAFANA" --language java   --job storefront/payments-api   --wait 120 || rc=1
+bash assert-runtime-panels.sh --grafana "$GRAFANA" --language dotnet --job checkout/checkout-dotnet  --wait 120 || rc=1
+bash assert-runtime-panels.sh --grafana "$GRAFANA" --language go     --job storefront/search-api     --wait 120 || rc=1
+
 if [ "$rc" -eq 0 ]; then
-  echo "E2E PASS: traces for all services landed with correct service.* attrs, the Python --experimental logs path exported a log record, and runtime metrics arrived for Node.js, Python, Java, .NET and Go"
+  echo "E2E PASS: traces for all services landed with correct service.* attrs, the Python --experimental logs path exported a log record, and runtime metrics arrived for Node.js, Python, Java, .NET and Go and every runtime panel query returned data"
 else
-  echo "E2E FAIL: a service's traces did not land, the Python logs record did not arrive, or a runtime metric is missing. See per-service output above and the trap diagnostics (jaeger /api/services)." >&2
+  echo "E2E FAIL: a service's traces did not land, the Python logs record did not arrive, a runtime metric is missing, or a runtime panel query returned nothing. See per-service output above and the trap diagnostics (jaeger /api/services)." >&2
   exit 1
 fi

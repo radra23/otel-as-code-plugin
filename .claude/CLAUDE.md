@@ -78,6 +78,15 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
   moves. Process and runtime only: never turn on host-wide `system.*` metrics from a bootstrap.
   The trace-flow e2e asserts one runtime metric per language from the Collector's `file/metrics`
   exporter (`tests/e2e/assert-metrics.sh`); it runs in Docker, so only CI proves it.
+- The dashboard's runtime row comes from `skills/terraform-patterns/runtime-panels.json`, the one
+  table of runtime panels per language (metric, kind, unit, name stability, PromQL). The generator
+  reads it and never writes a runtime query from memory. Add or change a panel there only: the
+  trace-flow e2e forwards metrics to a `grafana/otel-lgtm` container (the `/otel-local` image,
+  same pin) and runs EVERY query in the table per language (`tests/e2e/assert-runtime-panels.sh`),
+  and `tests/runtime-panels.test.sh` pins the Grafana goldens to the table byte for byte
+  (regenerate the block with `tests/runtime_panels_render.py`). Pick metrics that exist without
+  traffic: a query on a series that only appears after some event fails the job on a quiet run.
+  Grafana only so far; Datadog, New Relic and Dash0 have no account to prove a query against.
 
 - `evals/routing/` measures whether a fresh session picks this plugin (`claude plugin eval` for
   only-this-plugin, `run-headless.sh` for a full personal plugin set, one scorer `score.py` for
