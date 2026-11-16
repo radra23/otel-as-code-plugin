@@ -67,8 +67,18 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
   and the SDK's test classes were renamed between releases while the wire format is stable. A
   change to either template is proven in `tests/e2e/telemetry-test.sh`, which runs the generated
   tests on real apps and requires them to FAIL, naming the gap, when instrumentation is removed.
-  FastAPI 0.163 makes its own request span when the instrumentor is absent, so "the request's
-  span is missing" cannot prove the bootstrap is loaded there: the Python test checks the import.
+  FastAPI 0.142.0 and later makes its own request span whenever a provider is registered, so
+  "the request's span is missing" cannot prove the bootstrap is loaded there: the Python test
+  checks the import.
+- FastAPI's own telemetry (#300): from 0.142.0 FastAPI reports request spans and
+  `http.server.request.duration` under the stable names, and switches itself off when the
+  instrumentation package's middleware is in its stack, so there are never two server spans. The
+  package reports the OLD names unless `OTEL_SEMCONV_STABILITY_OPT_IN` is set, so the Python
+  bootstrap's `instrument_fastapi()` calls it only where `fastapi.telemetry` cannot be imported
+  (decided at start-up, not from the declared version range; `OTEL_AS_CODE_FASTAPI_SOURCE=package`
+  forces the package). `tests/e2e/fastapi-native.sh` (no Docker) holds exactly one server span per
+  request on FastAPI 0.141.1 and on the current release, and the stable names by default on the
+  latter. The console span exporter prints no scope: that test tells the source by child spans.
 
 - Runtime metrics (#277) ride the Metrics signal: Node.js and Java emit them already (bundle,
   agent), Python, Go and .NET get one block in the bootstrap, and Ruby, Rust and PHP have no
