@@ -586,8 +586,9 @@ unit suffix, so the query follows from the entry's `metric`, `kind` and optional
   ("About this page", row 4, full width) that says the queries were derived and not run against
   a New Relic account, and names the metrics whose names are not yet stable.
 - **None of these queries has been run against live data.** The schema is validated on every
-  push and the module is applied to a real account by the live-apply job; that proves the
-  dashboard is accepted, not that a chart has data. Say so in the summary.
+  push, and that is all: the live-apply job has not yet run against a New Relic account, so
+  nothing shows that New Relic accepts the dashboard, let alone that a chart has data. Say so in
+  the summary.
 
 ### Logs page and error-log alert (#279)
 The dashboard's last `page` is `Logs`, and the alert policy gains one condition. The attribute

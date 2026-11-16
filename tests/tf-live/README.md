@@ -83,8 +83,10 @@ matrix is safe to run with only some vendors configured.
 - **Manually:** Actions → *Terraform live validate (opt-in)* → *Run workflow*.
 - **Scheduled:** weekly (Mon 04:17 UTC).
 
-When it first runs green against real accounts, drop the "Terraform is not yet proven against live
-vendor backends" caveat from the top-level `README.md` (per the ROADMAP).
+The top-level `README.md` has a per-backend table of what this job has actually applied. Keep it
+to what the run history shows (`gh run list --workflow tf-live-validate.yml`, then the `PASS:` and
+`SKIP:` lines of each run): a backend whose leg has only ever printed `SKIP` is "wired", not
+"proven". As of 2026-11-16 only Dash0 has run.
 
 ## Adding another vendor
 
