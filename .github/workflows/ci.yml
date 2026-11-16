@@ -156,6 +156,9 @@ jobs:
       - name: Trace IDs in log lines (one block in both Python goldens and the generator; #279)
         run: bash tests/log-trace-ids.test.sh
 
+      - name: Log panel and error-log alert (the skill's two queries are the goldens' two; #279)
+        run: bash tests/log-panel.test.sh
+
       - name: assert-lgtm unit test (local stack read-back)
         run: bash tests/e2e/assert-lgtm.test.sh
 
@@ -380,6 +383,23 @@ jobs:
 
       - name: One client span per call, end to end
         run: bash tests/e2e/enrich-clients.sh
+
+  # Log panel and error-log alert (#279): the Grafana golden's two LogQL queries, run against the
+  # local stack's Loki with a Python service that exports its logs.
+  log-panel-e2e:
+    name: The Grafana log panel and error-log alert queries return data from Loki
+    runs-on: ubuntu-latest
+    # Image pull and pip install dominate.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Log panel and alert queries end to end
+        run: bash tests/e2e/log-panel.sh
 
   # Trace IDs in log lines (#279): the golden Python and Node.js bootstraps in real apps; the ID in
   # a request's log line must equal its span's, and the app's own log format must survive.
