@@ -96,7 +96,10 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
   same pin) and runs EVERY query in the table per language (`tests/e2e/assert-runtime-panels.sh`),
   and `tests/runtime-panels.test.sh` pins the Grafana goldens to the table byte for byte
   (regenerate the block with `tests/runtime_panels_render.py`). Pick metrics that exist without
-  traffic: a query on a series that only appears after some event fails the job on a quiet run.
+  an event having happened: `jvm.gc.duration` (a histogram, recorded only when a collection runs)
+  failed the job on a run where the JVM had not collected yet and was replaced by
+  `jvm.memory.used_after_last_gc`. Node.js's `v8js.gc.duration` panel is the same kind; it has been
+  present on every run so far and is the first suspect if that job fails on a Node.js query.
   Grafana only so far; Datadog, New Relic and Dash0 have no account to prove a query against.
 
 - `evals/routing/` measures whether a fresh session picks this plugin (`claude plugin eval` for
