@@ -317,6 +317,14 @@ emitting a bootstrap that silently does nothing.
   `v8js.*`), and this process's CPU, memory, threads and garbage collection in Python
   (`process.*`, `cpython.*`). The Python ones come from a beta package that needs `psutil`; if it
   is not installed the service still starts and says so once.
+- Log lines say which trace they belong to, with your logger and format left as they are. In
+  Node.js, pino, winston and bunyan lines gain `trace_id` and `span_id` fields; `console.log` does
+  not. In Python, lines from the standard `logging` module get ` trace_id=... span_id=...` at the
+  end, and a JSON formatter gets `otelTraceID` / `otelSpanID` fields; `print()` does not, and
+  `OTEL_AS_CODE_LOG_TRACE_IDS=off` turns the appending off. This needs traces to be on, and it puts
+  the ID in the line you already write: the logs themselves reach a backend only where the logs
+  signal is exported. Run on real apps in CI
+  ([`tests/e2e/log-trace-ids.sh`](tests/e2e/log-trace-ids.sh)).
 - Browser SPAs are detected (`runtime: browser`) and refused: a Node SDK bootstrap cannot run in
   a bundle. Browser and RUM instrumentation is out of scope.
 </details>

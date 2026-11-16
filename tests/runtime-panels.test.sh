@@ -85,6 +85,7 @@ check "every language with a row is asserted in the maturity matrix, and every l
 import json,re
 doc=json.load(open(\"$TABLE\")); m=open(\"skills/language-maturity/SKILL.md\").read()
 m=m[m.index(\"## Runtime metrics (#277)\"):]
+m=m[:m.index(\"\n## \", 3)]
 rows={r.split(\"|\")[1].strip().lower(): r.split(\"|\")[-2].strip() for r in m.splitlines() if r.startswith(\"| \") and not r.startswith(\"| Runtime\")}
 name={\"nodejs\":\"node.js\",\"dotnet\":\".net\"}
 assert all(rows[name.get(l,l)]==\"yes\" for l in doc[\"languages\"]), rows
