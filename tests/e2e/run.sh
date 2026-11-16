@@ -237,6 +237,13 @@ POLL_TIMEOUT=90 bash assert-traces.sh --jaeger "$JA" --service products-api \
 POLL_TIMEOUT=40 bash assert-logs.sh --file "$WORK/collector-out/logs.json" \
   --service inventory-api --expect-body "reserved sku" || rc=1
 
+# Go logs: the fixture's main.go carries the optional logs wiring (InitOtelLogs plus a slog logger
+# that writes to the console AND to OtelSlogHandler), and /search logs one line with the request's
+# context. The record must reach the collector under the service's name and carry a trace ID:
+# without the bridge the pipeline InitOtelLogs builds receives nothing at all.
+POLL_TIMEOUT=40 bash assert-logs.sh --file "$WORK/collector-out/logs.json" \
+  --service search-api --expect-body "search served" --expect-trace-id || rc=1
+
 # Runtime metrics (#277): each bootstrap that can emit them does, with no application code. The
 # collector's file/metrics exporter writes what it received to collector-out/metrics.json; assert
 # at least one runtime metric per service, by the prefix that language's runtime metrics carry.
@@ -264,8 +271,8 @@ bash assert-runtime-panels.sh --grafana "$GRAFANA" --language dotnet --job check
 bash assert-runtime-panels.sh --grafana "$GRAFANA" --language go     --job storefront/search-api     --wait 120 || rc=1
 
 if [ "$rc" -eq 0 ]; then
-  echo "E2E PASS: traces for all services landed with correct service.* attrs, the Python --experimental logs path exported a log record, and runtime metrics arrived for Node.js, Python, Java, .NET and Go and every runtime panel query returned data"
+  echo "E2E PASS: traces for all services landed with correct service.* attrs, the Python --experimental logs path and the Go slog bridge each exported a log record, and runtime metrics arrived for Node.js, Python, Java, .NET and Go and every runtime panel query returned data"
 else
-  echo "E2E FAIL: a service's traces did not land, the Python logs record did not arrive, a runtime metric is missing, or a runtime panel query returned nothing. See per-service output above and the trap diagnostics (jaeger /api/services)." >&2
+  echo "E2E FAIL: a service's traces did not land, a Python or Go log record did not arrive, a runtime metric is missing, or a runtime panel query returned nothing. See per-service output above and the trap diagnostics (jaeger /api/services)." >&2
   exit 1
 fi

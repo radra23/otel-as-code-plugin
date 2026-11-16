@@ -158,7 +158,16 @@ check "Go golden declares go 1.26, the legacy module go 1.25" \
   'grep -qx "go 1.26.0" tests/snapshots/instrument/go/go.mod && grep -qx "go 1.25.0" tests/snapshots/instrument/go/legacy/go.mod'
 check "the generator's Go template and the golden carry the same logs block" '
   blk() { awk "/^\/\/ Logs\. The Logs API and SDK are stable/{on=1} on{print} on&&/^\treturn InitOtelLogs\(ctx\)\$/{exit}" "$1"; }
-  [ -n "$(blk tests/snapshots/instrument/go/tracing.go)" ] && [ "$(blk tests/snapshots/instrument/go/tracing.go)" = "$(blk agents/instrumentation-gen.md)" ]'
+  [ -n "$(blk tests/snapshots/instrument/go/tracing.go)" ] && [ "$(blk tests/snapshots/instrument/go/tracing.go | sed "s/\"search-api\")/\"<SERVICE_NAME>\")/")" = "$(blk agents/instrumentation-gen.md)" ]'
+check "the Go bootstrap offers the slog bridge and never sets the default logger itself" '
+  f=tests/snapshots/instrument/go/tracing.go
+  grep -qF "func OtelSlogHandler() slog.Handler" "$f" && grep -qF "otelslog.NewHandler(" "$f" && ! grep -q "slog.SetDefault" "$f"'
+check "the printed Go logs wiring keeps the console handler next to the bridge" '
+  grep -qF "slog.SetDefault(slog.New(slog.NewMultiHandler(" agents/instrumentation-gen.md \
+    && grep -qF "OtelSlogHandler(),                   // the same records, to OpenTelemetry" agents/instrumentation-gen.md \
+    && grep -qF "OtelSlogHandler(),                   // the same records, to OpenTelemetry" fixtures/go-greenfield/main.go'
+check "the e2e asserts a Go log record with a trace ID" \
+  'grep -q -- "--service search-api --expect-body \"search served\" --expect-trace-id" tests/e2e/run.sh'
 check "the three legacy substitutions the e2e applies are the ones the generator documents" '
   grep -qF "logglobal \"go.opentelemetry.io/otel/log/global\"" agents/instrumentation-gen.md \
     && grep -qF "logglobal.SetLoggerProvider(loggerProvider)" agents/instrumentation-gen.md \

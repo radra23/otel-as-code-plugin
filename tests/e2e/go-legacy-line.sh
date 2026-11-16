@@ -6,7 +6,8 @@
 # from the current template by the three substitutions agents/instrumentation-gen.md lists under
 # "Go below 1.26"; this applies exactly those to the golden tracing.go, puts it next to the
 # fixture's main.go and the legacy go.mod/go.sum (tests/snapshots/instrument/go/legacy/), and
-# builds it. Run in CI on Go 1.25, which is the point; any newer Go builds it too.
+# builds it (the bridge function is kept, on otelslog v0.20.1, the release that matches v1.46).
+# Run in CI on Go 1.25, which is the point; any newer Go builds it too.
 # Needs a Go toolchain and network for the module download. No Docker.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -15,7 +16,16 @@ WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 GO=${GO:-go}
 
-cp "$SRC/fixtures/go-greenfield/main.go" "$WORK/"
+# The fixture's optional logs wiring uses slog.NewMultiHandler, which Go 1.25 does not have, and the
+# generator prints no logs wiring for this line: drop that block, keep everything else.
+python3 - "$SRC/fixtures/go-greenfield/main.go" "$WORK/main.go" <<'PY'
+import re, sys
+text = open(sys.argv[1], encoding="utf-8").read()
+out, n = re.subn(r"\t// otel logs wiring begin.*?// otel logs wiring end\n\n", "", text, flags=re.S)
+if n != 1:
+    sys.exit(f"expected one 'otel logs wiring' block in the fixture's main.go, found {n}")
+open(sys.argv[2], "w", encoding="utf-8").write(out)
+PY
 cp "$SRC/tests/snapshots/instrument/go/legacy/go.mod" "$SRC/tests/snapshots/instrument/go/legacy/go.sum" "$WORK/"
 python3 - "$SRC/tests/snapshots/instrument/go/tracing.go" "$WORK/tracing.go" <<'PY'
 import sys
