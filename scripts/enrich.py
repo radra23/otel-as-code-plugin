@@ -767,14 +767,14 @@ def js_metric_site(lines, text, rel, args, blocks):
 def cmd_metric(args):
     full, rel = resolve(args.root, args.file)
     lang = lang_of(full)
-    if not METRIC_NAME_RE.match(args.name):
+    if not METRIC_NAME_RE.fullmatch(args.name):
         raise Refused(f"metric name {args.name!r} is not a valid instrument name.")
-    if not SPAN_NAME_RE.match(args.meter_name):
+    if not SPAN_NAME_RE.fullmatch(args.meter_name):
         raise Refused(f"meter name {args.meter_name!r} must be plain letters, digits, dots, dashes or slashes.")
     context = args.context or os.path.join(args.root, ".claude", "otel-context.json")
     attr = confirmed_metric(context, args.name)
     kind, unit = attr["kind"], attr.get("unit")
-    if unit is not None and not (isinstance(unit, str) and UNIT_RE.match(unit)):
+    if unit is not None and not (isinstance(unit, str) and UNIT_RE.fullmatch(unit)):
         raise Refused(f"unit {unit!r} of `{args.name}` in the cache is not a plain unit string.")
     mid = metric_id(args.name)
     text = read(full)
@@ -891,12 +891,12 @@ def slug(s):
 def cmd_span(args):
     full, rel = resolve(args.root, args.file)
     lang = lang_of(full)
-    if not SPAN_NAME_RE.match(args.span_name):
+    if not SPAN_NAME_RE.fullmatch(args.span_name):
         raise Refused(f"span name {args.span_name!r} must be plain letters, digits, dots, dashes or slashes.")
-    if not SPAN_NAME_RE.match(args.tracer_name):
+    if not SPAN_NAME_RE.fullmatch(args.tracer_name):
         raise Refused(f"tracer name {args.tracer_name!r} must be plain letters, digits, dots, dashes or slashes.")
     args.id = args.id or slug(args.span_name)
-    if not ID_RE.match(args.id) or args.id in SHARED_IDS or args.id.startswith((METRIC_PREFIX, CLIENT_PREFIX)):
+    if not ID_RE.fullmatch(args.id) or args.id in SHARED_IDS or args.id.startswith((METRIC_PREFIX, CLIENT_PREFIX)):
         raise Refused(f"id {args.id!r} must be lowercase letters, digits and dashes, and not one of the reserved "
                       f"ids ({', '.join(SHARED_IDS)}, {METRIC_PREFIX}*, {CLIENT_PREFIX}*); pass --id.")
     args.client_span, client_notes = None, []
@@ -1385,7 +1385,7 @@ def client_span_options(args, lang):
                           f"<the system's name, e.g. sqlite>.")
         notes.append(f"note: `{args.client}` is not in the coverage table; that no instrumentation package covers "
                      f"it was not checked here.")
-    if not SYSTEM_RE.match(system):
+    if not SYSTEM_RE.fullmatch(system):
         raise Refused(f"--system {system!r} must be a lowercase system name such as sqlite or rabbitmq.")
     if signal == "db":
         if args.kind not in (None, "client"):

@@ -81,7 +81,7 @@ def names(spec, key, pattern, what):
     value = spec.get(key, [])
     need(isinstance(value, list) and all(isinstance(v, str) for v in value), f"`{key}` must be a list of names.")
     for v in value:
-        need(pattern.match(v), f"`{key}`: {v!r} is not a plain {what} name.")
+        need(pattern.fullmatch(v), f"`{key}`: {v!r} is not a plain {what} name.")
     need(len(set(value)) == len(value), f"`{key}` lists a name twice.")
     return value
 
@@ -92,13 +92,13 @@ def check_spec(spec):
     need(lang in FILE_NAMES, "`language` must be nodejs or python (the languages /otel-test supports).")
     for key in ("serviceRoot", "serviceName", "serverSpan"):
         need(isinstance(spec.get(key), str) and spec[key], f"`{key}` is required.")
-    need(SERVICE_NAME_RE.match(spec["serviceName"]), "`serviceName` must be a plain name.")
-    need(SERVER_SPAN_RE.match(spec["serverSpan"]),
+    need(SERVICE_NAME_RE.fullmatch(spec["serviceName"]), "`serviceName` must be a plain name.")
+    need(SERVER_SPAN_RE.fullmatch(spec["serverSpan"]),
          "`serverSpan` must be the request span's name, such as `POST /checkout` or `GET /items/{id}`.")
     req = spec.get("request")
     need(isinstance(req, dict), "`request` is required: {method, path, expectStatus}.")
     need(req.get("method") in METHODS, f"`request.method` must be one of {', '.join(METHODS)}.")
-    need(isinstance(req.get("path"), str) and PATH_RE.match(req["path"]),
+    need(isinstance(req.get("path"), str) and PATH_RE.fullmatch(req["path"]),
          "`request.path` must be a URL path starting with / (letters, digits and URL punctuation).")
     status = req.get("expectStatus", 200)
     need(isinstance(status, int) and not isinstance(status, bool) and 100 <= status <= 599,
@@ -113,18 +113,18 @@ def check_spec(spec):
         for n in not_covered), "`notCovered` must be a list of {name, reason}.")
     if lang == "nodejs":
         start = spec.get("start")
-        need(isinstance(start, list) and start and all(isinstance(a, str) and ARG_RE.match(a) for a in start),
+        need(isinstance(start, list) and start and all(isinstance(a, str) and ARG_RE.fullmatch(a) for a in start),
              "`start` must be the list of arguments node runs the service with, e.g. [\"-r\", \"./tracing.js\", \"index.js\"].")
-        need(ENV_RE.match(spec.get("portEnv", "PORT")), "`portEnv` must be an environment variable name.")
+        need(ENV_RE.fullmatch(spec.get("portEnv", "PORT")), "`portEnv` must be an environment variable name.")
         need("startScript" not in spec or (isinstance(spec["startScript"], str)
-                                           and re.match(r"^[A-Za-z0-9_:.-]{1,60}$", spec["startScript"])),
+                                           and re.fullmatch(r"[A-Za-z0-9_:.-]{1,60}", spec["startScript"])),
              "`startScript` must be the name of a package.json script, such as start.")
     else:
-        need(isinstance(spec.get("app"), str) and APP_RE.match(spec["app"]),
+        need(isinstance(spec.get("app"), str) and APP_RE.fullmatch(spec["app"]),
              "`app` must be `module:attribute`, the app object the server runs (e.g. main:app).")
         need(spec.get("interface") in ("asgi", "wsgi"), "`interface` must be asgi or wsgi.")
         need("bootstrap" not in spec or (isinstance(spec["bootstrap"], str)
-                                         and re.match(r"^[A-Za-z_][A-Za-z0-9_.]{0,199}$", spec["bootstrap"])),
+                                         and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]{0,199}", spec["bootstrap"])),
              "`bootstrap` must be the module name of the generated bootstrap, such as tracing.")
     return lang, spans, metrics, not_covered
 
@@ -132,6 +132,13 @@ def check_spec(spec):
 def comment_text(s):
     """One line of comment: no newline, no comment terminator, printable ASCII only."""
     return re.sub(r"[^\x20-\x7e]", " ", s).replace("*/", "* /").strip()[:300]
+
+
+def fill(template, fills):
+    """Fill every placeholder in ONE pass. Filling them one after another would search the text
+    already inserted, so a request body containing `__SPANS__` would have code-shaped JSON
+    substituted into the middle of its string literal."""
+    return re.sub(r"__[A-Z_]+__", lambda m: fills[m.group(0)], template)
 
 
 def not_covered_lines(not_covered, lead):
@@ -147,15 +154,15 @@ def render_node(spec, spans, metrics, not_covered):
     req = spec["request"]
     start = spec["start"]
     header = [
-        f"// Telemetry test for {spec['serviceName']}: {MARKER} v{plugin_version()} (/otel-test)",
+        f"// Telemetry test for {comment_text(spec['serviceName'])}: {MARKER} v{plugin_version()} (/otel-test)",
         "// Re-run /otel-test --force to regenerate. /otel-uninstrument removes this file.",
         "//",
-        f"// What this protects: {req['method']} {req['path']} must keep producing the telemetry listed in",
+        f"// What this protects: {req['method']} {comment_text(req['path'])} must keep producing the telemetry listed in",
         "// EXPECTED below. A refactor can rename a handler, drop a middleware or lose the bootstrap flag",
         "// from the start command without breaking any other test. The dashboards and alerts then go",
         "// quiet and nothing fails. This test fails instead, and says which span or metric is missing.",
         "//",
-        f"// How it works: it starts the service the way production does (node {' '.join(start)}) on a",
+        f"// How it works: it starts the service the way production does (node {comment_text(' '.join(start))}) on a",
         "// free port, with the OpenTelemetry exporter pointed at a small receiver inside this test.",
         "// Nothing leaves the machine and no backend is needed.",
         "//",
@@ -319,24 +326,22 @@ test(`${REQUEST.method} ${REQUEST.path} still emits its telemetry`, { timeout: 6
              "__REQUEST__": json.dumps(request), "__SERVER_SPAN__": json.dumps(spec["serverSpan"]),
              "__SPANS__": json.dumps(spans), "__METRICS__": json.dumps(metrics),
              "__START_SCRIPT__": json.dumps(spec.get("startScript"))}
-    for key, value in sorted(fills.items(), key=lambda kv: -len(kv[0])):
-        body = body.replace(key, value)
-    return "\n".join(header) + "\n" + body
+    return "\n".join(header) + "\n" + fill(body, fills)
 
 
 def render_python(spec, spans, metrics, not_covered):
     req = spec["request"]
     module, attr = spec["app"].split(":")
     header = [
-        f"# Telemetry test for {spec['serviceName']}: {MARKER} v{plugin_version()} (/otel-test)",
+        f"# Telemetry test for {comment_text(spec['serviceName'])}: {MARKER} v{plugin_version()} (/otel-test)",
         "# Re-run /otel-test --force to regenerate. /otel-uninstrument removes this file.",
         "#",
-        f"# What this protects: {req['method']} {req['path']} must keep producing the telemetry listed in",
+        f"# What this protects: {req['method']} {comment_text(req['path'])} must keep producing the telemetry listed in",
         "# EXPECTED below. A refactor can rename a handler, drop a middleware or lose the line that",
         "# instruments the app without breaking any other test. The dashboards and alerts then go quiet",
         "# and nothing fails. This test fails instead, and says which span or metric is missing.",
         "#",
-        f"# How it works: it imports the app the server runs ({spec['app']}) and calls it in this process,",
+        f"# How it works: it imports the app the server runs ({comment_text(spec['app'])}) and calls it in this process,",
         "# with OpenTelemetry's in-memory exporter in place of the real one. No server is started,",
         "# nothing leaves the machine and no backend is needed.",
         "#",
@@ -504,9 +509,7 @@ if __name__ == "__main__":
              "__BOOTSTRAP__": repr(spec.get("bootstrap")),
              "__REQUEST__": repr(json.dumps(request)), "__SERVER_SPAN__": json.dumps(spec["serverSpan"]),
              "__SPANS__": json.dumps(spans), "__METRICS__": json.dumps(metrics)}
-    for key, value in fills.items():
-        body = body.replace(key, value)
-    return "\n".join(header) + "\n" + body
+    return "\n".join(header) + "\n" + fill(body, fills)
 
 
 def load_spec(arg):

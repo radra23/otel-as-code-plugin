@@ -117,6 +117,27 @@ refused "spec: python needs module:attribute" "$P" "$PSPEC" 's["app"] = "main.ap
 refused "spec: python needs asgi or wsgi" "$P" "$PSPEC" 's["interface"] = "cgi"' "asgi or wsgi"
 refused "spec: the python app module must be in the service" "$P" "$PSPEC" 's["app"] = "nowhere:app"' "is not under"
 refused "spec: a bootstrap name that is not a module name is refused" "$P" "$PSPEC" 's["bootstrap"] = "tracing; import os"' "module name"
+# A value that passes a `^...$` check with a newline on the end would break out of the comment it
+# is written into and become a line of code.
+refused "spec: a start argument ending in a newline is refused" "$N" "$NSPEC" 's["start"] = ["-r", "./tracing.js", "index.js\nprocess.exit(0)//"]; del s["startScript"]' "list of arguments"
+refused "spec: a start argument that is only a trailing newline off is refused" "$N" "$NSPEC" 's["start"][2] = "index.js\n"; del s["startScript"]' "list of arguments"
+refused "spec: a service name ending in a newline is refused" "$N" "$NSPEC" 's["serviceName"] = "orders\n"' "plain name"
+refused "spec: a server span ending in a newline is refused" "$N" "$NSPEC" 's["serverSpan"] = "POST /checkout\n"' "request span.s name"
+refused "spec: a path ending in a newline is refused" "$N" "$NSPEC" 's["request"]["path"] = "/checkout\n"' "URL path"
+refused "spec: a span name ending in a newline is refused" "$N" "$NSPEC" 's["spans"] = ["orders.checkout\n"]' "plain span name"
+refused "spec: a python app ending in a newline is refused" "$P" "$PSPEC" 's["app"] = "main:app\n"' "module:attribute"
+# Text in the request body that looks like one of the template's own placeholders must stay text:
+# filled in a second pass it would be replaced by code-shaped JSON inside a string literal.
+spec_with "$NSPEC" 's["request"]["json"] = {"a": "__SPANS__", "b": "__START__ __METRICS__ __SERVER_SPAN__"}' | tt render --root "$N" --spec - >/dev/null
+check "node: placeholder-shaped text in the request body is left as it is" \
+  'node --check "$N/otel.test.cjs" && grep -qF "\"a\": \"__SPANS__\"" "$N/otel.test.cjs" && grep -qF "__START__ __METRICS__ __SERVER_SPAN__" "$N/otel.test.cjs"'
+rm -f "$N/otel.test.cjs"
+spec_with "$PSPEC" 's["request"]["json"] = {"a": "__SPANS__ __APP__ __BOOTSTRAP__"}' | tt render --root "$P" --spec - >/dev/null
+check "python: placeholder-shaped text in the request body is left as it is" \
+  'python3 -m py_compile "$P/test_otel.py" && grep -qF "__SPANS__ __APP__ __BOOTSTRAP__" "$P/test_otel.py"'
+rm -rf "$P/test_otel.py" "$P/__pycache__"
+check "no placeholder is left unfilled in either golden" '! grep -nE "__[A-Z_]+__" tests/snapshots/telemetry-test/otel.test.cjs tests/snapshots/telemetry-test/test_otel.py | grep -v "__name__\|__file__\|__dirname"'
+
 snap "$N"
 msg=$(printf '{not json' | tt render --root "$N" --spec - 2>&1); rc=$?
 check "spec: text that is not JSON is refused in one line" '[ "$rc" -eq 2 ] && echo "$msg" | grep -q "^REFUSED: the spec is not valid JSON" && same "$N"'
