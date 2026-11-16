@@ -415,13 +415,17 @@ emitting a bootstrap that silently does nothing.
 The Grafana dashboard `/otel-backend grafana` writes charts them: a runtime row picked by the
 service's language (memory, garbage collection, CPU, and the event loop, threads or goroutines).
 Every query in that row is run against a real Prometheus in CI
-([`tests/e2e/run.sh`](https://github.com/radra23/otel-as-code-plugin/blob/main/tests/e2e/run.sh)). The Datadog, New Relic and Dash0 dashboards do not have
-the row yet.
+([`tests/e2e/run.sh`](https://github.com/radra23/otel-as-code-plugin/blob/main/tests/e2e/run.sh)). The New Relic and Dash0 dashboards get the same panels,
+with queries derived from the same table; those are checked for validity and applied to a real
+account, but not run against data. Datadog does not have the row yet.
 
 The Grafana module also ends its dashboard with the service's log lines from Loki and adds an
 alert on the share of error lines (5% for 5 minutes by default, a variable). Both need the
 service to export its logs, and both queries are run against a real Loki in CI
 ([`tests/e2e/log-panel.sh`](https://github.com/radra23/otel-as-code-plugin/blob/main/tests/e2e/log-panel.sh)); the alert rule itself is not evaluated there.
+New Relic gets a Logs page and the same alert, and Dash0 a log-volume panel with no alert (the
+severity values its log metric uses are not documented). Both are written from the vendor's
+documentation and not run against data. Datadog has neither yet.
 
 Ruby, Rust and PHP emit no runtime metrics: none of them has a stable package for it. The full
 picture, with how settled each language's metric names are, is in

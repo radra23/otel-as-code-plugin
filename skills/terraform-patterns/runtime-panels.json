@@ -1,5 +1,5 @@
 {
-  "_comment": "Runtime panel row per language (#277): the single source of truth for which runtime metrics the generated dashboards chart. Only metrics the trace-flow e2e job saw arrive are listed. 'grafana' is the PromQL as it is stored by Prometheus (dots to underscores, unit suffix, _total on a counter); every one is run against the local stack's Prometheus in tests/e2e/run.sh. 'stability' is the metric name's level in the semantic conventions at SEMCONV_VERSION (see language-maturity).",
+  "_comment": "Runtime panel row per language (#277): the single source of truth for which runtime metrics the generated dashboards chart. Only metrics the trace-flow e2e job saw arrive are listed. 'grafana' is the PromQL as it is stored by Prometheus (dots to underscores, unit suffix, _total on a counter); every one is run against the local stack's Prometheus in tests/e2e/run.sh. 'stability' is the metric name's level in the semantic conventions at SEMCONV_VERSION (see language-maturity). The Dash0 and New Relic queries are DERIVED from these fields by the rules in terraform-patterns (Dash0: the 'grafana' query with the service_name label; New Relic: NRQL on 'metric' chosen by 'kind', split by 'facet' when the metric has one series per pool or space). Those derived queries are not run against live data anywhere.",
   "languages": {
     "nodejs": {
       "label": "Node.js",
@@ -11,7 +11,8 @@
           "unit": "By",
           "stability": "development",
           "grafanaUnit": "bytes",
-          "grafana": "sum(v8js_memory_heap_used_bytes{job=\"${var.service_name}\"})"
+          "grafana": "sum(v8js_memory_heap_used_bytes{job=\"${var.service_name}\"})",
+          "facet": "v8js.heap.space.name"
         },
         {
           "title": "Event loop delay (p99)",
@@ -93,7 +94,8 @@
           "unit": "By",
           "stability": "stable",
           "grafanaUnit": "bytes",
-          "grafana": "sum(jvm_memory_used_bytes{job=\"${var.service_name}\"})"
+          "grafana": "sum(jvm_memory_used_bytes{job=\"${var.service_name}\"})",
+          "facet": "jvm.memory.pool.name"
         },
         {
           "title": "CPU utilization (recent)",
@@ -120,7 +122,8 @@
           "unit": "By",
           "stability": "stable",
           "grafanaUnit": "bytes",
-          "grafana": "sum(jvm_memory_used_after_last_gc_bytes{job=\"${var.service_name}\"})"
+          "grafana": "sum(jvm_memory_used_after_last_gc_bytes{job=\"${var.service_name}\"})",
+          "facet": "jvm.memory.pool.name"
         }
       ]
     },
@@ -175,7 +178,8 @@
           "unit": "By",
           "stability": "development",
           "grafanaUnit": "bytes",
-          "grafana": "sum(go_memory_used_bytes{job=\"${var.service_name}\"})"
+          "grafana": "sum(go_memory_used_bytes{job=\"${var.service_name}\"})",
+          "facet": "go.memory.type"
         },
         {
           "title": "Goroutines",
