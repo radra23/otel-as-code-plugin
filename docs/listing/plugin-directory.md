@@ -110,23 +110,24 @@ To change what appears here, edit the files, push, and validate again.
 which the checklist requires). Do not rename: users install by `name`, and a rename is a
 different plugin.
 
-**One-line description** (for any field that wants one line, 92 characters):
+**One-line description** (for any field that wants one line, 93 characters):
 
 ```text
-Adds OpenTelemetry tracing, metrics and logs to your app and shows them on a local dashboard
+OpenTelemetry set up for you, checked as it is written, with your first trace on your machine
 ```
 
-**`plugin.json` `description`** (set in 0.11.2; what `/plugin` listings show): "See what your
-services are doing in production. Adds OpenTelemetry tracing, metrics and logs to your code, shows
-them on a free local dashboard, and generates monitoring setup for Grafana, Datadog, New Relic or
-Dash0." It replaces "OpenTelemetry instrumentation and observability-as-code for any stack", which
-assumed observability vocabulary and overstated coverage ("any stack").
+**`plugin.json` `description`** (set in 0.15.1; what `/plugin` listings show): "OpenTelemetry set up for you: tracing, metrics and logs added to your services, checked as they are written and proven in CI. See your first trace on a free local dashboard today, then generate dashboards and alerts for Grafana, Datadog, New Relic or Dash0."
+It replaces the 0.11.2 wording ("See what your services are doing in production. Adds OpenTelemetry
+tracing, metrics and logs to your code, shows them on a free local dashboard, and generates
+monitoring setup for Grafana, Datadog, New Relic or Dash0."), which said what the plugin adds but
+not why to trust it. That one had replaced "OpenTelemetry instrumentation and observability-as-code
+for any stack", which assumed observability vocabulary and overstated coverage ("any stack").
 
 **Short description** (2 to 4 sentences; for the README opening paragraph or anywhere the portal
 asks for a summary):
 
 ```text
-otel-as-code reads your repository, finds your services, and writes the OpenTelemetry setup each one needs: the SDK startup code, an OpenTelemetry Collector config, and Terraform for dashboards, alerts and SLOs on Grafana, Datadog, New Relic or Dash0. Generated code sends telemetry nowhere until you set an endpoint, and /otel-local starts a free local Grafana stack in Docker so you can see your first trace on your own machine. It supports Node.js, Python, Java, .NET, Go, Ruby and Rust, and works for teams who are not observability specialists.
+otel-as-code sets OpenTelemetry up for you, for developers who do not do observability. It reads your repository, finds your services, and adds tracing, metrics and logs to each one; /otel-init then offers to start a free local Grafana dashboard in Docker, so your first trace shows on your own machine the same day. What it writes is checked as it is written and proven in CI: the generated setup is run in real apps for Node.js, Python, Java, .NET, Go, Ruby and Rust, and the dashboards and alerts it generates as Terraform are applied to real Grafana, New Relic and Dash0 accounts (Datadog is validated only). It can also track your own functions and business numbers, and write a test that fails when the tracing goes missing.
 ```
 
 **Other `plugin.json` metadata** (publish.md: "Set `description`, `author`, `homepage`, and

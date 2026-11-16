@@ -11,10 +11,10 @@ below is yours to do by hand.
 
 ## GitHub repo settings (Settings, then the gear next to About)
 
-**Description** (the current one says "Node.js/Python" and has an em dash):
+**Description** (same claim as the README's first line; 246 characters, GitHub allows 350):
 
 ```text
-Claude Code plugin and Codex skills that add OpenTelemetry to your services in 7 languages, show your first trace on a local Grafana stack, and generate Terraform for Grafana, Datadog, New Relic and Dash0.
+OpenTelemetry set up for you by your coding agent (Claude Code plugin, Codex skills): checked as it is written, proven in CI, and your first trace on your own machine today. Dashboards and alerts as code for Grafana, Datadog, New Relic and Dash0.
 ```
 
 **Website:** `https://github.com/radra23/otel-as-code-plugin#readme` (or leave empty).

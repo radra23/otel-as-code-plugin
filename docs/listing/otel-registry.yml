@@ -15,13 +15,15 @@ urls:
   repo: https://github.com/radra23/otel-as-code-plugin
 license: Apache 2.0
 description:
-  A Claude Code plugin and set of Codex skills that scan a repository, detect
-  its services, and generate OpenTelemetry SDK bootstrap code for Node.js,
-  Python, .NET, Go, Ruby, and Rust, or Java agent configuration. It also
-  generates otelcol-contrib Collector configurations and Terraform for
-  dashboards, alerts, and SLOs on Grafana, Datadog, New Relic, and Dash0, and
-  can start a local grafana/otel-lgtm stack to view the first traces, logs, and
-  metrics.
+  A Claude Code plugin and set of Codex skills that set up OpenTelemetry in a
+  repository and check their own output. They scan the repository, detect its
+  services, and generate SDK bootstrap code for Node.js, Python, .NET, Go,
+  Ruby, and Rust, or Java agent configuration; the generated setup is linted
+  against the semantic conventions as it is written and run end to end in CI.
+  They also generate otelcol-contrib Collector configurations and Terraform
+  for dashboards, alerts, and SLOs on Grafana, Datadog, New Relic, and Dash0,
+  and can start a local grafana/otel-lgtm stack to view the first traces,
+  logs, and metrics.
 authors:
   - name: radra23
     url: https://github.com/radra23
