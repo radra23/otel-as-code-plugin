@@ -6,14 +6,22 @@
 # non-trace signals, leaving nothing to assert. The golden snapshot itself is NOT modified: this
 # overlay exists only so the harness can prove the Python --experimental logs path end-to-end.
 #
-# Merge semantics: the `exporters` map gains `file` alongside the golden `otlp`; the leaf list
-# `service.pipelines.logs.exporters` is overridden to fan out to both. traces/metrics pipelines
-# are untouched.
+# It does the same for metrics (#277): a second `file/metrics` exporter on the metrics pipeline
+# writes what the collector received to metrics.json, which assert-metrics.sh reads to prove each
+# language's runtime metrics arrive.
+#
+# Merge semantics: the `exporters` map gains the two file exporters alongside the golden `otlp`;
+# the leaf lists `service.pipelines.{logs,metrics}.exporters` are overridden to fan out to both.
+# The traces pipeline is untouched.
 exporters:
   file:
     path: /out/logs.json
+  file/metrics:
+    path: /out/metrics.json
 
 service:
   pipelines:
     logs:
       exporters: [otlp, file]
+    metrics:
+      exporters: [otlp, file/metrics]

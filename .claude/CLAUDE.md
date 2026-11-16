@@ -70,6 +70,15 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
   FastAPI 0.163 makes its own request span when the instrumentor is absent, so "the request's
   span is missing" cannot prove the bootstrap is loaded there: the Python test checks the import.
 
+- Runtime metrics (#277) ride the Metrics signal: Node.js and Java emit them already (bundle,
+  agent), Python, Go and .NET get one block in the bootstrap, and Ruby, Rust and PHP have no
+  stable source, so none is generated. The per-language table, with how settled each metric
+  NAME is in the semantic conventions, lives in `skills/language-maturity` ("Runtime metrics");
+  re-read the registry's `model/<area>/metrics.yaml` at the new tag whenever `SEMCONV_VERSION`
+  moves. Process and runtime only: never turn on host-wide `system.*` metrics from a bootstrap.
+  The trace-flow e2e asserts one runtime metric per language from the Collector's `file/metrics`
+  exporter (`tests/e2e/assert-metrics.sh`); it runs in Docker, so only CI proves it.
+
 - `evals/routing/` measures whether a fresh session picks this plugin (`claude plugin eval` for
   only-this-plugin, `run-headless.sh` for a full personal plugin set, one scorer `score.py` for
   both). Run it before and after any command/skill `description` change; it is billed, so it is

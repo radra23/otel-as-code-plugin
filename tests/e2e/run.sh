@@ -237,9 +237,22 @@ POLL_TIMEOUT=90 bash assert-traces.sh --jaeger "$JA" --service products-api \
 POLL_TIMEOUT=40 bash assert-logs.sh --file "$WORK/collector-out/logs.json" \
   --service inventory-api --expect-body "reserved sku" || rc=1
 
+# Runtime metrics (#277): each bootstrap that can emit them does, with no application code. The
+# collector's file/metrics exporter writes what it received to collector-out/metrics.json; assert
+# at least one runtime metric per service, by the prefix that language's runtime metrics carry.
+# Node, Java, .NET and Go export every 5 s here (OTEL_METRIC_EXPORT_INTERVAL in docker-compose.yml);
+# the Python bootstrap exports every 30 s, hence its longer wait. Ruby, Rust and PHP have no
+# stable runtime-metrics package and are not asserted.
+MJ="$WORK/collector-out/metrics.json"
+POLL_TIMEOUT=60 bash assert-metrics.sh --file "$MJ" --service checkout-api    --expect-prefix "nodejs.,v8js." || rc=1
+POLL_TIMEOUT=90 bash assert-metrics.sh --file "$MJ" --service inventory-api   --expect-prefix "process.,cpython." || rc=1
+POLL_TIMEOUT=60 bash assert-metrics.sh --file "$MJ" --service payments-api    --expect-prefix "jvm." || rc=1
+POLL_TIMEOUT=60 bash assert-metrics.sh --file "$MJ" --service checkout-dotnet --expect-prefix "dotnet." || rc=1
+POLL_TIMEOUT=60 bash assert-metrics.sh --file "$MJ" --service search-api      --expect-prefix "go." || rc=1
+
 if [ "$rc" -eq 0 ]; then
-  echo "E2E PASS: traces for all services landed with correct service.* attrs, and the Python --experimental logs path exported a log record"
+  echo "E2E PASS: traces for all services landed with correct service.* attrs, the Python --experimental logs path exported a log record, and runtime metrics arrived for Node.js, Python, Java, .NET and Go"
 else
-  echo "E2E FAIL: a service's traces did not land, or the Python logs record did not arrive — see per-service output above and the trap diagnostics (jaeger /api/services)." >&2
+  echo "E2E FAIL: a service's traces did not land, the Python logs record did not arrive, or a runtime metric is missing. See per-service output above and the trap diagnostics (jaeger /api/services)." >&2
   exit 1
 fi

@@ -38,6 +38,15 @@ golden_py = dict(_re.findall(r"^(opentelemetry-[^>=\s]+)>=(\S+)$", open("tests/s
 check(f"python golden requirements match the generator pins ({len(golden_py)})", golden_py and golden_py == pp)
 if golden_py != pp:
     print("  generator:", pp); print("  golden:   ", golden_py)
+gp = dict(d.go_pins())
+check("go pins parsed (otel SDK and the runtime-metrics module)",
+      "go.opentelemetry.io/otel/sdk" in gp and "go.opentelemetry.io/contrib/instrumentation/runtime" in gp)
+# The golden go.mod's direct requirements must be exactly what the generator pins.
+golden_gomod = open("tests/snapshots/instrument/go/go.mod").read()
+golden_go = dict(_re.findall(r"^\t(go\.opentelemetry\.io/\S+) v(\S+)$", golden_gomod.split(")")[0], _re.M))
+check(f"go golden go.mod matches the generator pins ({len(golden_go)})", golden_go and golden_go == gp)
+if golden_go != gp:
+    print("  generator:", gp); print("  golden:   ", golden_go)
 dp = dict(d.dotnet_pins())
 check("dotnet pins parsed (OpenTelemetry.Extensions.Hosting)", "OpenTelemetry.Extensions.Hosting" in dp)
 # Same idea as the node/python checks above: the golden .csproj must pin exactly what the
