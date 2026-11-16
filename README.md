@@ -397,6 +397,12 @@ emitting a bootstrap that silently does nothing.
   `/otel-evaluate`, not generated for.
 </details>
 
+The Grafana dashboard `/otel-backend grafana` writes charts them: a runtime row picked by the
+service's language (memory, garbage collection, CPU, and the event loop, threads or goroutines).
+Every query in that row is run against a real Prometheus in CI
+([`tests/e2e/run.sh`](tests/e2e/run.sh)). The Datadog, New Relic and Dash0 dashboards do not have
+the row yet.
+
 Ruby, Rust and PHP emit no runtime metrics: none of them has a stable package for it. The full
 picture, with how settled each language's metric names are, is in
 [`skills/language-maturity`](skills/language-maturity/SKILL.md).

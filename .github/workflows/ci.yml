@@ -150,6 +150,9 @@ jobs:
       - name: assert-metrics unit test (runtime metrics, #277)
         run: bash tests/e2e/assert-metrics.test.sh
 
+      - name: Runtime panel row (the table, the Grafana goldens and the e2e job agree; #277)
+        run: bash tests/runtime-panels.test.sh
+
       - name: assert-lgtm unit test (local stack read-back)
         run: bash tests/e2e/assert-lgtm.test.sh
 

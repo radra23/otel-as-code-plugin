@@ -10,18 +10,23 @@
 # writes what the collector received to metrics.json, which assert-metrics.sh reads to prove each
 # language's runtime metrics arrive.
 #
-# Merge semantics: the `exporters` map gains the two file exporters alongside the golden `otlp`;
-# the leaf lists `service.pipelines.{logs,metrics}.exporters` are overridden to fan out to both.
+# Metrics also go to the compose file's `lgtm` container over OTLP/HTTP, so run.sh can run the
+# generated dashboard's runtime panel queries against a real Prometheus (assert-runtime-panels.sh).
+#
+# Merge semantics: the `exporters` map gains these three exporters alongside the golden `otlp`;
+# the leaf lists `service.pipelines.{logs,metrics}.exporters` are overridden to fan out to all.
 # The traces pipeline is untouched.
 exporters:
   file:
     path: /out/logs.json
   file/metrics:
     path: /out/metrics.json
+  otlphttp/lgtm:
+    endpoint: http://lgtm:4318
 
 service:
   pipelines:
     logs:
       exporters: [otlp, file]
     metrics:
-      exporters: [otlp, file/metrics]
+      exporters: [otlp, file/metrics, otlphttp/lgtm]

@@ -397,12 +397,14 @@ def collector_pin():
 
 def lgtm_pins():
     """Every place the grafana/otel-lgtm image tag for /otel-local is pinned, keyed by file. The
-    command is what users get; the golden compose file is what the local-stack e2e job runs. The
-    test suite asserts they agree, so CI never proves a tag the command does not generate."""
+    command is what users get; the golden compose file is what the local-stack e2e job runs; the
+    trace-flow e2e compose file runs the runtime panel queries against the same image. The test
+    suite asserts they agree, so CI never proves a tag the command does not generate."""
     pat = r"grafana/otel-lgtm:([0-9][0-9.]*)"
     return {
         "commands/otel-local.md": re.search(pat, _read("commands/otel-local.md")),
         "tests/snapshots/local-stack/otel-local.compose.yaml": re.search(pat, _read("tests/snapshots/local-stack/otel-local.compose.yaml")),
+        "tests/e2e/docker-compose.yml": re.search(pat, _read("tests/e2e/docker-compose.yml")),
     }
 
 
