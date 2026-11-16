@@ -153,6 +153,9 @@ jobs:
       - name: Runtime panel row (the table, the Grafana goldens and the e2e job agree; #277)
         run: bash tests/runtime-panels.test.sh
 
+      - name: Trace IDs in log lines (one block in both Python goldens and the generator; #279)
+        run: bash tests/log-trace-ids.test.sh
+
       - name: assert-lgtm unit test (local stack read-back)
         run: bash tests/e2e/assert-lgtm.test.sh
 
@@ -377,6 +380,26 @@ jobs:
 
       - name: One client span per call, end to end
         run: bash tests/e2e/enrich-clients.sh
+
+  # Trace IDs in log lines (#279): the golden Python and Node.js bootstraps in real apps; the ID in
+  # a request's log line must equal its span's, and the app's own log format must survive.
+  log-trace-ids:
+    name: Log lines carry their request's trace ID
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Trace IDs in Python and Node.js log lines, end to end
+        run: bash tests/e2e/log-trace-ids.sh
 
   # /otel-test: the generated telemetry tests, run on real apps. Each must pass on the instrumented
   # service and fail, naming what is missing, when the enrichment, the instrumentor or the

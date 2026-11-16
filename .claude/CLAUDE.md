@@ -78,6 +78,17 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
   moves. Process and runtime only: never turn on host-wide `system.*` metrics from a bootstrap.
   The trace-flow e2e asserts one runtime metric per language from the Collector's `file/metrics`
   exporter (`tests/e2e/assert-metrics.sh`); it runs in Docker, so only CI proves it.
+- Trace IDs in log lines (#279): the Python bootstrap's `_add_trace_ids_to_logs()` block adds
+  `otelTraceID`/`otelSpanID` to every `logging` record and appends ` trace_id=... span_id=...` to
+  lines the plain `logging.Formatter` renders; Node.js needs nothing generated (the bundle's pino,
+  winston and bunyan instrumentations do it). Never replace the user's logger or format: the
+  upstream `set_logging_format` was measured to make the app's later `basicConfig(format=...)` a
+  no-op, so it is not used. Text is never appended to a custom formatter class or to a line that
+  is already JSON (it was caught breaking a structlog-style formatter in a probe). The block is
+  the same text in both Python goldens and the generator (`tests/log-trace-ids.test.sh`), and
+  `tests/e2e/log-trace-ids.sh` (no Docker) requires the ID in the line to EQUAL the request span's
+  and each untouched case to be byte-identical. The per-language table is in
+  `skills/language-maturity`; a language not run there is "not checked".
 - The dashboard's runtime row comes from `skills/terraform-patterns/runtime-panels.json`, the one
   table of runtime panels per language (metric, kind, unit, name stability, PromQL). The generator
   reads it and never writes a runtime query from memory. Add or change a panel there only: the
@@ -85,7 +96,10 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
   same pin) and runs EVERY query in the table per language (`tests/e2e/assert-runtime-panels.sh`),
   and `tests/runtime-panels.test.sh` pins the Grafana goldens to the table byte for byte
   (regenerate the block with `tests/runtime_panels_render.py`). Pick metrics that exist without
-  traffic: a query on a series that only appears after some event fails the job on a quiet run.
+  an event having happened: `jvm.gc.duration` (a histogram, recorded only when a collection runs)
+  failed the job on a run where the JVM had not collected yet and was replaced by
+  `jvm.memory.used_after_last_gc`. Node.js's `v8js.gc.duration` panel is the same kind; it has been
+  present on every run so far and is the first suspect if that job fails on a Node.js query.
   Grafana only so far; Datadog, New Relic and Dash0 have no account to prove a query against.
 
 - `evals/routing/` measures whether a fresh session picks this plugin (`claude plugin eval` for

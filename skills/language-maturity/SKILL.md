@@ -293,6 +293,45 @@ Rules:
   If the user asks, say there is no stable one and point at the Collector's `hostmetrics`
   receiver for process-level numbers.
 
+## Trace IDs in log lines (#279)
+
+A log line written during a request should say which trace it belongs to. Where a log bridge
+exports the records over OTLP, each record carries the trace context by itself. This table is
+about the other case: the lines the application already writes to its own output, with the logs
+signal off. "Checked" means `tests/e2e/log-trace-ids.sh` runs the golden bootstrap in a real app
+and requires the ID in the line to equal the request span's; anything else is "not checked", which
+is not a claim that it works or that it does not.
+
+| Language | Where the IDs come from | Not covered | Checked |
+|----------|-------------------------|-------------|---------|
+| Node.js | the bundle's pino, winston and bunyan instrumentations add `trace_id`, `span_id` and `trace_flags` fields to each record; nothing is generated | `console.*`, and any other logger | yes |
+| Python  | a block in the bootstrap: `otelTraceID` / `otelSpanID` fields on every standard `logging` record, and ` trace_id=... span_id=...` appended to lines the plain `logging.Formatter` renders | `print()`, loggers that bypass `logging`, and a custom formatter class unless it writes extra record fields | yes |
+| Java    | nothing generated; the agent's log bridge is Stable and exports records with their trace context | lines in the app's own log file or console | not checked |
+| .NET    | nothing generated; with the printed `builder.Logging.AddOpenTelemetry` add-on, exported records carry the trace context | console output | not checked |
+| Go      | nothing generated; the Beta log bridge exports records with the context they were logged with | lines written straight to stdout | not checked |
+| Rust    | nothing generated; `tracing` events are exported with the active span's IDs | | not checked |
+| PHP     | nothing generated; the Monolog bridge, when it is on | | not checked |
+| Ruby    | nothing generated | everything | not checked |
+
+Rules:
+- **Never replace the user's logger, handlers or format.** The Python block adds fields and
+  appends to a plain-text line; it does not call `logging.basicConfig` and does not set a format.
+  `opentelemetry-instrumentation-logging`'s `set_logging_format` (and
+  `OTEL_PYTHON_LOG_CORRELATION=true`) is not used: measured, it installs its own format first, so
+  the application's later `basicConfig(format=...)` silently does nothing.
+- **A line that is not plain text is left alone.** A custom formatter class, a line that starts
+  with `{` or `[`, and a line that already shows the trace ID get nothing appended: text after a
+  JSON document breaks whatever parses it.
+- **The Python field names are the upstream ones** (`otelTraceID`, `otelSpanID`, `"0"` outside a
+  span). A record attribute named `trace_id` would make `logger.info(..., extra={"trace_id": ...})`
+  raise in the user's code, and a format string written for the upstream package keeps working.
+- **IDs exist only while traces are on.** With `OTEL_TRACES_EXPORTER=none` (the default when no
+  endpoint is set) there is no span, so there is no ID to add, in either language.
+- **Node.js: never disable** `instrumentation-pino`, `instrumentation-winston` or
+  `instrumentation-bunyan` in `getNodeAutoInstrumentations()`, and never patch `console`.
+- **A trace ID in stdout is not a log in the backend.** The line leads to the trace wherever the
+  team's logs already go; the local stack's Loki only has it when the logs signal is exported.
+
 ## Feature Gating Rules
 
 When generating code for a signal:

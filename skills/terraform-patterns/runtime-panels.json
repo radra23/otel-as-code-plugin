@@ -114,13 +114,13 @@
           "grafana": "sum(jvm_thread_count{job=\"${var.service_name}\"})"
         },
         {
-          "title": "Garbage collections per second",
-          "metric": "jvm.gc.duration",
-          "kind": "histogram",
-          "unit": "s",
+          "title": "Memory after last garbage collection",
+          "metric": "jvm.memory.used_after_last_gc",
+          "kind": "updowncounter",
+          "unit": "By",
           "stability": "stable",
-          "grafanaUnit": "ops",
-          "grafana": "sum(rate(jvm_gc_duration_seconds_count{job=\"${var.service_name}\"}[5m]))"
+          "grafanaUnit": "bytes",
+          "grafana": "sum(jvm_memory_used_after_last_gc_bytes{job=\"${var.service_name}\"})"
         }
       ]
     },
