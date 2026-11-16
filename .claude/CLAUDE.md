@@ -41,7 +41,11 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
   refused, not rewritten. It writes plain OpenTelemetry API calls, no helper file, so there is no new
   generated filename for `hooks/otel-paths.sh`. Every new shape or language gets a case in
   `tests/enrich.test.sh` that RUNS the enriched code against the stub API, and a span assertion in
-  `tests/e2e/enrich.sh`.
+  `tests/e2e/enrich.sh`. `enrich.py metric` emits only a name that is a confirmed counter, histogram
+  or gauge in the cache (kind and unit come from there, never from an argument), and adds no metric
+  attributes. The Grafana golden's business panels are proven by running their OWN queries, read out
+  of the `.snap`, against the local stack in that e2e: change a business-panel query shape in
+  `terraform-patterns` and the golden together, and let that job say whether Prometheus agrees.
 
 - `evals/routing/` measures whether a fresh session picks this plugin (`claude plugin eval` for
   only-this-plugin, `run-headless.sh` for a full personal plugin set, one scorer `score.py` for

@@ -61,7 +61,9 @@ the repo, and a fresh read is by definition more current:
 **User-owned — carry over from `priorContext` verbatim; NEVER reset to null or `[]`.**
 These exist only because a human answered a question:
 
-- `businessAttrs` (the whole array, including each entry's `confirmed` / `confirmedAt`)
+- `businessAttrs` (the whole array, including each entry's `confirmed` / `confirmedAt`, and the
+  `callSite` (`{"file", "function"}`) `/otel-enrich --business` records once it has added the code
+  that emits the metric; it is absent until then, and you never set or clear it)
 - `confirmedAt`
 - `namespace`, `deploymentEnvironment`
 - `services[].namespace`, `namespaceSource`, `namespaceConfidence` when

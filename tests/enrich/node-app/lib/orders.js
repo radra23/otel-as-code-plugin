@@ -5,6 +5,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const PATTERN = /checkout\(\) \{ not code/; // a regex and a string that look like code: "} catch {"
 
 async function checkout(cartId, fail) {
+  const startedAt = Date.now();
   const lines = await loadLines(cartId);
   if (fail) {
     throw new Error(`cart ${cartId} could not be charged`);

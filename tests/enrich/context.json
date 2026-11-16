@@ -1,0 +1,68 @@
+{
+  "schemaVersion": "1.0",
+  "namespace": "com.example",
+  "services": [
+    {
+      "id": "svc",
+      "name": "enrich-orders"
+    }
+  ],
+  "businessAttrs": [
+    {
+      "name": "com.example.checkout.order_placed",
+      "kind": "counter",
+      "unit": "{order}",
+      "source": "route POST /checkout",
+      "confidence": 0.6,
+      "confirmed": true
+    },
+    {
+      "name": "com.example.checkout.payment_duration",
+      "kind": "histogram",
+      "unit": "s",
+      "source": "route POST /checkout",
+      "confidence": 0.5,
+      "confirmed": true
+    },
+    {
+      "name": "com.example.checkout.cart_lines",
+      "kind": "gauge",
+      "unit": null,
+      "source": "route POST /checkout",
+      "confidence": 0.4,
+      "confirmed": true
+    },
+    {
+      "name": "com.example.checkout.customer_tier",
+      "kind": "dimension",
+      "unit": null,
+      "source": "route POST /checkout",
+      "confidence": 0.4,
+      "confirmed": true
+    },
+    {
+      "name": "com.example.checkout.refunds",
+      "kind": "counter",
+      "unit": null,
+      "source": "route POST /refund",
+      "confidence": 0.4,
+      "confirmed": false
+    },
+    {
+      "name": "com.example.inventory.reservations",
+      "kind": "counter",
+      "unit": "{reservation}",
+      "source": "route POST /inventory/reserve",
+      "confidence": 0.6,
+      "confirmed": true
+    },
+    {
+      "name": "com.example.inventory.reserved_quantity",
+      "kind": "histogram",
+      "unit": "{item}",
+      "source": "route POST /inventory/reserve",
+      "confidence": 0.5,
+      "confirmed": true
+    }
+  ]
+}

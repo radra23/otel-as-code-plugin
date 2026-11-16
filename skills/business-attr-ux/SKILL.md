@@ -212,6 +212,10 @@ On approval, update `.claude/otel-context.json` in place, changing only:
 }
 ```
 
+`/otel-enrich --business` later adds one more key to an entry it has emitted from code:
+`"callSite": {"file": "src/routes/checkout.js", "function": "checkout"}`. It is absent until then;
+never write it here, and never drop it when re-confirming an entry.
+
 `unit` is always present (nullable) once this fix lands — `null` for every `kind` where it doesn't
 apply or wasn't observed, not just omitted. A cache written before `unit` existed simply lacks the
 key; treat an absent `unit` the same as `null`, never as a reason to skip the entry.
