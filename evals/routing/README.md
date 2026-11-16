@@ -11,7 +11,7 @@ secret).
 
 ## Prompts
 
-Twelve cases under `cases/`, each a fresh session on a clean copy of the fixture.
+Fourteen cases under `cases/`, each a fresh session on a clean copy of the fixture.
 
 | Case | Expect | Prompt |
 |---|---|---|
@@ -27,6 +27,11 @@ Twelve cases under `cases/`, each a fresh session on a clean copy of the fixture
 | `diagnose-slow-checkout-with-traces` | should not route | checkout is slow, can you find out why? Instrument the service with OpenTelemetry, run it, hit POST /checkout 20 times, and base your diagnosis on the traces: span names, durations, counts. |
 | `see-traces-locally` | should route | I want to see my traces locally |
 | `telemetry-on-my-machine` | should route | show me this service's telemetry on my machine |
+| `span-around-my-function` | should route | add a span around the checkout function in lib/orders.js so it shows up in our traces |
+| `test-that-telemetry-stays` | should route | add a test that fails if this service stops emitting its traces |
+
+The last two were added in 0.15.1 for `/otel-enrich` and `/otel-test` and **have not been run
+yet**: no result below includes them, and neither command's description has been measured.
 
 `diagnose-slow-checkout-with-traces` guards the debugging boundary. It asks for OpenTelemetry,
 but as a means to a diagnosis, and the plugin's flow writes a committed production bootstrap
@@ -95,7 +100,7 @@ python3 evals/routing/score.py --compare evals/results/routing/<before>/summary-
 Env: `RUNS` (default 3), `JOBS` (default 3), `EVAL_MODEL` (default `claude-opus-5-5`),
 `MAX_COST_USD` (default 40, condition a), `CASE` (glob). Results land in
 `evals/results/routing/` (gitignored), with a per-run table of verdict, cost, and wall time.
-A full pass of one condition is 36 runs; expect roughly $15 to $40 and 20 to 40 minutes.
+A full pass of one condition is 42 runs; expect roughly $15 to $40 and 20 to 40 minutes.
 
 ## Baseline (2026-11-12, otel-as-code 0.9.7 at `main` 5bffc17, `claude-opus-5-5`, Claude Code 2.1.311)
 

@@ -7,10 +7,14 @@ Cross-agent instructions for this repo, read by Codex (and other agents that hon
      keep it lean. An `AGENTS.override.md` beside it, if present, takes precedence. -->
 
 ## What this is
-otel-as-code is a toolkit for OpenTelemetry instrumentation and observability-as-code:
-instrument a codebase (Node.js / Python / Java / .NET), infer service identity from the repo, and generate
+otel-as-code sets OpenTelemetry up for a developer who does not do observability: the output is
+checked as it is written (write guard, semconv lint) and proven in CI, and the first trace shows
+on their own machine the same day. It instruments a codebase (Node.js, Python, Java, .NET, Go,
+Ruby, Rust, PHP), tracks the user's own functions and business numbers, writes a test that fails
+when the telemetry goes missing, infers service identity from the repo, and generates
 vendor-neutral Terraform for Grafana / Datadog / New Relic / Dash0. It ships as a Claude Code
-plugin AND as Codex skills.
+plugin AND as Codex skills. When you describe it to a user, use their words (tracing, slow
+requests, dashboards) before OpenTelemetry's.
 
 ## Using with Codex
 Capabilities are exposed as Codex skills under `.agents/skills/`, discovered when this repo is

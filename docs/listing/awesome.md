@@ -4,14 +4,15 @@ Project: https://github.com/radra23/otel-as-code-plugin
 
 Facts used (checked 2026-11-14 against README.md and the GitHub API):
 
-- Claude Code plugin with 9 commands, plus 10 Codex skills in `.agents/skills/`.
+- Claude Code plugin with 11 commands, plus 12 Codex skills in `.agents/skills/` (counted 2026-11-16 at 0.15.1).
+- Positioning (same as the README's first line): OpenTelemetry set up for you, checked as it is written and proven in CI, with the first trace on your own machine. The entries below lead with what is checked, because that is what the other agent-skill entries on these lists do not claim.
 - Generates SDK bootstrap for Node.js, Python, Java (zero-code agent config), .NET, Go, Ruby, Rust (axum, actix-web); an otelcol-contrib Collector config (agent or gateway); Terraform (dashboard, alerts, SLO) for Grafana, Datadog, New Relic, Dash0.
 - `/otel-local` runs `grafana/otel-lgtm` in Docker so the first trace, log and metric show up locally.
 - Apache-2.0 (GitHub detects it). First commit 2026-06-20, 225 commits, latest release v0.11.1 on 2026-11-14, 1 star.
 
 Fix before submitting anything (applies to every list below):
 
-1. The GitHub repo description is out of date. It says "instrument Node.js/Python", but the README lists seven languages. Bots and reviewers read that description. Suggested replacement: `Claude Code plugin and Codex skills that generate vendor-neutral OpenTelemetry: SDK bootstrap for 7 languages, Collector config, and Terraform for Grafana, Datadog, New Relic and Dash0.` (It also contains an em dash and an ampersand you may want gone.)
+1. The GitHub repo description is out of date. It says "instrument Node.js/Python", but the README lists eight languages. Bots and reviewers read that description. The replacement is in [README.md](README.md) under "GitHub repo settings"; it uses the same claim as the README's first line.
 2. The README demo GIF is still commented out (`docs/demo.gif`). No list below requires one, but a reviewer deciding in a few seconds benefits from it.
 
 ---
@@ -54,10 +55,10 @@ Fields to paste:
 | Author Link | `https://github.com/radra23` |
 | Description | see below |
 
-Description (484 characters, one line, three sentences):
+Description (490 characters, one line, three sentences):
 
 ```
-Plugin that scans a repo, detects its services, and generates vendor-neutral OpenTelemetry from one service model: SDK bootstrap for Node.js, Python, Java (agent config), .NET, Go, Ruby and Rust, an otelcol-contrib Collector config, and Terraform for dashboards, alerts and SLOs on Grafana, Datadog, New Relic or Dash0. Hooks block overwrites of generated files and lint semantic-convention names on every write. /otel-local starts a local Grafana stack in Docker for the first trace.
+Plugin that sets up OpenTelemetry in a repo and checks its own output: hooks block accidental overwrites and lint semantic-convention names on every write, and CI runs the generated setup in real apps for Node.js, Python, Java, .NET, Go, Ruby and Rust. /otel-init offers a local Grafana stack in Docker for the first trace. Also generates a Collector config, Terraform for dashboards and alerts on Grafana, Datadog, New Relic or Dash0, and a test that fails when the telemetry goes missing.
 ```
 
 Checklist: tick the first five boxes only after doing what they say (visit the list yourself, check the links, read CONTRIBUTING.md). **Leave the sixth box unchecked.** It is a trap that marks the submitter as not reading.
@@ -82,7 +83,7 @@ Target section: **OpenTelemetry Instrumentation > Coding Agent Skills** (current
 Entry line:
 
 ```
-- [otel-as-code](https://github.com/radra23/otel-as-code-plugin) - Claude Code plugin and Codex skills that scan a repo and generate vendor-neutral OpenTelemetry from one service model: SDK bootstrap for Node.js, Python, Java (agent config), .NET, Go, Ruby and Rust, an otelcol-contrib Collector config, and Terraform for Grafana, Datadog, New Relic and Dash0. Includes semconv linting on write and a local Grafana stack for the first trace.
+- [otel-as-code](https://github.com/radra23/otel-as-code-plugin) - Claude Code plugin and Codex skills that set up OpenTelemetry in a repo and check their own output: semconv linting on every write, and the generated SDK bootstrap run end to end in CI for Node.js, Python, Java, .NET, Go, Ruby and Rust. Also generates an otelcol-contrib Collector config, Terraform for Grafana, Datadog, New Relic and Dash0, a local Grafana stack for the first trace, and a test that fails when telemetry goes missing.
 ```
 
 Suggested PR body:
@@ -122,7 +123,7 @@ Target section: **6. Collector > Configuration & Linters**. That section already
 Entry line:
 
 ```
-- [otel-as-code](https://github.com/radra23/otel-as-code-plugin) - Claude Code plugin and Codex skills that generate OpenTelemetry SDK bootstrap for seven languages, an otelcol-contrib agent or gateway config, and Terraform for Grafana, Datadog, New Relic and Dash0 from a scan of the repo, with semantic-convention linting on every write.
+- [otel-as-code](https://github.com/radra23/otel-as-code-plugin) - Claude Code plugin and Codex skills that set up OpenTelemetry from a scan of the repo and check their own output: SDK bootstrap run end to end in CI for seven languages, an otelcol-contrib agent or gateway config, Terraform for Grafana, Datadog, New Relic and Dash0, and semantic-convention linting on every write.
 ```
 
 PR template, filled:
