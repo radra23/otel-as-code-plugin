@@ -96,6 +96,14 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
   compares only the current line: the legacy pins are held back on purpose, like the .NET
   `drops <tfm>` rows. Regenerate `go.mod`/`go.sum` with a real `go mod tidy` and `go build` next
   to `fixtures/go-greenfield/main.go`, never by hand.
+- Go logs need two things and the bootstrap used to ship one: until 0.23.0 `InitOtelLogs` built a
+  provider nothing wrote to, and the matrix called that "logs generated" because no
+  test asserted a record. `tracing.go` now has `OtelSlogHandler()` (`otelslog`), and the printed
+  optional wiring installs it beside the app's console handler with `slog.NewMultiHandler` (Go
+  1.26; never `slog.SetDefault` from the bootstrap, never wrap `slog.Default().Handler()`, which
+  deadlocks). `tests/e2e/run.sh` asserts a Go record with a trace ID
+  (`assert-logs.sh --expect-trace-id`). For any language: a logs signal is proven by a record
+  arriving, not by a provider compiling.
 - Trace IDs in log lines (#279): the Python bootstrap's `_add_trace_ids_to_logs()` block adds
   `otelTraceID`/`otelSpanID` to every `logging` record and appends ` trace_id=... span_id=...` to
   lines the plain `logging.Formatter` renders; Node.js needs nothing generated (the bundle's pino,

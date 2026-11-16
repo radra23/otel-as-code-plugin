@@ -1592,8 +1592,10 @@ package main
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"os"
 
+	"go.opentelemetry.io/contrib/bridges/otelslog"
 	otelruntime "go.opentelemetry.io/contrib/instrumentation/runtime"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -1697,6 +1699,11 @@ func InitOtel(ctx context.Context) (shutdown func(context.Context) error, err er
 // Kept out of InitOtel's required path and wired only from this separate
 // block: call InitOtelLogs explicitly (in addition to InitOtel) to enable it.
 // Like InitOtel, it is a no-op when OTEL_EXPORTER_OTLP_ENDPOINT is unset.
+//
+// InitOtelLogs only builds the pipeline. Nothing reaches it until a logger is
+// pointed at it: OtelSlogHandler below is that connection for log/slog, and
+// the wiring line /otel-instrument prints installs it next to your console
+// output. This file never changes your default logger by itself.
 // ---------------------------------------------------------------------------
 
 // InitOtelLogs bootstraps the OpenTelemetry Logs SDK and installs it as the
@@ -1731,6 +1738,16 @@ func InitOtelLogs(ctx context.Context) (shutdown func(context.Context) error, er
 	return loggerProvider.Shutdown, nil
 }
 
+// OtelSlogHandler returns a log/slog handler that sends each record to the
+// LoggerProvider InitOtelLogs installs (the official otelslog bridge, which is
+// still pre-1.0). A record logged with a context, as in
+// slog.InfoContext(r.Context(), ...), carries that request's trace and span
+// IDs; slog.Info, with no context, cannot. Only log/slog is bridged: the old
+// log package, zap and logrus need their own bridge.
+func OtelSlogHandler() slog.Handler {
+	return otelslog.NewHandler(envOrDefault("OTEL_SERVICE_NAME", "<SERVICE_NAME>"))
+}
+
 // InitOtelLogsBeta is the name this function had while Go logs were Beta.
 //
 // Deprecated: call InitOtelLogs. Kept so that regenerating this file does not
@@ -1750,6 +1767,7 @@ Add to the `require (...)` block (versions below are the verified-current stable
 latest at generation time rather than copying verbatim if newer releases exist, same rule as
 every other language):
 ```
+go.opentelemetry.io/contrib/bridges/otelslog v0.21.0
 go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.72.0
 go.opentelemetry.io/contrib/instrumentation/runtime v0.72.0
 go.opentelemetry.io/otel v1.47.0
@@ -1772,6 +1790,7 @@ there instead, and make three substitutions in `tracing.go`, exactly these and n
 (`tests/e2e/go-legacy-line.sh` applies them to the golden and builds the result on Go 1.25):
 
 ```
+go.opentelemetry.io/contrib/bridges/otelslog v0.20.1
 go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.71.0
 go.opentelemetry.io/contrib/instrumentation/runtime v0.71.0
 go.opentelemetry.io/otel v1.46.0
@@ -1797,6 +1816,12 @@ go.opentelemetry.io/otel/sdk/metric v1.46.0
 Say in the summary: "Go <version>: pinned to OpenTelemetry Go v1.46 (v1.47 needs Go 1.26); logs
 are Beta on this line." Never print the v1.47 pins for such a project.
 
+**Do not print the optional logs wiring lines on this line.** They use `slog.NewMultiHandler`,
+which Go 1.25 does not have, and the only way to wire the bridge without it is to make it the
+default logger, which would stop the application's console output. `OtelSlogHandler()` is still
+in the file for a team that wants to wire it by hand; say in the summary: "logs: the pipeline
+and the slog bridge are generated, but the wiring lines need Go 1.26, so none is printed."
+
 ### Printed wiring lines (paste into `main.go`, before your mux starts serving)
 
 ```go
@@ -1809,10 +1834,25 @@ defer shutdown(context.Background())
 mux = otelhttp.NewHandler(mux, "<SERVICE_NAME>")   // wrap before http.ListenAndServe
 ```
 ```go
-// Optional: OTel logs. Add alongside the lines above:
+// Optional: OTel logs. Add alongside the lines above (needs Go 1.26 for slog.NewMultiHandler):
 logsShutdown, _ := InitOtelLogs(context.Background())
 defer logsShutdown(context.Background())
+slog.SetDefault(slog.New(slog.NewMultiHandler(
+	slog.NewTextHandler(os.Stderr, nil), // your console output, unchanged
+	OtelSlogHandler(),                   // the same records, to OpenTelemetry
+)))
 ```
+
+**The logs lines are a pair, and neither half works alone.** `InitOtelLogs` only builds the
+pipeline; nothing reaches it until a logger is pointed at `OtelSlogHandler()`. The first handler
+in the printed line stands for the application's existing output: if the service already builds
+its own `slog` handler (JSON, a different level, a file), tell the user to put THAT handler
+first instead of `slog.NewTextHandler(os.Stderr, nil)`. Never write these lines into the user's
+source, never call `slog.SetDefault` from `tracing.go`, and never wrap `slog.Default().Handler()`
+in the new default (that handler writes through the `log` package, which `slog.SetDefault`
+redirects back to it: a deadlock). Only `log/slog` is bridged: for the old `log` package, `zap`
+or `logrus`, say that no bridge is generated. A record carries the request's trace ID only when
+it is logged with the request's context (`slog.InfoContext(r.Context(), ...)`).
 
 ### After writing (Go) — return this summary
 
@@ -1838,7 +1878,9 @@ Still required:
     <the confirmed deploymentEnvironment, or "development">. <Per the "Deployment-environment
     provisioning check" section: if deploymentEnvConfigured is not true, replace this bullet with
     a ⚠ headline warning instead of listing it here.>
-  - Optional: paste the InitOtelLogs lines above too if you want the logs pipeline.
+  - Optional: paste the InitOtelLogs lines above too if you want logs exported. Both parts are
+    needed: InitOtelLogs builds the pipeline, the slog line sends your log/slog records to it
+    and keeps your console output. Log with the request's context to get its trace ID.
     <On a regeneration of a file that had InitOtelLogsBeta: say that name still works as a
     deprecated wrapper, so existing callers keep compiling.>
 ```
