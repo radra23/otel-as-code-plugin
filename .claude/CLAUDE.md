@@ -125,7 +125,10 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
   New Relic and Dash0 DERIVE their runtime queries from the same table by a fixed rule per
   backend (`terraform-patterns`; `tests/runtime_panels_render.py` renders all three and the
   goldens are pinned to it). Only the Grafana queries are run against data: for the other two,
-  `terraform validate` and the live apply prove the dashboard is accepted, never that a chart has
+  `terraform validate` proves the schema and, for Dash0 only, the live apply proves a real account
+  accepts the dashboard (the job has never had Grafana or New Relic credentials: every run since
+  2026-09-03 skipped them, so never write "applied to a real account" for those two without
+  reading `gh run list --workflow tf-live-validate.yml` first); neither proves that a chart has
   data, and every derived panel says so. Datadog has no row (it renames runtime metrics on ingest,
   #121).
 
