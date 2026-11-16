@@ -8,7 +8,7 @@
 > of the same shape, and every concrete line item that isn't done yet has a linked tracking issue —
 > comment there rather than only in this file if you want to weigh in.
 
-Current release: **0.20.0**. Node.js, Python, Java, .NET, Go, Ruby, and Rust (axum, actix-web) instrumentation, Terraform
+Current release: **0.21.0**. Node.js, Python, Java, .NET, Go, Ruby, and Rust (axum, actix-web) instrumentation, Terraform
 for Grafana, Datadog, New Relic, and Dash0, semconv pinned at 1.45.0. Since 0.2.0 the command set
 has grown past generation: `/otel-uninstrument` rolls instrumentation back behind an ownership
 marker, `/otel-remediate` proposes a deployment-config diff for services that have no application
@@ -21,7 +21,8 @@ goes missing, runtime metrics (memory, garbage collection, threads) come with th
 Node.js, Python, Java, .NET and Go, log lines in Node.js and Python carry their request's trace
 ID with the app's logger left alone, the Python bootstrap leaves FastAPI 0.142.0+'s own stable-name
 telemetry on instead of replacing it, the Grafana module gains a log panel and an error-log alert
-on Loki, the Grafana dashboard gains a runtime row picked by the
+on Loki, New Relic and Dash0 gain the runtime panels and their log views (derived queries, not run
+against data), the Grafana dashboard gains a runtime row picked by the
 service's language (Datadog, New Relic and Dash0 to follow), and `--dry-run` previews any writing command before it writes. Everything
 shipped so far is tracked (closed) under the
 [`0.1.0 MVP — shipped`](https://github.com/radra23/otel-as-code-plugin/milestone/4) milestone.

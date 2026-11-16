@@ -338,10 +338,12 @@ here is not.
   conventions: if the panel goes blank after an SDK upgrade, check whether the metric was
   renamed.` The bootstrap must be the one `/otel-instrument` writes since 0.16.0; an older one
   for Python, Go or .NET emits no runtime metrics and leaves the row empty until regenerated.
-- **Grafana only for now.** The Datadog, New Relic and Dash0 dashboards get no runtime row yet:
-  there is no account to run their queries against, and Datadog renames some runtime metrics when
-  it ingests them. Say "runtime row: Grafana only" in the summary for those backends; never
-  translate the PromQL into another query language on the fly.
+- **New Relic and Dash0 derive their queries from the same table** by the fixed rules in their
+  own sections below ("Runtime page", "Runtime panels"). Those derived queries are run nowhere:
+  only the Grafana ones are proven against data. **Datadog gets no runtime row**: it renames
+  some runtime metrics when it ingests them and there is no account to check against (#121).
+  Say `runtime row: none for Datadog yet` in that backend's summary. Never translate a query
+  into another query language by any rule that is not written in this file.
 
 ### Log panel and error-log alert (Loki, #279)
 The dashboard ends with the service's own log lines, and the rule group gains one alert on the
@@ -388,7 +390,8 @@ Rules:
   its logs over OTLP. In Node.js and Python that needs `/otel-instrument --experimental`; in .NET
   the printed logging add-on. Generate both regardless, put that sentence in the panel
   description, and repeat it in the summary when the service's bootstrap does not export logs.
-- **Grafana only for now.** Datadog, New Relic and Dash0 get no log panel or log alert yet.
+- **Other backends.** New Relic gets a Logs page and an error-log alert, Dash0 a log-volume
+  panel and no alert: see their sections below. Datadog gets neither yet.
 
 ### Notification routing (contact points)
 Emit contact points only when the user asks for alert routing. Without one, the generated
@@ -563,6 +566,42 @@ for this). Backtick-quote dotted attribute names:
   Label the axis with the entry's `unit` when present. Caveat: requires the histogram to be
   reported as a New Relic Metric; if it is only present as span/event data, query
   `` percentile(`<name>`, 50, 95, 99) FROM Span `` instead.
+
+### Runtime page (by the service's language, #277)
+One more `page` on the dashboard, named `Runtime (<label>)`, placed after "Overview". Its widgets
+come from `runtime-panels.json` (see "Runtime panel row" in the Grafana section for the table and
+for which languages have a row). New Relic stores a metric under its OpenTelemetry name, with no
+unit suffix, so the query follows from the entry's `metric`, `kind` and optional `facet`:
+
+| `kind` | NRQL |
+|---|---|
+| `gauge`, `updowncounter` | ``SELECT average(`<metric>`) FROM Metric WHERE service.name = '${var.service_name}' TIMESERIES`` |
+| `counter` | ``SELECT rate(sum(`<metric>`), 1 second) FROM Metric WHERE service.name = '${var.service_name}' TIMESERIES`` |
+| `histogram` | ``SELECT rate(count(`<metric>`), 1 second) FROM Metric WHERE service.name = '${var.service_name}' TIMESERIES`` |
+
+- When the entry has a `facet`, add ``FACET `<facet>` `` before `TIMESERIES`: the metric has one
+  series per memory pool or heap space, and an average across them is not a total.
+- One `widget_line` per entry on row 1, `height = 3`, `width = 12 / <number of entries>`.
+- New Relic widgets have no description field, so the page ends with one `widget_markdown`
+  ("About this page", row 4, full width) that says the queries were derived and not run against
+  a New Relic account, and names the metrics whose names are not yet stable.
+- **None of these queries has been run against live data.** The schema is validated on every
+  push and the module is applied to a real account by the live-apply job; that proves the
+  dashboard is accepted, not that a chart has data. Say so in the summary.
+
+### Logs page and error-log alert (#279)
+The dashboard's last `page` is `Logs`, and the alert policy gains one condition. The attribute
+names are New Relic's documented mapping of an OTLP log record: the body is `message`, the
+severity is `severity.text` and `severity.number`, the trace is `trace.id`, and resource
+attributes such as `service.name` pass through unchanged.
+
+- Log lines (`widget_log_table`): `SELECT timestamp, severity.text, message, trace.id FROM Log WHERE service.name = '${var.service_name}'`
+- Share of error lines (`widget_line`, with `TIMESERIES` appended) and the alert condition's query (without it): `SELECT filter(count(*), WHERE severity.number >= 17) / count(*) FROM Log WHERE service.name = '${var.service_name}'`
+- The alert is a `newrelic_nrql_alert_condition` named `error_logs`, `critical` `above`
+  `var.error_log_ratio_threshold` (default `0.05`) for 300 seconds. Filter severity by number,
+  never by text, for the reason given in the Grafana section.
+- The page ends with a `widget_markdown` saying when it is empty (the service does not export
+  its logs) and that the queries were not run against a New Relic account.
 
 ---
 
@@ -744,3 +783,34 @@ attribute `name` to a PromQL metric/label (dots→underscores) as `<M>`.
   `histogram_quantile(0.95, ...)`, `histogram_quantile(0.99, ...)`. Label the axis with the entry's
   `unit` when present. Caveat: requires the histogram to be emitted as `<M>`; verify against a live
   instance, as with the dimension case above.
+
+### Runtime panels (by the service's language, #277)
+Dash0 panels are PromQL, so the runtime panels are the entries of `runtime-panels.json` (see
+"Runtime panel row" in the Grafana section) with one change: take the entry's `grafana` query
+and replace `job="${var.service_name}"` with `service_name="${var.service_name}"`, the label
+every other Dash0 query in this file uses. Nothing else in the query changes.
+
+- One panel per entry, after the three HTTP panels, keyed `runtime<TitleInCamelCase>`, named
+  `<label> runtime, <title in lower case>`, with the same `TimeSeriesChart` and
+  `PrometheusTimeSeriesQuery` shape as the HTTP panels.
+- `display.description`: the metric name, then "This query was derived from the metric the
+  bootstrap emits and was not run against live data.", then the not-yet-stable sentence from the
+  Grafana section when the entry's `stability` is not `stable`.
+- **None of these queries has been run against live data**, including the assumption that Dash0
+  stores a runtime metric under the same unit-suffixed name Prometheus does (it does for
+  `http_server_request_duration_seconds`, which the HTTP panels already rely on). Say so in the
+  summary.
+
+### Log volume panel (#279)
+Dash0 counts the log records it receives in a synthetic metric, `dash0.logs`, which PromQL
+selects as `{otel_metric_name="dash0.logs"}`. One panel, keyed `logVolume`, last on the dashboard:
+
+- `sum by (otel_log_severity_text) (increase({otel_metric_name="dash0.logs", service_name="${var.service_name}"}[5m]))`
+- Dash0 documents the metric, the selector and a split by `otel.log.severity.text`; the
+  underscore spelling of that label in PromQL is inferred from how its other labels are spelled,
+  and the query was not run. If the label is wrong the panel still shows the total as one line.
+- **No error-log alert for Dash0.** The values that severity label takes are not documented, and
+  a rule filtering on a guessed value would never fire while looking healthy. Say `error-log
+  alert: not generated for Dash0 (severity values not documented)` in the summary.
+- Dash0's dashboards have no documented panel for listing log records; the panel charts volume
+  and the description points at the Logs view for the lines themselves.

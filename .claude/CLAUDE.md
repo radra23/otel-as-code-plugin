@@ -106,7 +106,11 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
   (`lgtm_check.py logs`), including that the alert query returns nothing before an error is
   logged. Loki's label is `service_name` with the bare name (no `<namespace>/` prefix, unlike
   Prometheus's `job`), and severity is filtered by `severity_number >= 17`, never by text. The
-  alert's query is proven, its rule evaluation is not. Grafana only so far.
+  alert's query is proven, its rule evaluation is not. New Relic has a Logs page and the same
+  alert on `severity.number` (New Relic's documented OTLP mapping); Dash0 has a `dash0.logs`
+  volume panel and deliberately NO alert, because the severity values of that metric's label are
+  not documented and a guessed filter would never fire while looking healthy. Neither is run
+  against data. Datadog has nothing yet.
 - The dashboard's runtime row comes from `skills/terraform-patterns/runtime-panels.json`, the one
   table of runtime panels per language (metric, kind, unit, name stability, PromQL). The generator
   reads it and never writes a runtime query from memory. Add or change a panel there only: the
@@ -118,7 +122,12 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
   failed the job on a run where the JVM had not collected yet and was replaced by
   `jvm.memory.used_after_last_gc`. Node.js's `v8js.gc.duration` panel is the same kind; it has been
   present on every run so far and is the first suspect if that job fails on a Node.js query.
-  Grafana only so far; Datadog, New Relic and Dash0 have no account to prove a query against.
+  New Relic and Dash0 DERIVE their runtime queries from the same table by a fixed rule per
+  backend (`terraform-patterns`; `tests/runtime_panels_render.py` renders all three and the
+  goldens are pinned to it). Only the Grafana queries are run against data: for the other two,
+  `terraform validate` and the live apply prove the dashboard is accepted, never that a chart has
+  data, and every derived panel says so. Datadog has no row (it renames runtime metrics on ingest,
+  #121).
 
 - `evals/routing/` measures whether a fresh session picks this plugin (`claude plugin eval` for
   only-this-plugin, `run-headless.sh` for a full personal plugin set, one scorer `score.py` for

@@ -331,7 +331,7 @@ Rules:
 - Respect `kind` from `/otel-backend` (`dashboard` vs `alerts` vs `slo`): business panels belong
   to the dashboard, so emit them only when the dashboard is being generated.
 
-## Runtime panel row (Grafana, by the service's language)
+## Runtime panel row (by the service's language)
 
 The dashboard also gets a row of runtime panels (memory, garbage collection, CPU, event loop,
 threads or goroutines), which the generated bootstrap emits with no application code. The panels
@@ -346,11 +346,14 @@ follow the skill's "Runtime panel row" section for layout, units and description
   not checked for <language>`.
 - If the file cannot be read, emit no row and say `runtime row: skipped, runtime-panels.json not
   readable` in the summary. Never fall back to remembered metric names.
-- Grafana only (both flavors). For Datadog, New Relic and Dash0, emit no runtime row and add
-  `runtime row: Grafana only for now` to the summary.
+- **Grafana** (both flavors): the `grafana` query as written. **Dash0** and **New Relic**: the
+  query DERIVED from the same entry by the rule in that backend's section of the skill ("Runtime
+  panels", "Runtime page"), and nothing else; add `runtime queries for <backend> are derived and
+  were not run against live data` to the summary. **Datadog**: no runtime row, and `runtime row:
+  none for Datadog yet` in the summary.
 - The row belongs to the dashboard: emit it only when `kind` is `all` or `dashboard`.
 
-## Log panel and error-log alert (Grafana)
+## Log panel and error-log alert
 
 The Grafana dashboard ends with a log panel scoped to the service, and the rule group gains an
 alert on the share of error lines. Follow the skill's "Log panel and error-log alert" section:
@@ -366,8 +369,11 @@ number, `no_data_state = "OK"`).
 - Add one line to the summary: `logs: panel and error-log alert query Loki (set
   loki_datasource_uid)`, and when the service's bootstrap does not export logs, why they will be
   empty and what turns them on.
-- Grafana only. For Datadog, New Relic and Dash0, emit neither and add `log panel: Grafana only
-  for now` to the summary.
+- **New Relic:** the `Logs` page and the `error_logs` alert condition from the skill's "Logs page
+  and error-log alert" section, with `error_log_ratio_threshold`. **Dash0:** the `logVolume` panel
+  from "Log volume panel" and NO alert; say why in the summary, as that section words it.
+  **Datadog:** neither, and `log panel: none for Datadog yet` in the summary. For New Relic and
+  Dash0 the summary says the log queries were not run against live data.
 
 ## Grafana main.tf
 
@@ -393,7 +399,7 @@ Include: provider block, datadog_dashboard (generic panels **plus one widget per
 ## New Relic main.tf
 
 Generate using patterns from the `terraform-patterns` skill (newrelic section).
-Include: provider block, newrelic_alert_policy, newrelic_one_dashboard (generic widgets **plus one widget per confirmed `businessAttrs` entry** — see "Business-attribute panels" above), newrelic_nrql_alert_condition (error rate + latency), newrelic_service_level.
+Include: provider block, newrelic_alert_policy, newrelic_one_dashboard (generic widgets, **the runtime page for the service's language**, **plus one widget per confirmed `businessAttrs` entry** (see "Business-attribute panels" above), **and the Logs page last**), newrelic_nrql_alert_condition (error rate + latency + error-log share), newrelic_service_level.
 
 ## Dash0 main.tf
 
@@ -407,7 +413,7 @@ auth token needs management/write scope. All four are confirmed against live `ap
 (#102/#103/#104, and the `check_rule_yaml` shape caught by the first opt-in live run) — copy the
 variable descriptions and YAML shape from that section verbatim rather than reconstructing them.
 Verify current resource names from the Dash0 Terraform provider registry documentation
-before writing. Include: provider block, dashboard resource (generic panels **plus one panel per confirmed `businessAttrs` entry** — see "Business-attribute panels" above), alert/monitoring resource, `dash0_slo` (availability SLO, #174) using the shape in the skill's "SLO resource (`dash0_slo`)" section — a fixed rolling 28d window, `budgetingMethod: Occurrences`, exactly one objective; never offer a configurable window for this resource, Dash0 rejects anything else with a 400.
+before writing. Include: provider block, dashboard resource (generic panels, **the runtime panels for the service's language**, **plus one panel per confirmed `businessAttrs` entry** (see "Business-attribute panels" above), **and the `logVolume` panel last**), alert/monitoring resource, `dash0_slo` (availability SLO, #174) using the shape in the skill's "SLO resource (`dash0_slo`)" section — a fixed rolling 28d window, `budgetingMethod: Occurrences`, exactly one objective; never offer a configurable window for this resource, Dash0 rejects anything else with a 400.
 
 ## After writing and validating
 

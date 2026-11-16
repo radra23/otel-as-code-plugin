@@ -79,6 +79,28 @@ check "a panel on a name that is not stable says so, and a stable one does not" 
 check "three panels fill the row as well as four (Go: w = 8)" \
   'python3 tests/runtime_panels_render.py "$TABLE" go 16 | grep -q "w = 8, x = 16, y = 17"'
 
+# New Relic and Dash0: their queries are derived from the same table by rule, and the goldens
+# carry the rendered Node.js block byte for byte. Nothing runs these queries against data.
+for backend in newrelic dash0; do
+  block=$(python3 tests/runtime_panels_render.py "$TABLE" nodejs 0 $backend)
+  check "tests/snapshots/$backend/main.tf.snap contains the derived Node.js runtime block, byte for byte, once" \
+    'python3 -c "import sys; s=open(sys.argv[1]).read(); sys.exit(0 if s.count(sys.argv[2]+chr(10))==1 else 1)" tests/snapshots/$backend/main.tf.snap "$block"'
+done
+check "New Relic: a gauge is averaged, a counter and a histogram are rated, by the metric's own name" \
+  'python3 tests/runtime_panels_render.py "$TABLE" python 0 newrelic | grep -qF "SELECT average(\`process.memory.usage\`) FROM Metric" && python3 tests/runtime_panels_render.py "$TABLE" python 0 newrelic | grep -qF "SELECT rate(sum(\`cpython.gc.collections\`), 1 second)" && python3 tests/runtime_panels_render.py "$TABLE" nodejs 0 newrelic | grep -qF "SELECT rate(count(\`v8js.gc.duration\`), 1 second)"'
+check "New Relic: a metric with one series per pool is split by it, never averaged across" \
+  'python3 tests/runtime_panels_render.py "$TABLE" java 0 newrelic | grep -qF "average(\`jvm.memory.used\`) FROM Metric WHERE service.name = '"'"'\${var.service_name}'"'"' FACET \`jvm.memory.pool.name\` TIMESERIES"'
+check "New Relic: three panels fill the 12 columns as well as four" \
+  'python3 tests/runtime_panels_render.py "$TABLE" go 0 newrelic | grep -c "width  = 4" | grep -qx 3'
+check "Dash0: the Grafana query with the service_name label, and no job label left" \
+  'python3 tests/runtime_panels_render.py "$TABLE" java 0 dash0 | grep -qF "query: sum(jvm_memory_used_bytes{service_name=\"\${var.service_name}\"})" && ! python3 tests/runtime_panels_render.py "$TABLE" java 0 dash0 | grep -q "job="'
+check "both derived blocks say they were not run against live data" \
+  'python3 tests/runtime_panels_render.py "$TABLE" nodejs 0 newrelic | grep -q "were not run against a New Relic account" && [ "$(python3 tests/runtime_panels_render.py "$TABLE" nodejs 0 dash0 | grep -c "was not run against live data")" = 4 ]'
+check "Datadog has no runtime row yet, and the generator says so" \
+  '! grep -qi "runtime" tests/snapshots/datadog/main.tf.snap && tr "\n" " " < agents/terraform-gen.md | tr -s " " | grep -q "runtime row: none for Datadog yet"'
+check "the skill states each backend\x27s derivation rule" \
+  'grep -q "^### Runtime page (by the service" skills/terraform-patterns/SKILL.md && grep -q "^### Runtime panels (by the service" skills/terraform-patterns/SKILL.md'
+
 # The maturity matrix, the guidance and the e2e job agree with the table.
 check "every language with a row is asserted in the maturity matrix, and every language without one is not" \
   'python3 -c "

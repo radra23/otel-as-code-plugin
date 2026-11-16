@@ -56,7 +56,36 @@ check "the Loki datasource default is Grafana Cloud's for cloud and loki for sel
 check "the panel says when it will be empty" \
   'grep -q "Empty until the service exports its logs over OTLP" tests/snapshots/grafana/main.tf.snap'
 check "the generator sends the reader to the skill's section and keeps it to Grafana" \
-  'grep -q "Log panel and error-log alert" agents/terraform-gen.md && grep -q "log panel: Grafana only" agents/terraform-gen.md'
+  'grep -q "Log panel and error-log alert" agents/terraform-gen.md && grep -q "log panel: none for Datadog yet" agents/terraform-gen.md'
+# New Relic and Dash0: written from each vendor's documentation, pinned to the skill, run nowhere.
+NR=tests/snapshots/newrelic/main.tf.snap; D0=tests/snapshots/dash0/main.tf.snap
+# backend_query <heading> <bullet prefix>: the query in backticks on that bullet of that section.
+backend_query() { awk -v h="$1" '$0==h{on=1;next} on&&/^### /{exit} on' "$SKILL" | grep -F -- "$2" | head -1 | sed -E 's/^[^`]*`([^`]*)`.*$/\1/'; }
+NR_ERR="SELECT filter(count(*), WHERE severity.number >= 17) / count(*) FROM Log WHERE service.name = '\${var.service_name}'"
+check "the skill states New Relic's error-share query, by severity number" \
+  'awk "/^### Logs page and error-log alert/{on=1;next} on&&/^### /{exit} on" "$SKILL" | grep -qF "$NR_ERR"'
+check "the New Relic golden uses that query in the alert, and with TIMESERIES on the Logs page" \
+  'grep -qF "query = \"$NR_ERR\"" $NR && grep -qF "query      = \"$NR_ERR TIMESERIES\"" $NR'
+check "the New Relic alert reads its threshold from the variable, which defaults to 5%" \
+  'sed -n "/newrelic_nrql_alert_condition\" \"error_logs\"/,/^}/p" $NR | grep -q "threshold             = var.error_log_ratio_threshold" && grep -A3 "^variable \"error_log_ratio_threshold\"" $NR | grep -q "default     = 0.05"'
+check "the New Relic log table selects the documented OTLP attributes" \
+  'grep -qF "SELECT timestamp, severity.text, message, trace.id FROM Log WHERE service.name = " $NR && grep -qF "SELECT timestamp, severity.text, message, trace.id FROM Log" "$SKILL"'
+check "the Logs page is the last page of the New Relic dashboard and says it was not run" \
+  'python3 -c "
+import re,sys
+s=open(sys.argv[1]).read()
+d=s[s.index(\"resource \\\"newrelic_one_dashboard\\\"\"):s.index(\"resource \\\"newrelic_service_level\\\"\")]
+pages=re.findall(r\"\n  page \{\n    name = \\\"(.*)\\\"\", d)
+assert pages[0]==\"Overview\" and pages[1].startswith(\"Runtime (\") and pages[-1]==\"Logs\", pages
+assert \"were not run against a New Relic account\" in d[d.rindex(\"name = \\\"Logs\\\"\"):]
+" $NR'
+D0_Q='sum by (otel_log_severity_text) (increase({otel_metric_name="dash0.logs", service_name="${var.service_name}"}[5m]))'
+check "the skill states Dash0's log-volume query and the golden carries exactly it, as the last panel" \
+  'grep -qF -- "- \`$D0_Q\`" "$SKILL" && grep -qF "query: $D0_Q" $D0 && [ "$(sed -n "/^resource \"dash0_dashboard\"/,/^  YAML$/p" $D0 | grep -E "^        [a-zA-Z0-9]+:$" | tail -1 | tr -d " :")" = logVolume ]'
+check "Dash0 gets no error-log alert, and the skill says why" \
+  '[ "$(grep -c "^resource \"dash0_check_rule\"" $D0)" = 2 ] && ! grep -qi "error.log\|dash0.logs.*>" <(sed -n "/dash0_check_rule/,\$p" $D0) && grep -q "No error-log alert for Dash0" "$SKILL"'
+check "Datadog has no log panel or log alert yet" '! grep -qi "logs\b\|log_stream\|error_log" tests/snapshots/datadog/main.tf.snap'
+
 check "the sections the new text was inserted before are still there" \
   'grep -q "^## Grafana main.tf$" agents/terraform-gen.md && grep -q "^### Notification routing (contact points)$" "$SKILL"'
 check "the e2e reads its queries out of the golden and is wired into CI" \
