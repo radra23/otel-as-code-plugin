@@ -404,6 +404,26 @@ jobs:
       - name: Log panel and alert queries end to end
         run: bash tests/e2e/log-panel.sh
 
+  # The Go bootstrap for projects still on Go 1.25: the v1.46 line, reached from the golden by the
+  # three substitutions the generator documents, built on Go 1.25 itself.
+  go-legacy-line:
+    name: Go bootstrap builds on Go 1.25 (OpenTelemetry Go v1.46 line)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: false
+
+      - name: Build the legacy line
+        run: bash tests/e2e/go-legacy-line.sh
+        env:
+          GOTOOLCHAIN: local
+          GOFLAGS: -mod=readonly
+
   # FastAPI's own telemetry (#300): exactly one server span per request behind the golden
   # bootstrap, on the last FastAPI without it and on the current one.
   fastapi-native:

@@ -331,8 +331,11 @@ def go_pins():
     """(module, version) for each `go.opentelemetry.io/... vX.Y.Z` line the generator tells Go
     services to require. Go had no drift coverage until the runtime-metrics module was added
     (#277): a contrib module that falls behind the SDK line it is released with fails the build."""
-    return re.findall(r"^(go\.opentelemetry\.io/[a-z0-9/._-]+) v([0-9][0-9.]*)$",
-                      _read("agents/instrumentation-gen.md"), re.M)
+    doc = _read("agents/instrumentation-gen.md")
+    # The "Go below 1.26" section pins the v1.46 line on purpose (v1.47 dropped Go 1.25): it is
+    # not a bump target, so only the pins above that heading are compared with upstream.
+    current = doc.split("### Go below 1.26", 1)[0]
+    return re.findall(r"^(go\.opentelemetry\.io/[a-z0-9/._-]+) v([0-9][0-9.]*)$", current, re.M)
 
 
 def dotnet_pins():

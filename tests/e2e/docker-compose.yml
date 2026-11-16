@@ -156,8 +156,9 @@ services:
 
   go-app:
     # SDK image (not a distroless runtime) because the container builds the source inline, like
-    # the other apps. golang:1.25 matches the golden go.mod's `go 1.25.0` directive.
-    image: golang:1.25-bookworm
+    # the other apps. golang:1.26 matches the golden go.mod's `go 1.26.0` directive (OpenTelemetry
+    # Go v1.47 dropped Go 1.25; the v1.46 line is built on 1.25 by the go-legacy-line job).
+    image: golang:1.26-bookworm
     working_dir: /app
     environment:
       # The golden tracing.go reads service.name from OTEL_SERVICE_NAME (envOrDefault). Use a
