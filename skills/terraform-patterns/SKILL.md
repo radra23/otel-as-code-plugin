@@ -273,6 +273,25 @@ metric **label**). Sanitize the attribute `name` to a Prometheus metric name (do
 underscores) as `<M>`, and scope every query to the service by `job` — exactly as the generic
 panels do (`service.name` → `job`; `<namespace>/<name>` when a namespace is set). Emit the caveat
 as the panel description so an empty panel is self-explanatory.
+
+**The unit is part of the stored name.** Prometheus appends the instrument's unit when it
+converts an OTLP metric, after the name and before a counter's `_total`. That is why the generic
+panels above query `http_server_request_duration_seconds_bucket` for the OTel metric
+`http.server.request.duration` (unit `s`). So build `<M>` as the sanitized name **plus the suffix
+for the entry's `unit`**; a query without it returns nothing even when the app emits the metric:
+
+| `unit` | Suffix | Checked |
+|---|---|---|
+| `null`, or an annotation in braces (`{order}`, `{item}`) | none | yes, `tests/e2e/enrich.sh` |
+| `s` | `_seconds` | yes, `tests/e2e/enrich.sh` and the Grafana golden |
+| `ms`, `By`, `%` | `_milliseconds`, `_bytes`, `_percent` | no: Prometheus's documented translation, not run here |
+| `1`, on a gauge | `_ratio` | no: as above |
+| anything else | unknown | no |
+
+For a unit this table has not checked, still apply the documented suffix, and say in the panel
+description that the stored name should be confirmed in Prometheus if the panel stays empty. For
+an unknown unit, use the name without a suffix and say the same. Never present either as verified.
+
 - `kind: counter` → `sum(rate(<M>_total{job="<name>"}[5m]))` (OTLP→Prometheus appends `_total` to
   counters). Caveat: requires the app to emit a counter named `<M>`.
 - `kind: gauge` → `avg(<M>{job="<name>"})` (or `avg_over_time(<M>{job="<name>"}[5m])`) — plot the
@@ -290,6 +309,9 @@ as the panel description so an empty panel is self-explanatory.
   entry's `unit` when present. Caveat: requires the app to emit a histogram named `<M>`; never
   substitute `avg(<M>_sum{job="<name>"} / <M>_count{job="<name>"})` for this — an average, not a
   quantile, defeats the reason a histogram was captured.
+
+Say in each panel description that `/otel-enrich --business` adds the code that emits the metric:
+without it the panel is empty, and the user needs to know what to run.
 
 ### Notification routing (contact points)
 Emit contact points only when the user asks for alert routing. Without one, the generated

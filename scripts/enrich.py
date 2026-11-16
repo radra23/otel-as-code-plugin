@@ -21,9 +21,18 @@ does nothing when no SDK is loaded.
       one block at the top of the function body and one at the end, the body lines untouched.
       The result must still parse (Python `compile`, `node --check`), or nothing is written.
 
+  enrich.py metric --file F --function NAME --at LINE --where before|after --name METRIC
+                   --meter-name T [--value EXPR] [--line N] [--context FILE] [--root R] [--dry-run]
+      Emit one confirmed business metric. METRIC must be a confirmed counter, histogram or gauge in
+      the context cache (default <root>/.claude/otel-context.json), which also supplies its kind
+      and unit: a name the user did not confirm is never emitted. Adds the instrument near the top
+      of the file and one line at the call site: before or after line LINE, which must be a place
+      inside NAME where a new statement can go. --value is the expression to record (a histogram
+      or gauge needs one; a counter adds 1 without it). No metric attributes are added.
+
   enrich.py remove [--id ID ...] [--file F] [--root R] [--dry-run]
       Delete enrichment blocks: all of them, or only the given ids or file. A file's tracer block
-      goes when its last enrichment goes. All or nothing: a begin without its end, a line of your
+      goes when its last span goes, its meter block when its last metric goes. All or nothing: a begin without its end, a line of your
       own that still uses a name the enrichment defined (otelSpan, say), or a result that no
       longer parses, refuses and writes nothing.
 
@@ -45,6 +54,16 @@ import sys
 import tempfile
 
 TRACER_ID = "otel-tracer"
+METER_ID = "otel-meter"
+SHARED_IDS = (TRACER_ID, METER_ID)
+METRIC_PREFIX = "metric-"      # ids of metric enrichments; they need the meter block, spans the tracer
+METRIC_KINDS = ("counter", "histogram", "gauge")
+METRIC_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.\-/]{0,254}$")
+# A histogram's default buckets (0, 5, 10, 25, ... 10000) suit milliseconds and counts. In seconds
+# everything under 5 s lands in one bucket and every quantile reads 2.5, so a histogram recorded in
+# seconds gets the boundaries the HTTP semantic conventions recommend for durations.
+SECONDS_BOUNDS = "0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10"
+UNIT_RE = re.compile(r"^[A-Za-z0-9{}_/%.*\- ]{1,63}$")
 JS_EXTS = (".js", ".cjs", ".mjs")
 PY_EXTS = (".py",)
 SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "env", "dist", "build", "target", "vendor",
@@ -387,7 +406,8 @@ def js_tracer_line(lines):
     return last
 
 
-def js_span(lines, nl, text, full, rel, args, blocks):
+def js_locate(text, rel, args):
+    """(decl index, body-open index, body-close index, is_async) of the function args names."""
     name = args.function.split(".")[-1]
     scope_text, offset = text, 0
     if "." in args.function:
@@ -423,6 +443,20 @@ def js_span(lines, nl, text, full, rel, args, blocks):
     body_close = js_match(text, body_open)
     if body_close < 0:
         raise Refused(f"can't find the end of `{args.function}` in {rel}.")
+    return decl, body_open, body_close, is_async
+
+
+def shared_line(at, blocks):
+    """Move an insertion index out of any existing enrichment block it would land inside."""
+    for _, b, e in blocks:
+        if b < at <= e:
+            return e + 1
+    return at
+
+
+def js_span(lines, nl, text, full, rel, args, blocks):
+    decl, body_open, body_close, is_async = js_locate(text, rel, args)
+    line_of = lambda idx: text.count("\n", 0, idx) + 1
     open_line, close_line = line_of(body_open) - 1, line_of(body_close) - 1
     after_open = text[body_open + 1:text.find("\n", body_open) if "\n" in text[body_open:] else len(text)]
     before_close = text[text.rfind("\n", 0, body_close) + 1:body_close]
@@ -451,7 +485,7 @@ def js_span(lines, nl, text, full, rel, args, blocks):
             imp = "import { trace as otelTrace, SpanStatusCode as OtelStatus } from '@opentelemetry/api';"
         else:
             imp = "const { trace: otelTrace, SpanStatusCode: OtelStatus } = require('@opentelemetry/api');"
-        at = js_tracer_line(lines)
+        at = shared_line(js_tracer_line(lines), blocks)
         tracer = [f"// otel-as-code: enrich begin {TRACER_ID}{nl}", imp + nl,
                   f"const otelTracer = otelTrace.getTracer('{args.tracer_name}');{nl}",
                   f"// otel-as-code: enrich end {TRACER_ID}{nl}"]
@@ -465,7 +499,8 @@ def js_span(lines, nl, text, full, rel, args, blocks):
 
 # --- Python: the ast module finds the function exactly ------------------------------------------
 
-def py_span(lines, nl, text, full, rel, args, blocks):
+def py_locate(text, rel, args):
+    """(module tree, the function node args names)."""
     try:
         tree = ast.parse(text)
     except SyntaxError as e:
@@ -492,7 +527,24 @@ def py_span(lines, nl, text, full, rel, args, blocks):
     if len(found) > 1:
         raise Refused(f"`{args.function}` is defined {len(found)} times in {rel} "
                       f"(lines {', '.join(str(f.lineno) for f in found)}); pass --line.")
-    fn = found[0]
+    return tree, found[0]
+
+
+def py_top_line(tree):
+    """Line index after the module docstring and the leading imports."""
+    at = 0
+    for node in tree.body:
+        is_doc = (node is tree.body[0] and isinstance(node, ast.Expr)
+                  and isinstance(getattr(node, "value", None), ast.Constant) and isinstance(node.value.value, str))
+        if is_doc or isinstance(node, (ast.Import, ast.ImportFrom)):
+            at = node.end_lineno
+        else:
+            break
+    return at
+
+
+def py_span(lines, nl, text, full, rel, args, blocks):
+    tree, fn = py_locate(text, rel, args)
 
     def yields(node):
         for child in ast.iter_child_nodes(node):
@@ -512,14 +564,7 @@ def py_span(lines, nl, text, full, rel, args, blocks):
             f"{indent}# otel-as-code: enrich end {args.id}{nl}"]
     out = lines[:def_line] + deco + lines[def_line:]
     if not any(bid == TRACER_ID for bid, _, _ in blocks):
-        at = 0
-        for node in tree.body:
-            is_doc = (node is tree.body[0] and isinstance(node, ast.Expr)
-                      and isinstance(getattr(node, "value", None), ast.Constant) and isinstance(node.value.value, str))
-            if is_doc or isinstance(node, (ast.Import, ast.ImportFrom)):
-                at = node.end_lineno
-            else:
-                break
+        at = shared_line(py_top_line(tree), blocks)
         first = min([fn.lineno] + [d.lineno for d in fn.decorator_list]) - 1
         if at > first:
             raise Refused(f"can't place the tracer above `{args.function}` in {rel}.")
@@ -531,6 +576,254 @@ def py_span(lines, nl, text, full, rel, args, blocks):
             tracer = [nl] + tracer
         out = out[:at] + tracer + out[at:]
     return out, []
+
+
+# --- business metrics: an instrument near the top of the file, one line at the call site --------
+
+def confirmed_metric(context_path, name):
+    """The confirmed businessAttrs entry for `name`, or Refused. Only what the user approved in
+    /otel-business-attrs may be emitted; a name that is not in the cache is never invented here."""
+    try:
+        doc = json.loads(read(context_path))
+    except (OSError, ValueError) as e:
+        raise Refused(f"can't read the context cache {context_path} ({e}); run /otel-business-attrs first.")
+    attrs = doc.get("businessAttrs") if isinstance(doc, dict) else None
+    for a in attrs or []:
+        if isinstance(a, dict) and a.get("name") == name:
+            if a.get("confirmed") is not True:
+                raise Refused(f"`{name}` is in the cache but not confirmed; confirm it in /otel-business-attrs first.")
+            if a.get("kind") not in METRIC_KINDS:
+                raise Refused(f"`{name}` is a {a.get('kind')!r}, not a counter, histogram or gauge; "
+                              f"only those are emitted from code.")
+            return a
+    raise Refused(f"`{name}` is not a confirmed business attribute in {context_path}; "
+                  f"confirm it in /otel-business-attrs first. Nothing written.")
+
+
+def metric_id(name):
+    return METRIC_PREFIX + slug(name)[-(60 - len(METRIC_PREFIX)):].strip("-")
+
+
+def metric_var(lang, name, taken):
+    """A variable name for the instrument, from the metric's last segment (more when taken)."""
+    segs = [x for x in re.split(r"[./]+", name) if x]
+    for n in range(1, len(segs) + 1):
+        words = [w for seg in segs[-n:] for w in re.split(r"[^A-Za-z0-9]+", seg) if w]
+        var = ("_otel_" + "_".join(w.lower() for w in words) if lang == "py"
+               else "otel" + "".join(w[:1].upper() + w[1:] for w in words))
+        if not re.search(rf"(?<![\w$]){re.escape(var)}(?![\w$])", taken):
+            return var
+    raise Refused(f"can't find a free variable name for `{name}` in this file.")
+
+
+def js_value_ok(expr):
+    depth = 0
+    for i, c in js_code(expr):
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+            if depth < 0:
+                return False
+        elif c == ";" and depth == 0:
+            return False
+    return depth == 0 and bool(expr.strip())
+
+
+def check_value(lang, args, kind):
+    v = args.value
+    if v is None:
+        if kind == "counter":
+            return "1"
+        raise Refused(f"a {kind} needs --value: the expression to record at the call site.")
+    if "\n" in v or "\r" in v or len(v) > 200 or "otel-as-code:" in v:
+        raise Refused("--value must be one short expression on one line.")
+    if lang == "py":
+        try:
+            ast.parse(v, mode="eval")
+        except SyntaxError:
+            raise Refused(f"--value {v!r} is not one Python expression.")
+    elif not js_value_ok(v):
+        raise Refused(f"--value {v!r} is not one JavaScript expression.")
+    return v.strip()
+
+
+def record_call(lang, var, kind, value):
+    method = {"counter": "add", "histogram": "record", "gauge": "set" if lang == "py" else "record"}[kind]
+    return f"{var}.{method}({value})" + ("" if lang == "py" else ";")
+
+
+def py_metric_site(lines, text, rel, args, blocks):
+    """(insertion line index, indent) for the call-site line in a Python function."""
+    tree, fn = py_locate(text, rel, args)
+    stmts = []
+
+    def walk(node):
+        for field in ("body", "orelse", "finalbody"):
+            for child in getattr(node, field, []) or []:
+                if isinstance(child, ast.stmt):
+                    stmts.append(child)
+                    if not isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                        walk(child)
+        for handler in getattr(node, "handlers", []) or []:
+            walk(handler)
+        for case in getattr(node, "cases", []) or []:
+            walk(case)
+    walk(fn)
+    if args.where == "before":
+        hit = [st for st in stmts if st.lineno == args.at]
+        if not hit:
+            raise Refused(f"line {args.at} does not start a statement inside `{args.function}`.")
+        st = hit[0]
+        return st.lineno - 1, re.match(r"[ \t]*", lines[st.lineno - 1]).group(0), tree
+    hit = [st for st in stmts if st.end_lineno == args.at]
+    if not hit:
+        raise Refused(f"line {args.at} does not end a statement inside `{args.function}`.")
+    st = max(hit, key=lambda x: x.lineno)  # the innermost one: the statement written on that line
+    if isinstance(st, (ast.Return, ast.Raise, ast.Break, ast.Continue)):
+        raise Refused(f"line {args.at} is a {type(st).__name__.lower()}; a line after it would never run. "
+                      f"Use --where before.")
+    return st.end_lineno, re.match(r"[ \t]*", lines[st.lineno - 1]).group(0), tree
+
+
+def js_metric_site(lines, text, rel, args, blocks):
+    """(insertion line index, indent) for the call-site line in a JavaScript function."""
+    decl, body_open, body_close, _ = js_locate(text, rel, args)
+    line_of = lambda idx: text.count("\n", 0, idx) + 1
+    first, last = line_of(body_open) + 1, line_of(body_close) - 1
+    if not first <= args.at <= last:
+        raise Refused(f"line {args.at} is not inside the body of `{args.function}` (lines {first} to {last}).")
+    if not lines[args.at - 1].strip():
+        raise Refused(f"line {args.at} is blank; name the line of the statement to put this next to.")
+    stripped = lines[args.at - 1].strip()
+    if args.where == "after" and re.match(r"(return|throw|break|continue)\b", stripped):
+        raise Refused(f"line {args.at} is a {stripped.split()[0].rstrip(';')}; a line after it would never run. "
+                      f"Use --where before.")
+    if args.where == "before" and stripped[0] in "})]":
+        raise Refused(f"line {args.at} closes a block; name the line of a statement (or use --where after "
+                      f"the block's last statement).")
+    if args.where == "after" and stripped.endswith("{"):
+        raise Refused(f"line {args.at} opens a block; use --where before on the first line inside it, "
+                      f"or name a line after the block.")
+    idx = args.at - 1 if args.where == "before" else args.at
+    offset = sum(len(ln) for ln in lines[:idx])
+    # Our own blocks don't count: a span wrap opens a call at the top of the body and closes it at
+    # the bottom, which would otherwise make every line of the function look bracketed.
+    ours, pos = set(), 0
+    in_block = {i for _, b, e in blocks for i in range(b, e + 1)}
+    for n, ln in enumerate(lines):
+        if n in in_block:
+            ours.update(range(pos, pos + len(ln)))
+        pos += len(ln)
+    code = {i: c for i, c in js_code(text, body_open) if i not in ours}
+    depth, prev = 0, ""
+    for i in sorted(code):
+        if i >= offset:
+            break
+        c = code[i]
+        if c in "([":
+            depth += 1
+        elif c in ")]":
+            depth -= 1
+        if not c.isspace():
+            prev = c
+    nxt = next((code[i] for i in sorted(code) if i >= offset and not code[i].isspace()), "")
+    in_code = any(i in code for i in range(offset, min(offset + len(lines[idx]) if idx < len(lines) else offset, len(text)))) \
+        or not lines[idx].strip()
+    if depth != 0 or not in_code or prev in "=+-*/%&|,.?:([<!~" or nxt in ".?:+*/%&|,=)]":
+        raise Refused(f"line {args.at} ({args.where}) is in the middle of a statement, a string or a bracketed "
+                      f"expression; name a line where a new statement can go.")
+    return idx, re.match(r"[ \t]*", lines[args.at - 1]).group(0), None
+
+
+def cmd_metric(args):
+    full, rel = resolve(args.root, args.file)
+    lang = lang_of(full)
+    if not METRIC_NAME_RE.match(args.name):
+        raise Refused(f"metric name {args.name!r} is not a valid instrument name.")
+    if not SPAN_NAME_RE.match(args.meter_name):
+        raise Refused(f"meter name {args.meter_name!r} must be plain letters, digits, dots, dashes or slashes.")
+    context = args.context or os.path.join(args.root, ".claude", "otel-context.json")
+    attr = confirmed_metric(context, args.name)
+    kind, unit = attr["kind"], attr.get("unit")
+    if unit is not None and not (isinstance(unit, str) and UNIT_RE.match(unit)):
+        raise Refused(f"unit {unit!r} of `{args.name}` in the cache is not a plain unit string.")
+    mid = metric_id(args.name)
+    text = read(full)
+    if re.search(r"generated by otel-as-code", text, re.I):
+        raise Refused(f"{rel} is a file otel-as-code generated; enrich your own code, not the bootstrap.")
+    lines, nl = split_lines(text)
+    blocks = blocks_of(lines, rel)
+    if any(bid == mid for bid, _, _ in blocks):
+        raise Refused(f"{rel} already emits `{args.name}` (id {mid}).")
+    user_text = outside_blocks(lines, blocks)
+    ours = ("_otel_meter", "_otel_metrics") if lang == "py" else ("otelMeter", "otelMetrics")
+    clash = [w for w in ours if re.search(rf"(?<![\w$]){re.escape(w)}(?![\w$])", user_text)]
+    if clash:
+        raise Refused(f"{rel} already uses the name `{clash[0]}`, which this enrichment would add.")
+    before = check(lang, text, full, rel)
+    if before:
+        raise Refused(f"{rel} does not parse before the edit ({before}); nothing written.")
+    value = check_value(lang, args, kind)
+    inside = {i for _, b, e in blocks for i in range(b, e + 1)}
+    if args.at - 1 in inside:
+        raise Refused(f"line {args.at} is inside an existing enrichment block; name a line of your own code.")
+    site, indent, tree = (py_metric_site if lang == "py" else js_metric_site)(lines, text, rel, args, blocks)
+    var = metric_var(lang, args.name, text)
+    c = "#" if lang == "py" else "//"
+    call = [f"{indent}{c} otel-as-code: enrich begin {mid}{nl}",
+            f"{indent}{record_call(lang, var, kind, value)}{nl}",
+            f"{indent}{c} otel-as-code: enrich end {mid}{nl}"]
+    creator = {"counter": "counter", "histogram": "histogram", "gauge": "gauge"}[kind]
+    seconds = kind == "histogram" and unit == "s"
+    if lang == "py":
+        opts = (f', unit="{unit}"' if unit else "") + \
+               (f", explicit_bucket_boundaries_advisory=[{SECONDS_BOUNDS}]" if seconds else "")
+        make = f'{var} = _otel_meter.create_{creator}("{args.name}"{opts})'
+    else:
+        fields = ([f"unit: '{unit}'"] if unit else []) + \
+                 ([f"advice: {{ explicitBucketBoundaries: [{SECONDS_BOUNDS}] }}"] if seconds else [])
+        opts = f", {{ {', '.join(fields)} }}" if fields else ""
+        make = f"const {var} = otelMeter.create{creator.capitalize()}('{args.name}'{opts});"
+    instrument = [f"{c} otel-as-code: enrich begin {mid}{nl}", make + nl, f"{c} otel-as-code: enrich end {mid}{nl}"]
+    meter_block = next(((b, e) for bid, b, e in blocks if bid == METER_ID), None)
+    if meter_block:
+        top_at, top = meter_block[1] + 1, instrument
+    else:
+        top_at = shared_line(py_top_line(tree) if lang == "py" else js_tracer_line(lines), blocks)
+        if lang == "py":
+            meter = ["from opentelemetry import metrics as _otel_metrics" + nl,
+                     f'_otel_meter = _otel_metrics.get_meter("{args.meter_name}")' + nl]
+        elif js_is_esm(text, full):
+            meter = ["import { metrics as otelMetrics } from '@opentelemetry/api';" + nl,
+                     f"const otelMeter = otelMetrics.getMeter('{args.meter_name}');" + nl]
+        else:
+            meter = ["const { metrics: otelMetrics } = require('@opentelemetry/api');" + nl,
+                     f"const otelMeter = otelMetrics.getMeter('{args.meter_name}');" + nl]
+        top = [f"{c} otel-as-code: enrich begin {METER_ID}{nl}"] + meter + [f"{c} otel-as-code: enrich end {METER_ID}{nl}"] + instrument
+    if top_at > site:
+        raise Refused(f"can't place the instrument above line {args.at} in {rel}.")
+    out = lines[:top_at] + top + lines[top_at:site] + call + lines[site:]
+    new = "".join(out)
+    after = check(lang, new, full, rel)
+    if after:
+        raise Refused(f"the edited {rel} would not parse ({after}); nothing written. "
+                      f"Line {args.at} is not a place a new statement can go, or --value is not valid there.")
+    sys.stdout.writelines(difflib.unified_diff(lines, out, f"a/{rel}", f"b/{rel}"))
+    if kind == "histogram" and not seconds:
+        print(f"note: no bucket boundaries are set for unit {unit!r}, so the SDK's defaults apply "
+              f"(0, 5, 10, 25, 50, 75, 100, 250, 500, 750, 1000, 2500, 5000, 7500, 10000). If the values "
+              f"are much smaller or larger than that, the quantiles will be coarse.")
+    note = dependency_note(lang, full, args.root)
+    if note:
+        print(note)
+    what = f"{kind} `{args.name}` in `{args.function}` in {rel} (id {mid})"
+    if args.dry_run:
+        print(f"dry run: would emit {what}")
+        return 1
+    write_atomically(full, new)
+    print(f"OK: emits {what}")
+    return 0
 
 
 # --- dependency note ----------------------------------------------------------------------------
@@ -575,8 +868,9 @@ def cmd_span(args):
     if not SPAN_NAME_RE.match(args.tracer_name):
         raise Refused(f"tracer name {args.tracer_name!r} must be plain letters, digits, dots, dashes or slashes.")
     args.id = args.id or slug(args.span_name)
-    if not ID_RE.match(args.id) or args.id == TRACER_ID:
-        raise Refused(f"id {args.id!r} must be lowercase letters, digits and dashes (and not `{TRACER_ID}`).")
+    if not ID_RE.match(args.id) or args.id in SHARED_IDS or args.id.startswith(METRIC_PREFIX):
+        raise Refused(f"id {args.id!r} must be lowercase letters, digits and dashes, and not one of the reserved "
+                      f"ids ({', '.join(SHARED_IDS)}, {METRIC_PREFIX}*); pass --id.")
     text = read(full)
     if re.search(r"generated by otel-as-code", text, re.I):
         raise Refused(f"{rel} is a file otel-as-code generated; enrich your own code, not the bootstrap.")
@@ -607,6 +901,20 @@ def cmd_span(args):
     write_atomically(full, new)
     print(f"OK: added span `{args.span_name}` around `{args.function}` in {rel} (id {args.id})")
     return 0
+
+
+def defined_names(block_lines, lang):
+    """Names the given enrichment lines define, for the leftover-use check on removal."""
+    names = []
+    for line in block_lines:
+        if lang == "py":
+            names += re.findall(r"^\s*(\w+)\s*=", line) + re.findall(r"\bimport\s+\w+\s+as\s+(\w+)", line)
+        else:
+            names += re.findall(r"\bconst\s+(\w+)\s*=", line)
+            for group in re.findall(r"\b(?:const|import)\s*\{([^}]*)\}", line):
+                names += [re.split(r":|\bas\b", part)[-1].strip() for part in group.split(",") if part.strip()]
+            names += re.findall(r"\((otel\w*)\)\s*=>", line) + re.findall(r"catch\s*\((\w+)\)", line)
+    return sorted(set(names))
 
 
 def enriched_files(root, only=None):
@@ -642,7 +950,7 @@ def cmd_list(args):
             if bid not in seen:
                 seen.add(bid)
                 print(f"{rel}:{b + 1}  {bid}")
-                n += bid != TRACER_ID
+                n += bid not in SHARED_IDS
     if not n:
         print("no enrichment found")
     return 0
@@ -650,34 +958,41 @@ def cmd_list(args):
 
 def cmd_remove(args):
     want = set(args.id or [])
-    if TRACER_ID in want:
-        raise Refused(f"`{TRACER_ID}` is removed with a file's last enrichment, not on its own.")
+    if want & set(SHARED_IDS):
+        raise Refused(f"{', '.join(SHARED_IDS)} are removed with a file's last span or metric, not on their own.")
     plan, removed_ids = [], set()
     for full, rel in enriched_files(args.root, args.file):
         text = read(full)
         lines, _ = split_lines(text)
         blocks = blocks_of(lines, rel)
-        gone = [b for b in blocks if b[0] != TRACER_ID and (not want or b[0] in want)]
+        gone = [b for b in blocks if b[0] not in SHARED_IDS and (not want or b[0] in want)]
         if not gone:
             continue
-        if not [b for b in blocks if b[0] != TRACER_ID and b not in gone]:
+        kept = [b for b in blocks if b[0] not in SHARED_IDS and b not in gone]
+        # The tracer goes with the file's last span, the meter with its last metric.
+        if not [b for b in kept if not b[0].startswith(METRIC_PREFIX)]:
             gone += [b for b in blocks if b[0] == TRACER_ID]
+        if not [b for b in kept if b[0].startswith(METRIC_PREFIX)]:
+            gone += [b for b in blocks if b[0] == METER_ID]
         drop = {i for _, b, e in gone for i in range(b, e + 1)}
         new = "".join(line for i, line in enumerate(lines) if i not in drop)
         lang = lang_of(full)
-        if not [b for b in blocks if b not in gone]:
-            # Nothing of ours is left in the file, so nothing may still use the names we defined.
-            for n, line in enumerate(new.splitlines(), 1):
-                used = [w for w in (PY_OURS if lang == "py" else JS_OURS)
-                        if re.search(rf"(?<![\w$]){re.escape(w)}(?![\w$])", line)]
-                if used:
-                    raise Refused(f"{rel}:{n} still uses `{used[0]}`, which the enrichment defines; removing it "
-                                  f"would break that line. Nothing removed: delete or change that line first.")
+        # A line the user wrote later may use a name a removed block defined (otelSpan, an
+        # instrument variable): removing the block would break that line at run time.
+        names = defined_names([lines[i] for i in sorted(drop)], lang)
+        in_block = {i for _, b, e in blocks for i in range(b, e + 1)}
+        for n, line in enumerate(lines):
+            if n in in_block:
+                continue
+            used = [w for w in names if re.search(rf"(?<![\w$]){re.escape(w)}(?![\w$])", line)]
+            if used:
+                raise Refused(f"{rel}:{n + 1} still uses `{used[0]}`, which the enrichment defines; removing it "
+                              f"would break that line. Nothing removed: delete or change that line first.")
         bad = check(lang, new, full, rel)
         if bad:
             raise Refused(f"removing the enrichment from {rel} would leave a file that does not parse ({bad}); "
                           f"nothing removed. The code around a block was changed: remove that block by hand.")
-        ids = sorted({b[0] for b in gone if b[0] != TRACER_ID})
+        ids = sorted({b[0] for b in gone if b[0] not in SHARED_IDS})
         removed_ids.update(ids)
         plan.append((full, rel, new, ids))
     missing = want - removed_ids
@@ -707,16 +1022,27 @@ def main(argv=None):
     s.add_argument("--line", type=int)
     s.add_argument("--id")
     s.add_argument("--dry-run", action="store_true")
+    m = sub.add_parser("metric")
+    m.add_argument("--file", required=True)
+    m.add_argument("--function", required=True)
+    m.add_argument("--line", type=int)
+    m.add_argument("--at", type=int, required=True)
+    m.add_argument("--where", choices=["before", "after"], required=True)
+    m.add_argument("--name", required=True)
+    m.add_argument("--value")
+    m.add_argument("--meter-name", required=True)
+    m.add_argument("--context")
+    m.add_argument("--dry-run", action="store_true")
     r = sub.add_parser("remove")
     r.add_argument("--id", action="append")
     r.add_argument("--file")
     r.add_argument("--dry-run", action="store_true")
     ls = sub.add_parser("list")
-    for x in (s, r, ls):
+    for x in (s, m, r, ls):
         x.add_argument("--root", default=".")
     args = p.parse_args(argv)
     try:
-        return {"span": cmd_span, "remove": cmd_remove, "list": cmd_list}[args.cmd](args)
+        return {"span": cmd_span, "metric": cmd_metric, "remove": cmd_remove, "list": cmd_list}[args.cmd](args)
     except Refused as e:
         print(f"REFUSED: {e}", file=sys.stderr)
         return 2
