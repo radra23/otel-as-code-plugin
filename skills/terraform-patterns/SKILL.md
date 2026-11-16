@@ -711,6 +711,13 @@ inside an opaque string):
   `service_name="<name>"`, the same label this skill's Dash0 section already establishes for
   every other PromQL query here (Dash0's OTel-native pipeline, unlike a vanilla
   OTLP→Prometheus setup — see the "Service filter" note above) — never `job=`.
+- **Each query is a bare vector selector, with no function around it.** Dash0 wraps the selector
+  and aggregates the matched series itself; `sum(rate(...[5m]))` is rejected with `400` ("The
+  submitted SLO indicator query must be a bare PromQL vector selector ... Functions and
+  aggregations are not supported"), confirmed by a live apply on 2026-11-16. Write
+  `http_server_request_duration_seconds_count{service_name="<name>",http_response_status_code!~"5.."}`
+  for `good` and the same selector without the status filter for `total`. This applies to
+  `dash0_slo` only: dashboard panels and check rules keep their functions.
 
 ```hcl
 resource "dash0_slo" "otel" {
@@ -738,12 +745,12 @@ resource "dash0_slo" "otel" {
               metricSource:
                 type: Prometheus
                 spec:
-                  query: sum(rate(http_server_request_duration_seconds_count{service_name="${var.service_name}",http_response_status_code!~"5.."}[5m]))
+                  query: http_server_request_duration_seconds_count{service_name="${var.service_name}",http_response_status_code!~"5.."}
             total:
               metricSource:
                 type: Prometheus
                 spec:
-                  query: sum(rate(http_server_request_duration_seconds_count{service_name="${var.service_name}"}[5m]))
+                  query: http_server_request_duration_seconds_count{service_name="${var.service_name}"}
       objectives:
         - displayName: 99.9% non-5xx
           target: 0.999

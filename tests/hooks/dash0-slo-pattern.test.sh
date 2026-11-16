@@ -45,5 +45,12 @@ check "golden dash0_slo's metadata.name uses the DNS-1123 resource_name_slug, sa
   'grep -qF "\${local.resource_name_slug}-availability" "$GOLD"'
 
 echo ""
+# A live apply on 2026-11-16 was rejected with 400: the SLO indicator queries must be bare selectors.
+SLO_BLOCK() { sed -n '/^resource "dash0_slo"/,/^}/p' "$1"; }
+check "the golden's SLO queries are bare vector selectors (Dash0 rejects functions with a 400)" \
+  '[ "$(SLO_BLOCK tests/snapshots/dash0/main.tf.snap | grep -c "query: http_server_request_duration_seconds_count{")" = 2 ] && ! SLO_BLOCK tests/snapshots/dash0/main.tf.snap | grep "query:" | grep -q "sum(\|rate("'
+check "the skill's SLO example is bare too, and says why" \
+  'grep -q "bare vector selector" skills/terraform-patterns/SKILL.md && ! sed -n "/^resource \"dash0_slo\" \"otel\" {/,/^}/p" skills/terraform-patterns/SKILL.md | grep "query:" | grep -q "sum(\|rate("'
+
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
