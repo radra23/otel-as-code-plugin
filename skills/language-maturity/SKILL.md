@@ -260,6 +260,39 @@ as the fallback for anything else — **PHP has no framework-refusal case**, unl
 axum/actix-web gate; `generatorSupported` stays `true` for any PHP service with no OTel already
 wired, the same shape as Ruby's `opentelemetry-instrumentation-all`.
 
+## Runtime metrics (#277)
+
+Memory, garbage collection, threads and the event loop: the first things to look at when a
+service misbehaves, emitted with no application code. They ride the Metrics signal, so they are
+generated wherever Metrics is, and there is no separate flag. Two things vary per language and
+are stated here rather than assumed: where the metrics come from, and how settled their NAMES
+are in the semantic conventions (read from the registry's metric definitions at
+`SEMCONV_VERSION`). A name that is not stable can be renamed by a later release, which blanks a
+dashboard panel built on it, so panels on these names are re-checked whenever the pin moves.
+
+| Runtime | Source | Metric names | Names in semconv | Asserted in the e2e job |
+|---------|--------|--------------|------------------|-------------------------|
+| Node.js | `@opentelemetry/instrumentation-runtime-node`, already part of `auto-instrumentations-node` | `nodejs.*`, `v8js.*` | Development | yes |
+| Python  | `opentelemetry-instrumentation-system-metrics` (a beta package, needs `psutil`), limited to this process | `process.*`, `cpython.*` | `process.*` mostly release candidate, `cpython.*` Development | yes |
+| Java    | the Java agent, on by default | `jvm.*` | mostly Stable | yes |
+| .NET    | the runtime's own `System.Runtime` meter (.NET 9+), subscribed with `AddMeter` | `dotnet.*` | Stable | yes |
+| Go      | `go.opentelemetry.io/contrib/instrumentation/runtime` (v0.71.0) | `go.*` | Development | yes |
+| Ruby    | none: no stable runtime-metrics gem, and Metrics itself is Development | | | no |
+| Rust    | none: no runtime-metrics crate from the OpenTelemetry project | | | no |
+| PHP     | none | | | no |
+
+Rules:
+- **Process and runtime only, never host-wide.** `system.*` metrics (machine CPU, memory, disks,
+  network) repeat once per replica and belong to the Collector's `hostmetrics` receiver. The
+  Python package can emit them; the bootstrap passes it an explicit list that leaves them out.
+- **Optional where it adds a dependency.** The Python package pulls in `psutil`, which has a
+  compiled part. The bootstrap imports it inside `try`: without it the service starts as before
+  and prints one line saying runtime metrics are off.
+- **Beta sources get the Beta comment** (Feature Gating Rule 3): Python and Go.
+- **Do not add a runtime-metrics package for Ruby, Rust or PHP**, and do not claim one exists.
+  If the user asks, say there is no stable one and point at the Collector's `hostmetrics`
+  receiver for process-level numbers.
+
 ## Feature Gating Rules
 
 When generating code for a signal:

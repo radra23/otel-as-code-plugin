@@ -247,6 +247,23 @@ each language's summary below:
   Next.js bootstrap's env read against the confirmed name instead of bare `DEPLOYMENT_ENV` — it
   would otherwise read a variable that is genuinely unset while the value is in fact configured.
 
+## Runtime metrics (#277)
+
+Memory, garbage collection, threads and the event loop come with the bootstrap, with no
+application code. `languageMaturityPath` ("Runtime metrics") has the per-language table; follow
+it rather than this summary if they ever differ.
+
+- **Node.js:** nothing to add. `getNodeAutoInstrumentations()` already loads
+  `@opentelemetry/instrumentation-runtime-node`. Never disable it alongside `instrumentation-fs`.
+- **Java:** nothing to add. The agent reports `jvm.*` by default.
+- **Python, Go, .NET:** the block is in each language's template below. Keep it where it is
+  (after the meter provider is set) and keep the Python list to `process.*` and `cpython.*`:
+  host-wide `system.*` metrics belong to the Collector.
+- **Ruby, Rust, PHP:** generate nothing for runtime metrics and do not suggest a package.
+
+Say in the summary which runtime metrics the service now emits, in one line, with the prefix
+(`process.*`, `go.*`, ...), so the user knows what to look for.
+
 ## HTTP semconv stability check (Node.js / Python)
 
 `OTEL_SEMCONV_STABILITY_OPT_IN` controls whether `instrumentation-http` (Node) and
@@ -728,6 +745,33 @@ if _metrics in ("otlp", "console"):
     )
     metrics.set_meter_provider(_meter_provider)
 
+    # Runtime metrics: this process's CPU, memory, threads, open files and garbage collection,
+    # with no application code. Host-wide metrics (system.*) are left out on purpose: every
+    # replica on a machine would report the same numbers, and the Collector's hostmetrics
+    # receiver is the place for them. The package is optional by design (it needs psutil, which
+    # has a compiled part): without it the service starts as before and says so once.
+    # Beta package: some of these metric names are not yet stable in the semantic conventions
+    # and may be renamed by a later release.
+    try:
+        from opentelemetry.instrumentation.system_metrics import SystemMetricsInstrumentor
+
+        SystemMetricsInstrumentor(config={
+            "process.cpu.time": ["user", "system"],
+            "process.cpu.utilization": ["user", "system"],
+            "process.memory.usage": None,
+            "process.memory.virtual": None,
+            "process.thread.count": None,
+            "process.open_file_descriptor.count": None,
+            "cpython.gc.collections": None,
+            "cpython.gc.collected_objects": None,
+            "cpython.gc.uncollectable_objects": None,
+        }).instrument(meter_provider=_meter_provider)
+    except ImportError:
+        print(
+            "[otel] opentelemetry-instrumentation-system-metrics is not installed, so this "
+            "process emits no runtime metrics (CPU, memory, garbage collection)."
+        )
+
 
 def instrument_fastapi(app):
     """Call this after creating your FastAPI app instance."""
@@ -932,6 +976,7 @@ Add to `[project].dependencies`:
 "opentelemetry-sdk>=1.45.2",
 "opentelemetry-exporter-otlp-proto-grpc>=1.45.2",
 "opentelemetry-instrumentation-fastapi>=0.66b2",
+"opentelemetry-instrumentation-system-metrics>=0.66b2",
 "opentelemetry-semantic-conventions>=0.66b2",
 ```
 
@@ -1314,7 +1359,12 @@ Write it PascalCase as `OpenTelemetry.cs` — that exact name is the guarded art
   `development`.
 - Tracing: `.AddAspNetCoreInstrumentation().AddHttpClientInstrumentation()`, with
   `.AddOtlpExporter()` attached **only when an endpoint is configured**.
-- Metrics: the same, gated the same way.
+- Metrics: the same, gated the same way, plus `metrics.AddMeter("System.Runtime")` for the
+  runtime's own metrics (`dotnet.gc.*`, `dotnet.process.*`, `dotnet.thread_pool.*`,
+  `dotnet.exceptions`, `dotnet.jit.*`). The runtime publishes that meter itself from .NET 9
+  (listed on .NET 10.0.9 with a `MeterListener`), so no package is added. On `net8.0` the meter
+  does not exist and the line does nothing: say in the summary that runtime metrics there need
+  the `OpenTelemetry.Instrumentation.Runtime` package, and do not add it unasked.
 - **Gate the exporter, as every other language does (#183).** On its own the .NET OTLP exporter
   targets `http://localhost:4317` and retries on every export cycle, which on a host with no
   collector (a desktop installer, a developer machine) is a permanent retry loop. Attach it only
@@ -1445,6 +1495,7 @@ import (
 	"errors"
 	"os"
 
+	otelruntime "go.opentelemetry.io/contrib/instrumentation/runtime"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
@@ -1532,6 +1583,13 @@ func InitOtel(ctx context.Context) (shutdown func(context.Context) error, err er
 	shutdownFuncs = append(shutdownFuncs, meterProvider.Shutdown)
 	otel.SetMeterProvider(meterProvider)
 
+	// Runtime metrics: goroutines, memory and garbage collection, read from the Go runtime
+	// itself with no application code. Beta package: the go.* metric names are not yet stable
+	// in the semantic conventions and may be renamed by a later release.
+	if err := otelruntime.Start(otelruntime.WithMeterProvider(meterProvider)); err != nil {
+		return shutdown, err
+	}
+
 	return shutdown, nil
 }
 
@@ -1588,6 +1646,7 @@ latest at generation time rather than copying verbatim if newer releases exist, 
 every other language):
 ```
 go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.71.0
+go.opentelemetry.io/contrib/instrumentation/runtime v0.71.0
 go.opentelemetry.io/otel v1.46.0
 go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc v0.22.0
 go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc v1.46.0
