@@ -324,6 +324,7 @@ images) can get a deployment-config diff from `/otel-remediate` instead; v1 cove
 | `/otel-backend <vendor>` | Generate Terraform for `grafana`, `datadog`, `newrelic`, or `dash0` |
 | `/otel-enrich <file>:<function>` | Add a span around one of your own functions (Node.js, Python): an in-place edit, shown as a diff first, insert-only between markers |
 | `/otel-enrich --business` | Emit the business metrics you confirmed (counters, histograms, gauges) where your code owns the value, so the panels `/otel-backend` generated for them have data |
+| `/otel-enrich --clients` | Check which database and queue clients are actually traced, turn on the instrumentation package for one that is not (Python), and add a client span where no package exists. One client span per call, never two |
 | `/otel-uninstrument` | Remove the bootstrap files `/otel-instrument` generated (marker-gated); `--enrichment` removes what `/otel-enrich` added |
 | `/otel-local` | Start a free local Grafana stack (`grafana/otel-lgtm`) in Docker, wired to one service; `--down` stops it |
 | `/otel-remediate` | Print a deployment-config diff for a service with native OTel but no app source to bootstrap (v1: Keycloak) |
@@ -349,6 +350,7 @@ images) can get a deployment-config diff from `/otel-remediate` instead; v1 cove
 | `--all` | uninstrument | Remove every marker-carrying bootstrap in the repo |
 | `--enrichment` | uninstrument | Remove only the lines `/otel-enrich` added to your code; the bootstrap stays |
 | `--business` | enrich | Emit the confirmed business metrics instead of adding a span; each one is previewed and confirmed separately |
+| `--clients` | enrich | Report database and queue client coverage, then close the gaps one at a time, each previewed and confirmed |
 | `--span-name <name>` | enrich | Name the span yourself; the default is `<module>.<function>` |
 | `--line <N>` | enrich | Which definition to wrap, when the function name occurs more than once in the file |
 | `--local-ignore` | init | Write ignore rules to `.git/info/exclude` instead of `.gitignore`, for repos you must leave clean |
