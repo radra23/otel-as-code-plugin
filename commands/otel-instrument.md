@@ -211,6 +211,11 @@ untouched" and stay out of everything below):
   with no inbound HTTP server, an exporter switch, a bounded `error.type`, a documented
   exclusion — must survive regeneration or be re-emitted; they are the reason the file is worth
   keeping.
+- Lines between `otel-as-code: enrich begin client-<name>` and `enrich end` markers are not a hand
+  edit: `/otel-enrich --clients` put them there to turn an instrumentation package on. Leave them
+  out of `preserve`, note the names, and after the file is written add this to the summary:
+  "The regenerated bootstrap no longer turns on <names>. Run /otel-enrich --clients to put that
+  back; the packages are still in requirements.txt."
 - Authorize the overwrite for the `write-guard` hook by listing the paths the subagent will
   overwrite in the `.claude/.otel-force` sentinel, one per line. **Truncate the sentinel as you
   write it** (`>`, not `>>`) so a leftover from an aborted earlier run can never grant a standing

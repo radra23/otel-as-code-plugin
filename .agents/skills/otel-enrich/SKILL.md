@@ -1,6 +1,6 @@
 ---
 name: otel-enrich
-description: Add telemetry inside the user's own code, either a span around one function or the business metrics they confirmed, so generated dashboards fill. An in-place edit to hand-written code, shown as a diff first, insert-only between markers, and removable exactly. Node.js and Python services that otel-instrument has already set up. Use when asked to trace or time a specific function, or to emit the confirmed business metrics.
+description: Add telemetry inside the user's own code, either a span around one function, the business metrics they confirmed, or coverage for the database and queue clients auto-instrumentation misses. An in-place edit, shown as a diff first, insert-only between markers, and removable exactly. Node.js and Python services that otel-instrument has already set up. Use when asked to trace or time a specific function, to emit the confirmed business metrics, or to find out why database or queue calls are missing from traces.
 ---
 
 # otel-enrich (Codex bridge)
@@ -24,7 +24,13 @@ With `--business`, follow the command's "Business metrics" section: `scripts/enr
 for each confirmed counter, histogram or gauge, one diff and one yes per metric, then record the
 `callSite` through `scripts/write_context.py`.
 
-Args: `$ARGUMENTS` (e.g. `lib/orders.js:checkout`, `--business`, `--span-name orders.checkout`, `--dry-run`).
+With `--clients`, follow the command's "Database and queue clients" section:
+`scripts/enrich.py clients` reports coverage against `scripts/client-coverage.json`,
+`scripts/enrich.py client` turns one Python instrumentation package on, and
+`scripts/enrich.py span --client` adds a client span only where no package exists. A client the
+table does not list is not checked: never say no package exists for it.
+
+Args: `$ARGUMENTS` (e.g. `lib/orders.js:checkout`, `--business`, `--clients`, `--span-name orders.checkout`, `--dry-run`).
 
 Codex note: the script edits files from the shell, so `.codex/hooks.json` does not see the edit;
 the diff and the confirmation are the gate. Remove with `$otel-uninstrument --enrichment`.

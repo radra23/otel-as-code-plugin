@@ -46,6 +46,16 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
   attributes. The Grafana golden's business panels are proven by running their OWN queries, read out
   of the `.snap`, against the local stack in that e2e: change a business-panel query shape in
   `terraform-patterns` and the golden together, and let that job say whether Prometheus agrees.
+- `/otel-enrich --clients` keeps to one client span per call. `scripts/client-coverage.json` is the
+  single source of truth for which instrumentation package covers which database or queue client,
+  and `tests/client-coverage.test.sh` checks every row against the published packages (network, so
+  it runs in the `enrich-clients` job): add a row only with that test passing, and never treat a
+  client that is not listed as "no package exists" (it is "not checked"). A client a package covers
+  is refused a hand-made span; a driver under an instrumented ORM is left alone (both measured:
+  SQLAlchemy plus the sqlite3 package gives two client spans per query). `enrich.py client` is the
+  one place the plugin edits its own generated bootstrap after writing it, as a marked block at the
+  end of the file; `/otel-instrument` drops that block on a regeneration and says so.
+  `tests/e2e/enrich-clients.sh` counts client spans on the console exporter, with no Docker.
 
 - `evals/routing/` measures whether a fresh session picks this plugin (`claude plugin eval` for
   only-this-plugin, `run-headless.sh` for a full personal plugin set, one scorer `score.py` for

@@ -62,6 +62,9 @@ jobs:
       - name: enrich.py edits to hand-written code, applied, run and removed (/otel-enrich, #276)
         run: bash tests/enrich.test.sh
 
+      - name: enrich.py database and queue client coverage, offline (/otel-enrich --clients, #276)
+        run: bash tests/enrich-clients.test.sh
+
       - name: Run freshness-contract test (scanner identityInputs ↔ /otel-init regex; #150 uncovered services)
         run: bash tests/hooks/freshness-contract.test.sh
 
@@ -340,6 +343,31 @@ jobs:
 
       - name: Enriched spans end to end
         run: bash tests/e2e/enrich.sh
+
+  # /otel-enrich --clients: the coverage table checked against the published packages, then real
+  # apps on the console exporter, where every span is visible: exactly one client span per database
+  # call, from the package (Python, sqlite3) or from the span around the calling function (Node.js,
+  # node:sqlite). No Docker.
+  enrich-clients:
+    name: /otel-enrich --clients makes one client span per call
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: The coverage table matches the published packages
+        run: bash tests/client-coverage.test.sh
+
+      - name: One client span per call, end to end
+        run: bash tests/e2e/enrich-clients.sh
 
   validate-codex-bridge:
     name: Validate Codex bridge

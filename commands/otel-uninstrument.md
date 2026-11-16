@@ -56,13 +56,20 @@ nothing, and reports each file. On `REFUSED:` nothing was changed; report the re
   or remove that block by hand.
 - *would leave a file that does not parse*: the code around a block was restructured.
 
-This never touches the bootstrap, the cache, or the local stack. A formatter may have re-indented
+A package that `/otel-enrich --clients` turned on is two blocks with the id `client-<name>`: one
+in the bootstrap and one in `requirements.txt`. They are listed and removed the same way, and the
+package stays installed until the user reinstalls from the manifest.
+
+This never deletes the bootstrap, and never touches the cache or the local stack. A formatter may have re-indented
 the function body while the enrichment was in place; removal leaves that indentation, and the
 project's formatter fixes it.
 
 Without `--enrichment`, enrichment is left in place: it calls the OpenTelemetry API, which does
 nothing once the bootstrap is gone, so the code keeps working. If `enrich.py list` finds any, say
-so in the Step 7 summary and point at `/otel-uninstrument --enrichment`.
+so in the Step 7 summary and point at `/otel-uninstrument --enrichment`. The exception is a
+`client-<name>` block in `requirements.txt`: the bootstrap that used the package is being deleted,
+so remove those first with `enrich.py remove --root <repo root> --id client-<name>` (it is our own
+marked block, not a hand-written line), and say so in the plan.
 
 ## Step 1: Load context
 
