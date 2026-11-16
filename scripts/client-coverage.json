@@ -1,0 +1,67 @@
+{
+  "about": [
+    "Which OpenTelemetry instrumentation covers which database or queue client. Read by",
+    "scripts/enrich.py (clients, client, span --client) for /otel-enrich --clients.",
+    "A client that is not listed here is NOT CHECKED: never read its absence as 'no package exists'.",
+    "tests/client-coverage.test.sh checks every row against the published packages (the pinned",
+    "Node bundle's dependency list; each Python wheel's package.py and instrumentor class)."
+  ],
+  "nodejs": {
+    "bundlePackage": "@opentelemetry/auto-instrumentations-node",
+    "bundle": {
+      "pg": "@opentelemetry/instrumentation-pg",
+      "mysql": "@opentelemetry/instrumentation-mysql",
+      "mysql2": "@opentelemetry/instrumentation-mysql2",
+      "mongodb": "@opentelemetry/instrumentation-mongodb",
+      "mongoose": "@opentelemetry/instrumentation-mongoose",
+      "redis": "@opentelemetry/instrumentation-redis",
+      "ioredis": "@opentelemetry/instrumentation-ioredis",
+      "cassandra-driver": "@opentelemetry/instrumentation-cassandra-driver",
+      "memcached": "@opentelemetry/instrumentation-memcached",
+      "tedious": "@opentelemetry/instrumentation-tedious",
+      "oracledb": "@opentelemetry/instrumentation-oracledb",
+      "knex": "@opentelemetry/instrumentation-knex",
+      "kafkajs": "@opentelemetry/instrumentation-kafkajs",
+      "amqplib": "@opentelemetry/instrumentation-amqplib"
+    },
+    "manual": {
+      "@prisma/client": "@prisma/instrumentation",
+      "bullmq": "bullmq-otel"
+    },
+    "none": {
+      "better-sqlite3": { "signal": "db", "system": "sqlite" },
+      "sqlite3": { "signal": "db", "system": "sqlite" },
+      "node:sqlite": { "signal": "db", "system": "sqlite", "builtin": true }
+    }
+  },
+  "python": {
+    "packages": [
+      { "label": "sqlalchemy", "clients": ["sqlalchemy"], "signal": "db", "package": "opentelemetry-instrumentation-sqlalchemy", "module": "opentelemetry.instrumentation.sqlalchemy", "class": "SQLAlchemyInstrumentor" },
+      { "label": "tortoise-orm", "clients": ["tortoise-orm"], "signal": "db", "package": "opentelemetry-instrumentation-tortoiseorm", "module": "opentelemetry.instrumentation.tortoiseorm", "class": "TortoiseORMInstrumentor" },
+      { "label": "psycopg2", "clients": ["psycopg2", "psycopg2-binary"], "signal": "db", "package": "opentelemetry-instrumentation-psycopg2", "module": "opentelemetry.instrumentation.psycopg2", "class": "Psycopg2Instrumentor" },
+      { "label": "psycopg", "clients": ["psycopg"], "signal": "db", "package": "opentelemetry-instrumentation-psycopg", "module": "opentelemetry.instrumentation.psycopg", "class": "PsycopgInstrumentor" },
+      { "label": "asyncpg", "clients": ["asyncpg"], "signal": "db", "package": "opentelemetry-instrumentation-asyncpg", "module": "opentelemetry.instrumentation.asyncpg", "class": "AsyncPGInstrumentor" },
+      { "label": "aiopg", "clients": ["aiopg"], "signal": "db", "package": "opentelemetry-instrumentation-aiopg", "module": "opentelemetry.instrumentation.aiopg", "class": "AiopgInstrumentor" },
+      { "label": "pymysql", "clients": ["pymysql"], "signal": "db", "package": "opentelemetry-instrumentation-pymysql", "module": "opentelemetry.instrumentation.pymysql", "class": "PyMySQLInstrumentor" },
+      { "label": "mysql-connector-python", "clients": ["mysql-connector-python"], "signal": "db", "package": "opentelemetry-instrumentation-mysql", "module": "opentelemetry.instrumentation.mysql", "class": "MySQLInstrumentor" },
+      { "label": "mysqlclient", "clients": ["mysqlclient"], "signal": "db", "package": "opentelemetry-instrumentation-mysqlclient", "module": "opentelemetry.instrumentation.mysqlclient", "class": "MySQLClientInstrumentor" },
+      { "label": "pymssql", "clients": ["pymssql"], "signal": "db", "package": "opentelemetry-instrumentation-pymssql", "module": "opentelemetry.instrumentation.pymssql", "class": "PyMSSQLInstrumentor" },
+      { "label": "sqlite3", "clients": [], "stdlib": "sqlite3", "signal": "db", "package": "opentelemetry-instrumentation-sqlite3", "module": "opentelemetry.instrumentation.sqlite3", "class": "SQLite3Instrumentor" },
+      { "label": "pymongo", "clients": ["pymongo"], "signal": "db", "package": "opentelemetry-instrumentation-pymongo", "module": "opentelemetry.instrumentation.pymongo", "class": "PymongoInstrumentor" },
+      { "label": "redis", "clients": ["redis"], "signal": "db", "package": "opentelemetry-instrumentation-redis", "module": "opentelemetry.instrumentation.redis", "class": "RedisInstrumentor" },
+      { "label": "cassandra-driver", "clients": ["cassandra-driver", "scylla-driver"], "signal": "db", "package": "opentelemetry-instrumentation-cassandra", "module": "opentelemetry.instrumentation.cassandra", "class": "CassandraInstrumentor" },
+      { "label": "pymemcache", "clients": ["pymemcache"], "signal": "db", "package": "opentelemetry-instrumentation-pymemcache", "module": "opentelemetry.instrumentation.pymemcache", "class": "PymemcacheInstrumentor" },
+      { "label": "kafka-python", "clients": ["kafka-python"], "signal": "messaging", "package": "opentelemetry-instrumentation-kafka-python", "module": "opentelemetry.instrumentation.kafka", "class": "KafkaInstrumentor" },
+      { "label": "confluent-kafka", "clients": ["confluent-kafka"], "signal": "messaging", "package": "opentelemetry-instrumentation-confluent-kafka", "module": "opentelemetry.instrumentation.confluent_kafka", "class": "ConfluentKafkaInstrumentor" },
+      { "label": "aiokafka", "clients": ["aiokafka"], "signal": "messaging", "package": "opentelemetry-instrumentation-aiokafka", "module": "opentelemetry.instrumentation.aiokafka", "class": "AIOKafkaInstrumentor" },
+      { "label": "pika", "clients": ["pika"], "signal": "messaging", "package": "opentelemetry-instrumentation-pika", "module": "opentelemetry.instrumentation.pika", "class": "PikaInstrumentor" },
+      { "label": "aio-pika", "clients": ["aio-pika"], "signal": "messaging", "package": "opentelemetry-instrumentation-aio-pika", "module": "opentelemetry.instrumentation.aio_pika", "class": "AioPikaInstrumentor" },
+      { "label": "celery", "clients": ["celery"], "signal": "messaging", "package": "opentelemetry-instrumentation-celery", "module": "opentelemetry.instrumentation.celery", "class": "CeleryInstrumentor" }
+    ],
+    "layers": {
+      "sqlalchemy": ["psycopg2", "psycopg", "asyncpg", "aiopg", "pymysql", "mysql-connector-python", "mysqlclient", "pymssql", "sqlite3"],
+      "tortoise-orm": ["asyncpg", "psycopg", "sqlite3"]
+    },
+    "none": {}
+  }
+}

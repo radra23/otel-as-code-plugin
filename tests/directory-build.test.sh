@@ -33,6 +33,10 @@ missing=$(cd "$OUT" && grep -rhoE '\$\{CLAUDE_PLUGIN_ROOT\}/[A-Za-z0-9_./-]+' . 
   | while read -r p; do [ -e "$p" ] || echo "$p"; done)
 check "every \${CLAUDE_PLUGIN_ROOT} path the plugin names ships${missing:+ (missing: $(echo $missing))}" '[ -z "$missing" ]'
 
+# enrich.py reads its coverage table from beside itself, a path no command names.
+check "the shipped enrich.py finds its client coverage table" \
+  'python3 "$OUT/scripts/enrich.py" clients --root tests/enrich/node-clients >/dev/null'
+
 # The README is the listing text, so its links must not point at files the build leaves out.
 rel=$(grep -oE '\]\([^)]+\)' "$OUT/README.md" | grep -vE '^\]\((https?:|mailto:|#)' || true)
 check "README has no relative links${rel:+ (found: $(echo $rel))}" '[ -z "$rel" ]'
