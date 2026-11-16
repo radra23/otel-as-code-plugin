@@ -2,18 +2,26 @@
 
 Project: https://github.com/radra23/otel-as-code-plugin
 
-Facts used (checked 2026-11-14 against README.md and the GitHub API):
+Facts used (project facts rechecked 2026-11-16 against README.md, the repo and the GitHub API; list activity figures are from 2026-11-14):
 
-- Claude Code plugin with 11 commands, plus 12 Codex skills in `.agents/skills/` (counted 2026-11-16 at 0.15.1).
+- Claude Code plugin with 11 commands, plus 12 Codex skills in `.agents/skills/` (counted 2026-11-16 at 0.23.0).
 - Positioning (same as the README's first line): OpenTelemetry set up for you, checked as it is written and proven in CI, with the first trace on your own machine. The entries below lead with what is checked, because that is what the other agent-skill entries on these lists do not claim.
-- Generates SDK bootstrap for Node.js, Python, Java (zero-code agent config), .NET, Go, Ruby, Rust (axum, actix-web); an otelcol-contrib Collector config (agent or gateway); Terraform (dashboard, alerts, SLO) for Grafana, Datadog, New Relic, Dash0.
+- Generates SDK bootstrap for Node.js, Python, Java (zero-code agent config), .NET, Go, Ruby, Rust (axum, actix-web) and PHP. CI runs the generated setup in a real app for Node.js, Python, Java, .NET, Go, Ruby and Rust (axum); PHP and Rust (actix-web) have static and hook tests only. Also an otelcol-contrib Collector config (agent or gateway); Terraform (dashboard, alerts, SLO) for Grafana, Datadog, New Relic, Dash0.
 - `/otel-local` runs `grafana/otel-lgtm` in Docker so the first trace, log and metric show up locally.
-- Apache-2.0 (GitHub detects it). First commit 2026-06-20, 225 commits, latest release v0.11.1 on 2026-11-14, 1 star.
+- Apache-2.0 (GitHub detects it). First commit 2026-06-20, 259 commits, latest release v0.23.0 on 2026-11-16, 1 star.
 
 Fix before submitting anything (applies to every list below):
 
-1. The GitHub repo description is out of date. It says "instrument Node.js/Python", but the README lists eight languages. Bots and reviewers read that description. The replacement is in [README.md](README.md) under "GitHub repo settings"; it uses the same claim as the README's first line.
-2. The README demo GIF is still commented out (`docs/demo.gif`). No list below requires one, but a reviewer deciding in a few seconds benefits from it.
+1. Done (checked 2026-11-16): the GitHub repo description now uses the same claim as the README's first line, and the topics from [README.md](README.md) under "GitHub repo settings" are set.
+2. The README demo GIF is still commented out (`docs/demo.gif`, checked 2026-11-16). No list below requires one, but a reviewer deciding in a few seconds benefits from it.
+
+Submission status (checked 2026-11-16):
+
+| List | Status |
+|---|---|
+| awesome-claude-code | Not submitted yet. No issue from radra23 on the repo. |
+| awesome-opentelemetry | PR [#105](https://github.com/magsther/awesome-opentelemetry/pull/105) open, waiting for review. |
+| awesome-observability | PR [#222](https://github.com/adriannovegil/awesome-observability/pull/222) open since 2026-11-14; its lint workflow is waiting for maintainer approval to run. |
 
 ---
 
@@ -34,7 +42,7 @@ Form link: https://github.com/hesreallyhim/awesome-claude-code/issues/new?templa
 
 Eligibility:
 
-- Needs either 14+ days since the first commit with continued development, or 100+ stars. The project meets the age rule (first commit 2026-06-20, active through 2026-11-14). It does not meet the star rule (1 star). Age is enough.
+- Needs either 14+ days since the first commit with continued development, or 100+ stars. The project meets the age rule (first commit 2026-06-20, active through 2026-11-16). It does not meet the star rule (1 star). Age is enough.
 - One resource at a time. Do not have another open recommendation.
 - Description: 1 to 3 sentences, 10 to 500 characters, descriptive rather than promotional, does not address the reader, one line, no emojis.
 - The maintainer says the list is selective, best effort, and favours resources specific to Claude Code. Most recent submissions were closed "not planned", so treat acceptance as uncertain.
@@ -113,7 +121,7 @@ Rules that matter here:
 
 - One resource per PR, in the most relevant section.
 - Format: `- [Name](https://example.com/) - Short, factual description.` Neutral language, canonical HTTPS URL, no tracking parameters.
-- Excluded: "very early projects without enough information for readers to evaluate them." The project is pre-1.0 (v0.11.1), but the README documents what CI proves per language, so it should clear this.
+- Excluded: "very early projects without enough information for readers to evaluate them." The project is pre-1.0 (v0.23.0), but the README documents what CI proves per language, so it should clear this.
 - awesome-lint: description starts with a capital letter and ends with a period; no URL already used elsewhere in the README.
 
 Submission method: **pull request** against `master`, editing `README.md`, with the PR template filled.
@@ -160,4 +168,3 @@ Only tick the last box if you actually ran `make lint` (needs Docker).
 - awesome-claude-code: 1 star, below the 100-star route, but the 14-day age route is met. The submission must be made by you in the web form, not by an agent or the `gh` CLI. Acceptance is at the maintainer's discretion and most recent submissions were closed "not planned".
 - awesome-observability: "very early projects" can be refused. The project is pre-1.0 with 1 star; the README's CI-proof tables are the evidence to point to if asked.
 - No list requires a demo GIF, but the README's GIF is still commented out.
-- The GitHub repo description is stale (Node.js/Python only). Fix it first.
