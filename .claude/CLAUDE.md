@@ -88,6 +88,14 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
   moves. Process and runtime only: never turn on host-wide `system.*` metrics from a bootstrap.
   The trace-flow e2e asserts one runtime metric per language from the Collector's `file/metrics`
   exporter (`tests/e2e/assert-metrics.sh`); it runs in Docker, so only CI proves it.
+- Go pins: the golden is on OpenTelemetry Go v1.47 (Go 1.26, logs Stable, `otel.SetLoggerProvider`;
+  `InitOtelLogsBeta` kept as a deprecated wrapper). v1.47 dropped Go 1.25, so a project whose
+  `go.mod` declares `go 1.25` or older gets the v1.46 line by three documented substitutions
+  ("Go below 1.26" in `instrumentation-gen`); `tests/snapshots/instrument/go/legacy/` holds that
+  line's module files and the `go-legacy-line` CI job builds it on Go 1.25. The drift check
+  compares only the current line: the legacy pins are held back on purpose, like the .NET
+  `drops <tfm>` rows. Regenerate `go.mod`/`go.sum` with a real `go mod tidy` and `go build` next
+  to `fixtures/go-greenfield/main.go`, never by hand.
 - Trace IDs in log lines (#279): the Python bootstrap's `_add_trace_ids_to_logs()` block adds
   `otelTraceID`/`otelSpanID` to every `logging` record and appends ` trace_id=... span_id=...` to
   lines the plain `logging.Formatter` renders; Node.js needs nothing generated (the bundle's pino,

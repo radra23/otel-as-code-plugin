@@ -74,7 +74,7 @@ cp ../snapshots/instrument/dotnet/checkout-api.csproj "$WORK/dotnet/checkout-api
 
 # Go: pristine greenfield net/http fixture (main.go ALREADY carries the two documented wiring
 # lines — the plugin PRINTS them rather than writing them, the Go analog of .NET's Program.cs
-# carrying its one documented line) + the golden tracing.go (defines InitOtel/InitOtelLogsBeta) +
+# carrying its one documented line) + the golden tracing.go (defines InitOtel/InitOtelLogs) +
 # the golden INSTRUMENTED go.mod (adds the pinned OTel packages, replacing the greenfield one).
 cp -R ../../fixtures/go-greenfield/. "$WORK/go/"
 cp ../snapshots/instrument/go/tracing.go "$WORK/go/tracing.go"

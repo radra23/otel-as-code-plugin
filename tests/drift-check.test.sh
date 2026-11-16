@@ -39,6 +39,8 @@ check(f"python golden requirements match the generator pins ({len(golden_py)})",
 if golden_py != pp:
     print("  generator:", pp); print("  golden:   ", golden_py)
 gp = dict(d.go_pins())
+check("go pins are the current line only, not the held-back Go 1.25 line",
+      gp.get("go.opentelemetry.io/otel") != "1.46.0" and "go.opentelemetry.io/otel/log" not in gp)
 check("go pins parsed (otel SDK and the runtime-metrics module)",
       "go.opentelemetry.io/otel/sdk" in gp and "go.opentelemetry.io/contrib/instrumentation/runtime" in gp)
 # The golden go.mod's direct requirements must be exactly what the generator pins.
