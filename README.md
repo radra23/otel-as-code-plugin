@@ -145,7 +145,7 @@ another one, Codex runs the skills without the hooks.
 Two command features keep re-runs safe too:
 
 - **`--dry-run`.** `/otel-instrument`, `/otel-collector`, `/otel-backend`, `/otel-local`,
-  `/otel-enrich` and `/otel-uninstrument` can preview a diff (or the removal plan) instead of writing, and exit
+  `/otel-enrich`, `/otel-test` and `/otel-uninstrument` can preview a diff (or the removal plan) instead of writing, and exit
   non-zero when something would change, so CI can catch drift. `/otel-init` and
   `/otel-business-attrs` write only the context cache and have no dry run; `/otel-evaluate
   --no-cache-write` writes nothing.
@@ -325,7 +325,8 @@ images) can get a deployment-config diff from `/otel-remediate` instead; v1 cove
 | `/otel-enrich <file>:<function>` | Add a span around one of your own functions (Node.js, Python): an in-place edit, shown as a diff first, insert-only between markers |
 | `/otel-enrich --business` | Emit the business metrics you confirmed (counters, histograms, gauges) where your code owns the value, so the panels `/otel-backend` generated for them have data |
 | `/otel-enrich --clients` | Check which database and queue clients are actually traced, turn on the instrumentation package for one that is not (Python), and add a client span where no package exists. One client span per call, never two |
-| `/otel-uninstrument` | Remove the bootstrap files `/otel-instrument` generated (marker-gated); `--enrichment` removes what `/otel-enrich` added |
+| `/otel-test` | Generate a test that fails when the service's telemetry goes missing: one request, asserting its span, the spans `/otel-enrich` added and the confirmed business metrics (Node.js, Python). No backend needed |
+| `/otel-uninstrument` | Remove the bootstrap files `/otel-instrument` generated and the test `/otel-test` wrote (marker-gated); `--enrichment` removes what `/otel-enrich` added |
 | `/otel-local` | Start a free local Grafana stack (`grafana/otel-lgtm`) in Docker, wired to one service; `--down` stops it |
 | `/otel-remediate` | Print a deployment-config diff for a service with native OTel but no app source to bootstrap (v1: Keycloak) |
 
