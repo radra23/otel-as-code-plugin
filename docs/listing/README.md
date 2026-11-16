@@ -1,7 +1,9 @@
 # Listing otel-as-code
 
-Drafts for listing the plugin outside this repo. Nothing here has been submitted; every step
-below is yours to do by hand.
+Drafts for listing the plugin outside this repo, and where each submission stands. Status checked
+2026-11-16: the plugin directory refused it by policy, the awesome-opentelemetry and
+awesome-observability PRs are open, and awesome-claude-code and the OpenTelemetry Registry are not
+submitted yet. Every submission is yours to make by hand.
 
 | File | For |
 |---|---|
@@ -26,9 +28,9 @@ telemetry, terraform) and add these 5, which brings it to GitHub's limit of 20:
 
 ## Checklist, in order
 
-1. Merge the `chore/listing-ready` PR, so 0.11.2 (manifest metadata, icon wiring, the README
-   section on what the plugin runs) is on `main`.
-2. Update the repo description and topics above:
+1. Done: the `chore/listing-ready` PR merged (#239), so the manifest metadata, icon wiring and the
+   README section on what the plugin runs are on `main` (now at 0.23.0).
+2. Done (checked 2026-11-16): the repo description and all 20 topics above are set:
    https://github.com/radra23/otel-as-code-plugin
 3. Optional but worth it before any human reviewer looks: record the demo
    ([docs/demo/README.md](../demo/README.md)) and uncomment the image lines at the top of the README.
@@ -38,13 +40,14 @@ telemetry, terraform) and add these 5, which brings it to GitHub's limit of 20:
    follow [plugin-directory.md](plugin-directory.md) at
    https://claude.ai/directory/manage (needs a paid plan and the GitHub account that can push to the
    repo). Use a contact email you read, not the GitHub no-reply address.
-5. awesome-claude-code: the web issue form only, submitted by you, one recommendation at a time:
+5. awesome-claude-code: not submitted yet. The web issue form only, submitted by you, one
+   recommendation at a time:
    https://github.com/hesreallyhim/awesome-claude-code/issues/new?template=recommend-resource.yml
    ([awesome.md](awesome.md), section 1; leave the sixth checkbox unticked).
-6. awesome-opentelemetry: a PR adding one line under "Coding Agent Skills":
-   https://github.com/magsther/awesome-opentelemetry ([awesome.md](awesome.md), section 2).
-7. awesome-observability: a PR against `master` with the template filled, one section only:
-   https://github.com/adriannovegil/awesome-observability ([awesome.md](awesome.md), section 3).
+6. awesome-opentelemetry: PR open, waiting for review:
+   https://github.com/magsther/awesome-opentelemetry/pull/105 ([awesome.md](awesome.md), section 2).
+7. awesome-observability: PR open since 2026-11-14; its lint workflow waits for maintainer approval:
+   https://github.com/adriannovegil/awesome-observability/pull/222 ([awesome.md](awesome.md), section 3).
 8. OpenTelemetry Registry: wait. It is frozen
    (https://github.com/open-telemetry/opentelemetry.io/issues/11377). Sign the CNCF CLA now if you
    like, and when it reopens, write the entry and PR description yourself (their first-PR AI policy)
