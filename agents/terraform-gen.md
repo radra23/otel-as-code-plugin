@@ -350,10 +350,29 @@ follow the skill's "Runtime panel row" section for layout, units and description
   `runtime row: Grafana only for now` to the summary.
 - The row belongs to the dashboard: emit it only when `kind` is `all` or `dashboard`.
 
+## Log panel and error-log alert (Grafana)
+
+The Grafana dashboard ends with a log panel scoped to the service, and the rule group gains an
+alert on the share of error lines. Follow the skill's "Log panel and error-log alert" section:
+it has the two LogQL queries to copy unchanged, the two variables (`loki_datasource_uid`,
+`error_log_ratio_threshold`), and the rules (filter by the bare `service_name`, severity by
+number, `no_data_state = "OK"`).
+
+- The panel belongs to the dashboard and the rule to the alerts: with `kind`, emit the panel for
+  `all` or `dashboard`, the rule for `all` or `alerts`, and the Loki variable whenever either is
+  emitted.
+- `grafanaFlavor` only changes the default of `loki_datasource_uid` (`grafanacloud-logs` for
+  `cloud`, `loki` for `self-hosted`).
+- Add one line to the summary: `logs: panel and error-log alert query Loki (set
+  loki_datasource_uid)`, and when the service's bootstrap does not export logs, why they will be
+  empty and what turns them on.
+- Grafana only. For Datadog, New Relic and Dash0, emit neither and add `log panel: Grafana only
+  for now` to the summary.
+
 ## Grafana main.tf
 
 Generate using patterns from the `terraform-patterns` skill (grafana section).
-Include: provider block, grafana_folder, grafana_dashboard (request rate + error rate + p99 latency panels, **the runtime row for the service's language** (see "Runtime panel row" above), **plus one panel per confirmed `businessAttrs` entry** (see "Business-attribute panels" above)), grafana_rule_group (error rate > 5% for 5m, p99 > 500ms for 5m).
+Include: provider block, grafana_folder, grafana_dashboard (request rate + error rate + p99 latency panels, **the runtime row for the service's language** (see "Runtime panel row" above), **plus one panel per confirmed `businessAttrs` entry** (see "Business-attribute panels" above), **and the log panel last** (see "Log panel and error-log alert" above)), grafana_rule_group (error rate > 5% for 5m, p99 > 500ms for 5m, error-log share above `var.error_log_ratio_threshold` for 5m).
 
 **`grafanaFlavor` (`cloud` | `self-hosted`, from `/otel-backend`'s `--self-hosted` flag — default
 `cloud`, unchanged from before #167) decides the last piece:**

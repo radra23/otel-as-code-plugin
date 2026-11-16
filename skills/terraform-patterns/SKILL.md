@@ -342,6 +342,53 @@ here is not.
   it ingests them. Say "runtime row: Grafana only" in the summary for those backends; never
   translate the PromQL into another query language on the fly.
 
+### Log panel and error-log alert (Loki, #279)
+The dashboard ends with the service's own log lines, and the rule group gains one alert on the
+share of error lines. Both query **Loki**, not Prometheus, so the module needs a second
+datasource variable next to `prometheus_datasource_uid`:
+
+```hcl
+variable "loki_datasource_uid" {
+  description = "UID of the Loki datasource the log panel and the error-log alert query"
+  type        = string
+  default     = "grafanacloud-logs"   # self-hosted: "loki"
+}
+
+variable "error_log_ratio_threshold" {
+  description = "The error-log alert fires when more than this share of the service's log lines are at severity ERROR or above for 5 minutes (0.05 = 5%)"
+  type        = number
+  default     = 0.05
+}
+```
+
+The two queries, exactly as they go into the module. Both are run against the local stack's Loki
+by `tests/e2e/log-panel.sh`, read out of the Grafana golden; change one here and in the goldens
+together, and let that job say whether Loki agrees.
+
+- Panel: `{service_name="${var.service_name}"}`
+- Alert: `sum(count_over_time({service_name="${var.service_name}"} | severity_number >= 17 [5m])) / sum(count_over_time({service_name="${var.service_name}"}[5m]))`
+
+Rules:
+- **Filter by `service_name`, and by the bare name.** Loki's OTLP endpoint turns `service.name`
+  into the `service_name` label. This is NOT the Prometheus `job` label: a namespace does not get
+  prefixed here, so never write `<namespace>/<name>` in a log query.
+- **Severity by number, never by text.** `severity_number` is the same in every language (17 to
+  24 is ERROR and FATAL); the severity text is `ERROR` in one SDK and `Error` in another, and a
+  filter on it silently misses lines.
+- **The panel** is the last one on the dashboard: `type = "logs"`, `h = 10`, `w = 24`, placed
+  under whatever came before it (`y = 25` after the runtime row, `y = 33` when business panels
+  sit in between), with `datasource = { type = "loki", uid = var.loki_datasource_uid }` because
+  the dashboard's other panels use the default datasource.
+- **The alert** is one more `rule` in the same `grafana_rule_group`, with the same three stages
+  as the others (range query, reduce, threshold) and the threshold read from
+  `var.error_log_ratio_threshold`. Set `no_data_state = "OK"`: a service with no error lines
+  returns no data from the division, and that is the healthy state, not a fault.
+- **Say when it will be empty.** The panel and the alert have data only when the service exports
+  its logs over OTLP. In Node.js and Python that needs `/otel-instrument --experimental`; in .NET
+  the printed logging add-on. Generate both regardless, put that sentence in the panel
+  description, and repeat it in the summary when the service's bootstrap does not export logs.
+- **Grafana only for now.** Datadog, New Relic and Dash0 get no log panel or log alert yet.
+
 ### Notification routing (contact points)
 Emit contact points only when the user asks for alert routing. Without one, the generated
 `grafana_rule_group` alerts go through the stack's existing notification policy.
