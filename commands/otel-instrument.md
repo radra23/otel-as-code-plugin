@@ -435,7 +435,10 @@ context to make this concrete rather than generic:
   change), add one more setting to the block above — there is no release of
   `opentelemetry-instrumentation-fastapi`/`-flask` that defaults to stable HTTP semconv, and this
   plugin's own generated Grafana/Datadog/New Relic/Dash0 queries only the stable attribute/metric
-  names (see instrumentation-gen's "HTTP semconv stability check" section):
+  names (see instrumentation-gen's "HTTP semconv stability check" section). A FastAPI 0.142.0+
+  service does not need it, since the bootstrap lets FastAPI report the stable names itself; the
+  setting is still written, because it is harmless there and needed if the service ever runs on
+  an older FastAPI:
   ```
   OTEL_SEMCONV_STABILITY_OPT_IN = http/dup
   ```

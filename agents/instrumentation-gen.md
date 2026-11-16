@@ -303,6 +303,19 @@ SLO set that sits in permanent NoData, which reads as healthy, not broken (#192)
   (`opentelemetry/instrumentation/_semconv.py`). This is true for both greenfield and brownfield
   Python generation; re-verify against the installed package before assuming this has changed,
   the same caution this file already applies elsewhere to semconv constants.
+- **FastAPI 0.142.0 and later is the exception (#300).** It reports its own request spans and
+  `http.server.request.duration` under the STABLE names as soon as a provider is registered, and
+  stands down completely when it finds the instrumentation package's middleware in its stack
+  (measured: never two server spans, on 0.141.1, 0.142.0 and 0.163.1 with the package at 0.66b2).
+  So the template's `instrument_fastapi()` calls the package only where `fastapi.telemetry` cannot
+  be imported, decided when the service starts, because a requirement like `fastapi>=0.110` does
+  not say which release is installed. Keep `opentelemetry-instrumentation-fastapi` in the
+  requirements either way: older FastAPI needs it and newer FastAPI ignores it. Emit
+  `_fastapi_traces_itself()` exactly as written. **On a regeneration this changes what an existing
+  FastAPI 0.142.0+ service puts on the wire** (old names become stable names, the package's
+  body-size metrics and `http receive` / `http send` spans go away, `fastapi.endpoint` and its
+  siblings appear): say so in the summary, with `OTEL_AS_CODE_FASTAPI_SOURCE=package` as the way
+  to keep the old behaviour. Flask and Django are unaffected.
 - **The actual env var is never written by this subagent.** Per #192, `/otel-instrument` Step 8
   owns deployment-config injection: it adds `OTEL_SEMCONV_STABILITY_OPT_IN=http/dup` to a FRESH
   Python service's deployment settings automatically (nothing already running to change), but for
@@ -840,10 +853,29 @@ def _add_trace_ids_to_logs():
 _add_trace_ids_to_logs()
 
 
+def _fastapi_traces_itself():
+    # FastAPI 0.142.0 and later reports its own request spans and metrics once a provider is
+    # registered (above), under the stable HTTP names: http.server.request.duration in seconds,
+    # http.response.status_code. The instrumentation package would switch that off and report
+    # the old names (http.server.duration, http.status_code) unless
+    # OTEL_SEMCONV_STABILITY_OPT_IN is set, so it is only used where FastAPI has no telemetry
+    # of its own. Checked by what is installed, not by the version your requirements allow.
+    # OTEL_AS_CODE_FASTAPI_SOURCE=package keeps the package, for a service whose existing
+    # dashboards still query the old names.
+    if os.getenv("OTEL_AS_CODE_FASTAPI_SOURCE", "").strip().lower() == "package":
+        return False
+    try:
+        import fastapi.telemetry  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
 def instrument_fastapi(app):
     """Call this after creating your FastAPI app instance."""
-    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-    FastAPIInstrumentor.instrument_app(app)
+    if not _fastapi_traces_itself():
+        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+        FastAPIInstrumentor.instrument_app(app)
     _flush_on_app_shutdown(app)
     return app
 

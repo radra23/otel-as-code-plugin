@@ -156,6 +156,9 @@ jobs:
       - name: Trace IDs in log lines (one block in both Python goldens and the generator; #279)
         run: bash tests/log-trace-ids.test.sh
 
+      - name: FastAPI's own telemetry (one instrument_fastapi in both Python goldens and the generator; #300)
+        run: bash tests/fastapi-native.test.sh
+
       - name: Log panel and error-log alert (the skill's two queries are the goldens' two; #279)
         run: bash tests/log-panel.test.sh
 
@@ -400,6 +403,22 @@ jobs:
 
       - name: Log panel and alert queries end to end
         run: bash tests/e2e/log-panel.sh
+
+  # FastAPI's own telemetry (#300): exactly one server span per request behind the golden
+  # bootstrap, on the last FastAPI without it and on the current one.
+  fastapi-native:
+    name: One server span per FastAPI request, stable names by default
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: FastAPI behind the golden bootstrap, both sides of 0.142.0
+        run: bash tests/e2e/fastapi-native.sh
 
   # Trace IDs in log lines (#279): the golden Python and Node.js bootstraps in real apps; the ID in
   # a request's log line must equal its span's, and the app's own log format must survive.
