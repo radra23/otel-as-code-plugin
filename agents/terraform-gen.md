@@ -331,10 +331,29 @@ Rules:
 - Respect `kind` from `/otel-backend` (`dashboard` vs `alerts` vs `slo`): business panels belong
   to the dashboard, so emit them only when the dashboard is being generated.
 
+## Runtime panel row (Grafana, by the service's language)
+
+The dashboard also gets a row of runtime panels (memory, garbage collection, CPU, event loop,
+threads or goroutines), which the generated bootstrap emits with no application code. The panels
+come from a table, never from memory: `Read` the file `runtime-panels.json` in the SAME directory
+as `terraformPatternsPath` (replace the trailing `SKILL.md` with `runtime-panels.json`), and
+follow the skill's "Runtime panel row" section for layout, units and descriptions.
+
+- Look up `service.language` under `languages`. Found: emit the row header and one panel per
+  entry, with the entry's `grafana` query unchanged apart from the `job` value rule that applies
+  to every panel. Listed under `none`: no row, and the summary says `runtime row: none for
+  <language> (<reason from the table>)`. In neither: no row, and the summary says `runtime row:
+  not checked for <language>`.
+- If the file cannot be read, emit no row and say `runtime row: skipped, runtime-panels.json not
+  readable` in the summary. Never fall back to remembered metric names.
+- Grafana only (both flavors). For Datadog, New Relic and Dash0, emit no runtime row and add
+  `runtime row: Grafana only for now` to the summary.
+- The row belongs to the dashboard: emit it only when `kind` is `all` or `dashboard`.
+
 ## Grafana main.tf
 
 Generate using patterns from the `terraform-patterns` skill (grafana section).
-Include: provider block, grafana_folder, grafana_dashboard (request rate + error rate + p99 latency panels **plus one panel per confirmed `businessAttrs` entry** — see "Business-attribute panels" above), grafana_rule_group (error rate > 5% for 5m, p99 > 500ms for 5m).
+Include: provider block, grafana_folder, grafana_dashboard (request rate + error rate + p99 latency panels, **the runtime row for the service's language** (see "Runtime panel row" above), **plus one panel per confirmed `businessAttrs` entry** (see "Business-attribute panels" above)), grafana_rule_group (error rate > 5% for 5m, p99 > 500ms for 5m).
 
 **`grafanaFlavor` (`cloud` | `self-hosted`, from `/otel-backend`'s `--self-hosted` flag — default
 `cloud`, unchanged from before #167) decides the last piece:**

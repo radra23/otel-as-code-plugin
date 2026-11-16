@@ -1,0 +1,206 @@
+{
+  "_comment": "Runtime panel row per language (#277): the single source of truth for which runtime metrics the generated dashboards chart. Only metrics the trace-flow e2e job saw arrive are listed. 'grafana' is the PromQL as it is stored by Prometheus (dots to underscores, unit suffix, _total on a counter); every one is run against the local stack's Prometheus in tests/e2e/run.sh. 'stability' is the metric name's level in the semantic conventions at SEMCONV_VERSION (see language-maturity).",
+  "languages": {
+    "nodejs": {
+      "label": "Node.js",
+      "panels": [
+        {
+          "title": "Heap used",
+          "metric": "v8js.memory.heap.used",
+          "kind": "updowncounter",
+          "unit": "By",
+          "stability": "development",
+          "grafanaUnit": "bytes",
+          "grafana": "sum(v8js_memory_heap_used_bytes{job=\"${var.service_name}\"})"
+        },
+        {
+          "title": "Event loop delay (p99)",
+          "metric": "nodejs.eventloop.delay.p99",
+          "kind": "gauge",
+          "unit": "s",
+          "stability": "development",
+          "grafanaUnit": "s",
+          "grafana": "max(nodejs_eventloop_delay_p99_seconds{job=\"${var.service_name}\"})"
+        },
+        {
+          "title": "Event loop utilization",
+          "metric": "nodejs.eventloop.utilization",
+          "kind": "gauge",
+          "unit": "1",
+          "stability": "development",
+          "grafanaUnit": "percentunit",
+          "grafana": "max(nodejs_eventloop_utilization_ratio{job=\"${var.service_name}\"})"
+        },
+        {
+          "title": "Garbage collections per second",
+          "metric": "v8js.gc.duration",
+          "kind": "histogram",
+          "unit": "s",
+          "stability": "development",
+          "grafanaUnit": "ops",
+          "grafana": "sum(rate(v8js_gc_duration_seconds_count{job=\"${var.service_name}\"}[5m]))"
+        }
+      ]
+    },
+    "python": {
+      "label": "Python",
+      "panels": [
+        {
+          "title": "Memory (resident)",
+          "metric": "process.memory.usage",
+          "kind": "updowncounter",
+          "unit": "By",
+          "stability": "release_candidate",
+          "grafanaUnit": "bytes",
+          "grafana": "sum(process_memory_usage_bytes{job=\"${var.service_name}\"})"
+        },
+        {
+          "title": "CPU utilization",
+          "metric": "process.cpu.utilization",
+          "kind": "gauge",
+          "unit": "1",
+          "stability": "development",
+          "grafanaUnit": "percentunit",
+          "grafana": "max(process_cpu_utilization_ratio{job=\"${var.service_name}\"})"
+        },
+        {
+          "title": "Threads",
+          "metric": "process.thread.count",
+          "kind": "updowncounter",
+          "unit": "{thread}",
+          "stability": "release_candidate",
+          "grafanaUnit": "short",
+          "grafana": "sum(process_thread_count{job=\"${var.service_name}\"})"
+        },
+        {
+          "title": "Garbage collections per second",
+          "metric": "cpython.gc.collections",
+          "kind": "counter",
+          "unit": "{collection}",
+          "stability": "development",
+          "grafanaUnit": "ops",
+          "grafana": "sum(rate(cpython_gc_collections_total{job=\"${var.service_name}\"}[5m]))"
+        }
+      ]
+    },
+    "java": {
+      "label": "JVM",
+      "panels": [
+        {
+          "title": "Memory used",
+          "metric": "jvm.memory.used",
+          "kind": "updowncounter",
+          "unit": "By",
+          "stability": "stable",
+          "grafanaUnit": "bytes",
+          "grafana": "sum(jvm_memory_used_bytes{job=\"${var.service_name}\"})"
+        },
+        {
+          "title": "CPU utilization (recent)",
+          "metric": "jvm.cpu.recent_utilization",
+          "kind": "gauge",
+          "unit": "1",
+          "stability": "stable",
+          "grafanaUnit": "percentunit",
+          "grafana": "max(jvm_cpu_recent_utilization_ratio{job=\"${var.service_name}\"})"
+        },
+        {
+          "title": "Threads",
+          "metric": "jvm.thread.count",
+          "kind": "updowncounter",
+          "unit": "{thread}",
+          "stability": "stable",
+          "grafanaUnit": "short",
+          "grafana": "sum(jvm_thread_count{job=\"${var.service_name}\"})"
+        },
+        {
+          "title": "Garbage collections per second",
+          "metric": "jvm.gc.duration",
+          "kind": "histogram",
+          "unit": "s",
+          "stability": "stable",
+          "grafanaUnit": "ops",
+          "grafana": "sum(rate(jvm_gc_duration_seconds_count{job=\"${var.service_name}\"}[5m]))"
+        }
+      ]
+    },
+    "dotnet": {
+      "label": ".NET",
+      "panels": [
+        {
+          "title": "Memory (working set)",
+          "metric": "dotnet.process.memory.working_set",
+          "kind": "updowncounter",
+          "unit": "By",
+          "stability": "stable",
+          "grafanaUnit": "bytes",
+          "grafana": "sum(dotnet_process_memory_working_set_bytes{job=\"${var.service_name}\"})"
+        },
+        {
+          "title": "CPU seconds per second",
+          "metric": "dotnet.process.cpu.time",
+          "kind": "counter",
+          "unit": "s",
+          "stability": "stable",
+          "grafanaUnit": "short",
+          "grafana": "sum(rate(dotnet_process_cpu_time_seconds_total{job=\"${var.service_name}\"}[5m]))"
+        },
+        {
+          "title": "Thread pool threads",
+          "metric": "dotnet.thread_pool.thread.count",
+          "kind": "updowncounter",
+          "unit": "{thread}",
+          "stability": "stable",
+          "grafanaUnit": "short",
+          "grafana": "sum(dotnet_thread_pool_thread_count{job=\"${var.service_name}\"})"
+        },
+        {
+          "title": "Garbage collections per second",
+          "metric": "dotnet.gc.collections",
+          "kind": "counter",
+          "unit": "{collection}",
+          "stability": "stable",
+          "grafanaUnit": "ops",
+          "grafana": "sum(rate(dotnet_gc_collections_total{job=\"${var.service_name}\"}[5m]))"
+        }
+      ]
+    },
+    "go": {
+      "label": "Go",
+      "panels": [
+        {
+          "title": "Memory used",
+          "metric": "go.memory.used",
+          "kind": "updowncounter",
+          "unit": "By",
+          "stability": "development",
+          "grafanaUnit": "bytes",
+          "grafana": "sum(go_memory_used_bytes{job=\"${var.service_name}\"})"
+        },
+        {
+          "title": "Goroutines",
+          "metric": "go.goroutine.count",
+          "kind": "updowncounter",
+          "unit": "{goroutine}",
+          "stability": "development",
+          "grafanaUnit": "short",
+          "grafana": "sum(go_goroutine_count{job=\"${var.service_name}\"})"
+        },
+        {
+          "title": "Allocation rate",
+          "metric": "go.memory.allocated",
+          "kind": "counter",
+          "unit": "By",
+          "stability": "development",
+          "grafanaUnit": "Bps",
+          "grafana": "sum(rate(go_memory_allocated_bytes_total{job=\"${var.service_name}\"}[5m]))"
+        }
+      ]
+    }
+  },
+  "none": {
+    "ruby": "no stable runtime-metrics gem, and Metrics itself is Development",
+    "rust": "no runtime-metrics crate from the OpenTelemetry project",
+    "php": "no runtime-metrics source"
+  }
+}
