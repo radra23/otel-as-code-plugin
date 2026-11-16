@@ -127,6 +127,17 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
   volume panel and deliberately NO alert, because the severity values of that metric's label are
   not documented and a guessed filter would never fire while looking healthy. Neither is run
   against data. Datadog has nothing yet.
+- Every generated alert explains itself (#288): what it means (with its threshold), likely
+  causes and what to check first, from `skills/terraform-patterns/alert-text.json`, one entry
+  per alert kind, in each backend's own field (Grafana rule annotations, New Relic
+  `description`, Datadog `message`, Dash0 rule annotations, double-quoted because the text
+  contains `: `). `tests/alert-text.test.sh` finds every alert in every golden (12 today) and
+  requires its kind's text, rendered by `tests/alert_text_render.py`, byte for byte: a new alert
+  arrives with its text. Links only where the backend's own resources build them: Grafana gets
+  the dashboard URL and an Explore trace search on `var.tempo_datasource_uid` (its TraceQL query
+  is run against the local Tempo by `tests/e2e/log-panel.sh`), New Relic the dashboard
+  permalink, Datadog and Dash0 none. No backend has been seen showing the text in a
+  notification.
 - The dashboard's runtime row comes from `skills/terraform-patterns/runtime-panels.json`, the one
   table of runtime panels per language (metric, kind, unit, name stability, PromQL). The generator
   reads it and never writes a runtime query from memory. Add or change a panel there only: the

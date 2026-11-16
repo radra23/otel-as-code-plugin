@@ -1,0 +1,25 @@
+{
+  "_comment": "What every generated alert says about itself (#288), one entry per alert kind, written once for all backends. terraform-gen reads this file and never writes alert text from memory; tests/alert-text.test.sh pins every golden to it (render with tests/alert_text_render.py). Keep each value free of double quotes and backslashes: it lands in HCL strings and in double-quoted YAML. ${var.service_name} is interpolated by Terraform. The thresholds named in a meaning (5%, 500 ms, 14.4x) are the ones the generated alerts use: change both together.",
+  "kinds": {
+    "error_rate": {
+      "meaning": "More than 5% of requests to ${var.service_name} are failing.",
+      "causes": "a recent deploy, a dependency failing or timing out (database, queue, another service), or the service running out of memory or connections.",
+      "check": "find on the dashboard when the rise started, then open the failing traces from that time: the first span with an error names the call that failed."
+    },
+    "latency": {
+      "meaning": "The slowest 1% of requests to ${var.service_name} take longer than 500 ms.",
+      "causes": "a slow dependency, CPU or memory pressure (garbage collection included), or more traffic than the service can serve.",
+      "check": "find on the dashboard when it started and whether traffic rose with it, then open the slowest traces from that time: the longest child span is usually the cause."
+    },
+    "error_logs": {
+      "meaning": "More of the log lines from ${var.service_name} are at ERROR or above than error_log_ratio_threshold allows.",
+      "causes": "errors the service catches and logs without failing the request, a failing dependency, or a new log line written at the wrong level.",
+      "check": "find the most frequent error message in the service's logs; a line written during a request carries its trace ID, which opens that request's trace."
+    },
+    "burn_rate": {
+      "meaning": "${var.service_name} is spending its 30-day error budget 14.4 times faster than a 99.9% objective allows: at this pace the budget is gone in about two days.",
+      "causes": "the same as for a high error rate, sustained for an hour.",
+      "check": "find on the dashboard when failures rose, then open the failing traces from that time: the first span with an error names the call that failed."
+    }
+  }
+}

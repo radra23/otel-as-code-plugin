@@ -162,6 +162,9 @@ jobs:
       - name: Log panel and error-log alert (the skill's two queries are the goldens' two; #279)
         run: bash tests/log-panel.test.sh
 
+      - name: Alerts that explain themselves (every golden alert carries alert-text.json's text; #288)
+        run: bash tests/alert-text.test.sh
+
       - name: assert-lgtm unit test (local stack read-back)
         run: bash tests/e2e/assert-lgtm.test.sh
 
