@@ -264,6 +264,24 @@ it rather than this summary if they ever differ.
 Say in the summary which runtime metrics the service now emits, in one line, with the prefix
 (`process.*`, `go.*`, ...), so the user knows what to look for.
 
+## Trace IDs in log lines (#279)
+
+A log line written during a request carries that request's trace ID. `languageMaturityPath`
+("Trace IDs in log lines") has the per-language table and the rules; follow it rather than this
+summary if they ever differ.
+
+- **Python:** the `_add_trace_ids_to_logs()` block is in the template below, in both the default
+  and the `--experimental` bootstrap. Emit it as written, for every framework. Never swap it for
+  `LoggingInstrumentor(set_logging_format=True)` or `OTEL_PYTHON_LOG_CORRELATION`: that replaces
+  the application's log format.
+- **Node.js:** nothing to add. `getNodeAutoInstrumentations()` already loads the pino, winston
+  and bunyan instrumentations, which add the IDs. Never disable them, and never patch `console`.
+- **Every other language:** generate nothing for this.
+
+Say it in the summary in one line, naming what is not covered: for Python, "log lines from
+`logging` carry the trace ID (not `print()`)"; for Node.js, "pino, winston and bunyan lines carry
+the trace ID (not `console.log`)". Add that the IDs appear only while traces are exported.
+
 ## HTTP semconv stability check (Node.js / Python)
 
 `OTEL_SEMCONV_STABILITY_OPT_IN` controls whether `instrumentation-http` (Node) and
@@ -771,6 +789,55 @@ if _metrics in ("otlp", "console"):
             "[otel] opentelemetry-instrumentation-system-metrics is not installed, so this "
             "process emits no runtime metrics (CPU, memory, garbage collection)."
         )
+
+
+# --- Trace IDs in log lines ------------------------------------------------------------
+# A log line written during a request says which trace it belongs to, so the line you are
+# reading leads to the trace (and back). This works on the standard `logging` module and
+# keeps your logger, handlers and format string as they are:
+#   - every record gets `otelTraceID` and `otelSpanID` fields ("0" outside a span), the names
+#     opentelemetry-instrumentation-logging uses, so a JSON formatter that writes extra
+#     fields includes them and a format string can reference %(otelTraceID)s;
+#   - a line rendered by the plain `logging.Formatter` gets ` trace_id=... span_id=...`
+#     appended. A custom formatter class and a line that is already JSON are left alone,
+#     and so is a line that already shows the trace ID.
+# OTEL_AS_CODE_LOG_TRACE_IDS=off stops the appending; the fields stay. print() and loggers
+# that bypass `logging` are not covered.
+def _add_trace_ids_to_logs():
+    import logging
+
+    previous_factory = logging.getLogRecordFactory()
+
+    def record_factory(*args, **kwargs):
+        record = previous_factory(*args, **kwargs)
+        context = trace.get_current_span().get_span_context()
+        valid = context.is_valid
+        record.otelTraceID = format(context.trace_id, "032x") if valid else "0"
+        record.otelSpanID = format(context.span_id, "016x") if valid else "0"
+        return record
+
+    logging.setLogRecordFactory(record_factory)
+
+    if os.getenv("OTEL_AS_CODE_LOG_TRACE_IDS", "").strip().lower() in ("0", "false", "off"):
+        return
+    format_message = logging.Formatter.formatMessage
+
+    def format_message_with_ids(self, record):
+        line = format_message(self, record)
+        trace_id = getattr(record, "otelTraceID", "0")
+        if (
+            type(self) is logging.Formatter
+            and trace_id != "0"
+            and trace_id not in line
+            and not line.lstrip().startswith(("{", "["))
+        ):
+            line = f"{line} trace_id={trace_id} span_id={record.otelSpanID}"
+        return line
+
+    logging.Formatter.formatMessage = format_message_with_ids
+
+
+_add_trace_ids_to_logs()
 
 
 def instrument_fastapi(app):
