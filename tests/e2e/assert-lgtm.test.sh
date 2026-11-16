@@ -26,6 +26,11 @@ check "query carries explicit start and end" \
 check "query filters on resource.service.name" \
   'python3 -c "import sys,urllib.parse as u; q=u.parse_qs(u.urlsplit(sys.argv[1]).query)[\"q\"][0]; sys.exit(q != \"{resource.service.name=\\\"checkout-api\\\"}\")" "$url"'
 
+# --traceql (an alert's trace link, #288) replaces the query and nothing else.
+turl=$(python3 -c "import sys; sys.path.insert(0, '../../scripts'); import lgtm_check as m; print(m.search_url('http://localhost:3001', 'svc', 100, 200, '{span.x=1}'))")
+check "--traceql searches with the given query, same route and window" \
+  'python3 -c "import sys,urllib.parse as u; q=u.parse_qs(u.urlsplit(sys.argv[1]).query); sys.exit(q[\"q\"][0] != \"{span.x=1}\" or q[\"start\"][0] != \"100\")" "$turl"'
+
 # Nothing listening: Grafana unreachable is exit 2 and says so, never "no traces".
 free_port=$(python3 -c "import socket; s=socket.socket(); s.bind(('127.0.0.1',0)); print(s.getsockname()[1]); s.close()")
 out=$(python3 $CHECK traces --grafana "http://127.0.0.1:$free_port" --service checkout-api 2>&1); rc=$?

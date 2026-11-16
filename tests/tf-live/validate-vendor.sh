@@ -85,6 +85,11 @@ case "$VENDOR" in
     # datasource has another UID, or that rule's apply fails.
     [ -n "${GRAFANA_LOKI_DATASOURCE_UID:-}" ] && \
       export TF_VAR_loki_datasource_uid="$GRAFANA_LOKI_DATASOURCE_UID"
+    # Every alert links to a trace search on a Tempo datasource (#288); the default
+    # `grafanacloud-traces` is the Grafana Cloud convention. A wrong UID does not fail the apply
+    # (the link is only text in an annotation): it opens Explore on a datasource that is not there.
+    [ -n "${GRAFANA_TEMPO_DATASOURCE_UID:-}" ] && \
+      export TF_VAR_tempo_datasource_uid="$GRAFANA_TEMPO_DATASOURCE_UID"
     ;;
   datadog)
     export TF_VAR_datadog_api_key="$DATADOG_API_KEY"

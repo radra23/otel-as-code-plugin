@@ -10,6 +10,8 @@
 #   - the alert query returns NOTHING while the service has logged no error (so its severity
 #     filter really filters), and a share between 0 and 1 once it has.
 # The alert RULE is not evaluated here, only its query.
+# Every alert's trace-search link (#288) carries a TraceQL query; that query, read out of the same
+# golden, must find the service's request traces in the stack's Tempo.
 # Needs Docker with compose, Python 3.9+ with venv, and network for the image and pip.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -47,6 +49,19 @@ PANEL=$(golden_expr '{service_name=')
 ALERT=$(golden_expr 'count_over_time(')
 [ "$PANEL" = "{service_name=\"$SERVICE\"}" ] && ok "the panel query was read out of the golden: $PANEL" || { bad "unexpected panel query: $PANEL"; exit 1; }
 echo "alert query: $ALERT"
+TRACEQL=$(python3 - "$SNAP" "$SERVICE" <<'PY'
+import re, sys
+snap, service = sys.argv[1:3]
+for line in open(snap, encoding="utf-8"):
+    m = re.match(r'\s*query\s*=\s*"(\{resource\.service\.name=.*)"\s*$', line)
+    if m:
+        print(m.group(1).replace('\\"', '"').replace("${var.service_name}", service))
+        break
+else:
+    sys.exit(f"no TraceQL query in {snap}")
+PY
+)
+[ "$TRACEQL" = "{resource.service.name=\"$SERVICE\"}" ] && ok "the alerts' trace-link query was read out of the golden: $TRACEQL" || { bad "unexpected trace-link query: $TRACEQL"; exit 1; }
 
 mkdir -p "$WORK/stack"
 cp tests/snapshots/local-stack/otel-local.compose.yaml tests/snapshots/local-stack/otel-local.env "$WORK/stack/"
@@ -119,5 +134,12 @@ else
   bad "the golden alert query returned nothing after an error line was logged"; printf '%s\n' "$out"; dump
 fi
 
-[ "$failed" -eq 0 ] && echo "LOG PANEL E2E PASS: the Grafana golden's log panel and error-log alert queries return data from Loki" \
+# The link on every alert opens Explore with this query: it must find the requests made above.
+if out=$(python3 "$SRC/scripts/lgtm_check.py" traces --grafana "$GRAFANA" --service "$SERVICE" --traceql "$TRACEQL" --wait 60); then
+  ok "the alerts' trace-link query finds the service's traces in Tempo"
+else
+  bad "the alerts' trace-link query found no trace for $SERVICE"; printf '%s\n' "$out"
+fi
+
+[ "$failed" -eq 0 ] && echo "LOG PANEL E2E PASS: the Grafana golden's log panel and error-log alert queries return data from Loki, and its alerts' trace link finds traces in Tempo" \
   || { echo "LOG PANEL E2E FAIL"; exit 1; }
