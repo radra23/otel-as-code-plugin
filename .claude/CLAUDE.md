@@ -56,6 +56,19 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
   one place the plugin edits its own generated bootstrap after writing it, as a marked block at the
   end of the file; `/otel-instrument` drops that block on a regeneration and says so.
   `tests/e2e/enrich-clients.sh` counts client spans on the console exporter, with no Docker.
+- `/otel-test` writes a telemetry test into the user's service (`otel.test.cjs`, `test_otel.py`;
+  the names live in `hooks/otel-paths.sh` as `otel_test_globs`, apart from the bootstrap names so
+  `/otel-instrument` never mistakes a test for a bootstrap). `scripts/telemetry_test.py` renders it
+  from a spec and checks every spec value before it reaches the generated code; the command never
+  writes the test by hand and never hands one over that it has not seen pass. The two languages
+  capture differently on purpose: Python uses the SDK's in-memory exporter in process; Node.js
+  starts the service as a child process and receives OTLP/JSON on loopback, because NodeSDK takes
+  over the global provider (an in-memory provider registered before or after it captured nothing)
+  and the SDK's test classes were renamed between releases while the wire format is stable. A
+  change to either template is proven in `tests/e2e/telemetry-test.sh`, which runs the generated
+  tests on real apps and requires them to FAIL, naming the gap, when instrumentation is removed.
+  FastAPI 0.163 makes its own request span when the instrumentor is absent, so "the request's
+  span is missing" cannot prove the bootstrap is loaded there: the Python test checks the import.
 
 - `evals/routing/` measures whether a fresh session picks this plugin (`claude plugin eval` for
   only-this-plugin, `run-headless.sh` for a full personal plugin set, one scorer `score.py` for

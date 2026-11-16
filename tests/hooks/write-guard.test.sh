@@ -342,6 +342,12 @@ for name in telemetry.ts telemetry.go tracing.mjs opentelemetry.py tracing.rb Op
   expect_blocked "$name"
 done
 
+# /otel-test's telemetry test is generated too (scripts/telemetry_test.py), so a stray Write must
+# not flatten one that carries the marker.
+for name in otel.test.cjs test_otel.py; do
+  expect_blocked "$name"
+done
+
 # ...and the derivation must not swallow unrelated files whose name merely contains a stem.
 TMP=$(mktemp -d)
 echo "app code" > "$TMP/request-tracing.js"

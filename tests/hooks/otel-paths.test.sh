@@ -29,7 +29,15 @@ check "bootstrap globs include tracing.go"           'has tracing.go'
 check "bootstrap globs include tracing.rb"           'has tracing.rb'
 check "bootstrap globs include opentelemetry.rb"      'has opentelemetry.rb'
 
+# /otel-test's telemetry test is removed with the bootstrap but is not one: /otel-instrument's
+# "is there a bootstrap already?" scan reads otel_bootstrap_globs and must not find a test.
+check "bootstrap globs EXCLUDE otel.test.cjs" '! has otel.test.cjs'
+check "bootstrap globs EXCLUDE test_otel.py"  '! has test_otel.py'
+check "test globs are exactly the two telemetry-test names" \
+  '[ "$(otel_test_globs | tr "\n" " ")" = "otel.test.cjs test_otel.py " ]'
+
 # --- otel_all_generated_globs is the UNION (read-only reporting set) ---
+check "all-generated globs include the telemetry-test names" 'has_all otel.test.cjs && has_all test_otel.py'
 check "all-generated globs include otelcol-agent.yaml"   'has_all otelcol-agent.yaml'
 check "all-generated globs include otelcol-gateway.yaml" 'has_all otelcol-gateway.yaml'
 check "all-generated globs include otel-local.compose.yaml" 'has_all otel-local.compose.yaml'
@@ -43,6 +51,8 @@ check "is_generated_path still true for otelcol-agent.yaml (guard protects it)" 
 check "is_generated_path still true for otelcol-gateway.yaml (guard protects it)" 'otel_is_generated_path /x/otelcol-gateway.yaml'
 check "is_generated_path true for otel-local.compose.yaml (guard protects it)" 'otel_is_generated_path /x/otel-local.compose.yaml'
 check "is_generated_path true for otel-local.env (guard protects it)"          'otel_is_generated_path /x/otel-local.env'
+check "is_generated_path true for the telemetry test (guard protects it)" 'otel_is_generated_path /x/otel.test.cjs && otel_is_generated_path /x/test_otel.py'
+check "is_generated_path false for a test that merely resembles it" '! otel_is_generated_path /x/otel.test.js && ! otel_is_generated_path /x/test_otel_helpers.py'
 check "is_generated_path false for a user's .env"                            '! otel_is_generated_path /x/.env'
 check "is_generated_path true for OpenTelemetry.cs"  'otel_is_generated_path /x/OpenTelemetry.cs'
 check "is_generated_path false for a hand-written file" '! otel_is_generated_path /x/server.js'

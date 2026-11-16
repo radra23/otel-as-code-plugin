@@ -103,6 +103,11 @@ Resolve the candidate files the same way as `/otel-instrument` Step 4 — do NOT
    is shared by every service in the repo, so this per-service command never removes them. If any
    exist, say so in the summary and point at `/otel-local --down`.
 
+3. Add the service's telemetry test, if `/otel-test` wrote one: the **`otel_test_globs`** names
+   (`otel.test.cjs`, `test_otel.py`) directly in `<rootDir>`. It goes through the same marker gate
+   in Step 3 as a bootstrap, so a test of that name the user wrote is left alone. The test asserts
+   telemetry that will no longer exist, so leaving it behind would fail their test run.
+
 If nothing is found, print "No generated bootstrap artifacts found for <target>. Nothing to
 remove." and exit 0.
 

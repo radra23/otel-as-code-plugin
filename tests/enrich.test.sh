@@ -562,6 +562,27 @@ check "metric python: a gauge uses create_gauge and set()" \
 check "span: an id in the reserved metric- namespace is refused" \
   'msg=$(enrich span --root "$P" --file gauge/q.py --function f --span-name metric.f --tracer-name t 2>&1); [ $? -eq 2 ] && echo "$msg" | grep -q "reserved"'
 
+# A `^...$` check also accepts a value with a newline on the end, which would then be written
+# into a marker line or a string literal. The names are matched whole.
+nl_refused() {
+  local name="$1" words="$2"; shift 2
+  rm -rf "$P/nl"; mkdir -p "$P/nl"; printf 'def f(x):\n    return x\n' > "$P/nl/q.py"
+  local msg rc
+  msg=$(python3 -c '
+import subprocess, sys
+script, root, *rest = sys.argv[1:]
+args = [a.replace("<NL>", chr(10)) for a in rest]
+r = subprocess.run([sys.executable, script, "span", "--root", root, "--file", "q.py", "--function", "f"] + args,
+                   capture_output=True, text=True)
+print(r.stderr + r.stdout)
+sys.exit(r.returncode)' "$ROOT/scripts/enrich.py" "$P/nl" "$@" 2>&1); rc=$?
+  check "$name" '[ "$rc" -eq 2 ] && echo "$msg" | grep -q -- "$words" && [ "$(cat "$P/nl/q.py")" = "$(printf "def f(x):\n    return x")" ]'
+}
+nl_refused "span: an id ending in a newline is refused, not written into a marker" "must be lowercase letters" --span-name q.f --tracer-name t --id "x<NL>"
+nl_refused "span: a span name ending in a newline is refused by name, not by the parse check" "span name" --span-name "q.f<NL>" --tracer-name t
+nl_refused "span: a tracer name ending in a newline is refused by name" "tracer name" --span-name q.f --tracer-name "t<NL>"
+rm -rf "$P/nl"
+
 echo
 echo "enrich: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

@@ -27,7 +27,7 @@ here), so resolve these paths against otel-as-code's own checkout directory, not
 
 - Workflows: `$otel-init`, `$otel-instrument`, `$otel-uninstrument`, `$otel-evaluate`,
   `$otel-collector`, `$otel-business-attrs`, `$otel-backend`, `$otel-remediate`, `$otel-local`,
-  `$otel-enrich`.
+  `$otel-enrich`, `$otel-test`.
 - `$semconv-discipline` — OTel semantic-convention rules (also invoked implicitly when editing
   OTel code).
 
