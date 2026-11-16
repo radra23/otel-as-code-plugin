@@ -71,8 +71,10 @@ Each line links to the test that backs it.
   [Test](https://github.com/radra23/otel-as-code-plugin/blob/main/tests/e2e/enrich.sh)
 - **The generated test really fails.** CI removes the tracing from real apps and requires the
   test to fail and name what is missing. [Test](https://github.com/radra23/otel-as-code-plugin/blob/main/tests/e2e/telemetry-test.sh)
-- **Dashboards and alerts are applied to real accounts.** On Dash0, Grafana and New Relic, CI
-  creates them, reads them back and deletes them. Datadog is checked for validity only so far.
+- **Dashboards and alerts are checked on every push, and applied to a real account on Dash0.**
+  Every module passes `terraform validate`. On Dash0, a weekly job also creates the resources in
+  a real account, reads them back and deletes them. Grafana, New Relic and Datadog are wired into
+  the same job but have not been applied by it yet: it has no credentials for them.
   [Results per backend](#what-is-proven-and-how) · [job](https://github.com/radra23/otel-as-code-plugin/blob/main/.github/workflows/tf-live-validate.yml)
 - **Your agent picks it when you ask.** In 36 of 36 runs, a fresh session given a plain request
   such as "add tracing" used the plugin. Measured at version 0.10.0, before `/otel-enrich` and
@@ -292,12 +294,16 @@ golden module against a real vendor account, reads the created resources back, a
 
 | Backend | Schema (`terraform validate`) | Live apply + readback |
 |---|---|---|
-| Dash0 | ✅ every push | ✅ proven |
-| Grafana | ✅ every push | ✅ proven |
-| New Relic | ✅ every push | ✅ proven |
+| Dash0 | ✅ every push | ✅ applied weekly by the job |
+| Grafana | ✅ every push | wired, never applied by the job: no credentials set |
+| New Relic | ✅ every push | wired, never applied by the job: no credentials set |
 | Datadog | ✅ every push | wired, awaiting a test account ([#121](https://github.com/radra23/otel-as-code-plugin/issues/121)) |
 
-For Datadog, run `terraform plan` against your own account before trusting the output.
+This table is read from the job's own run history (every run since 2026-09-03): each one applied
+Dash0 and skipped the others. The Dash0 leg has caught real breaks that `terraform validate`
+cannot see, most recently an SLO query shape Dash0 stopped accepting (fixed in 0.21.1). For
+Grafana, New Relic and Datadog, run `terraform plan` against your own account before trusting
+the output.
 
 **Pins.** A weekly drift check compares the semconv, SDK, Java agent, crate, and Terraform
 provider pins against current releases, and verifies every deprecated-attribute mapping against
@@ -416,8 +422,8 @@ The Grafana dashboard `/otel-backend grafana` writes charts them: a runtime row 
 service's language (memory, garbage collection, CPU, and the event loop, threads or goroutines).
 Every query in that row is run against a real Prometheus in CI
 ([`tests/e2e/run.sh`](https://github.com/radra23/otel-as-code-plugin/blob/main/tests/e2e/run.sh)). The New Relic and Dash0 dashboards get the same panels,
-with queries derived from the same table; those are checked for validity and applied to a real
-account, but not run against data. Datadog does not have the row yet.
+with queries derived from the same table; those are checked for validity (and, on Dash0, accepted
+by a real account), but not run against data. Datadog does not have the row yet.
 
 The Grafana module also ends its dashboard with the service's log lines from Loki and adds an
 alert on the share of error lines (5% for 5 minutes by default, a variable). Both need the
