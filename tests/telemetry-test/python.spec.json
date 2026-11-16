@@ -1,0 +1,17 @@
+{
+  "language": "python",
+  "serviceRoot": ".",
+  "serviceName": "inventory-api",
+  "app": "main:app",
+  "interface": "asgi",
+  "bootstrap": "tracing",
+  "request": {
+    "method": "POST",
+    "path": "/inventory/reserve",
+    "json": { "sku": "s1", "quantity": 2, "warehouse": "w" },
+    "expectStatus": 200
+  },
+  "serverSpan": "POST /inventory/reserve",
+  "spans": ["inventory.reserve_stock"],
+  "metrics": ["com.example.inventory.reservations", "com.example.inventory.reserved_quantity"]
+}

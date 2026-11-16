@@ -41,7 +41,12 @@ OTEL_EXTS=(js mjs cjs ts mts cts py go cs rb php rs)
 OTEL_BOOTSTRAP_FIXED_NAMES=(otel-java.env OpenTelemetry.cs)
 OTEL_COLLECTOR_FIXED_NAMES=(otelcol-agent.yaml otelcol-gateway.yaml)
 OTEL_LOCAL_STACK_FIXED_NAMES=(otel-local.compose.yaml otel-local.env)
-OTEL_FIXED_NAMES=("${OTEL_BOOTSTRAP_FIXED_NAMES[@]}" "${OTEL_COLLECTOR_FIXED_NAMES[@]}" "${OTEL_LOCAL_STACK_FIXED_NAMES[@]}")
+# The telemetry test /otel-test writes into a service's directory (scripts/telemetry_test.py owns
+# the two names). It is per service like a bootstrap, and /otel-uninstrument removes it with the
+# bootstrap, but it is NOT a bootstrap: it gets its own accessor (otel_test_globs) so that
+# /otel-instrument's "is there a bootstrap already?" scan never mistakes a test for one.
+OTEL_TEST_FIXED_NAMES=(otel.test.cjs test_otel.py)
+OTEL_FIXED_NAMES=("${OTEL_BOOTSTRAP_FIXED_NAMES[@]}" "${OTEL_COLLECTOR_FIXED_NAMES[@]}" "${OTEL_LOCAL_STACK_FIXED_NAMES[@]}" "${OTEL_TEST_FIXED_NAMES[@]}")
 
 # otel_is_generated_basename <basename> — true when the basename is one this plugin
 # generates. Matching is exact (not a suffix glob), so a user's `request-tracing.js` is
@@ -98,13 +103,22 @@ otel_bootstrap_globs() {
   done
 }
 
-# otel_all_generated_globs: EVERY generated name (bootstrap + Collector + local-stack fixed
+# otel_test_globs: the telemetry-test names only. /otel-uninstrument deletes these (marker-gated)
+# together with the service's bootstrap; nothing else may treat them as a bootstrap.
+otel_test_globs() {
+  local name
+  for name in "${OTEL_TEST_FIXED_NAMES[@]}"; do
+    echo "$name"
+  done
+}
+
+# otel_all_generated_globs: EVERY generated name (bootstrap + Collector + local-stack + test fixed
 # names). For read-only reporting (session-summary) that should surface those too. Never hand
 # this to a destructive consumer.
 otel_all_generated_globs() {
   local name
   otel_bootstrap_globs
-  for name in "${OTEL_COLLECTOR_FIXED_NAMES[@]}" "${OTEL_LOCAL_STACK_FIXED_NAMES[@]}"; do
+  for name in "${OTEL_COLLECTOR_FIXED_NAMES[@]}" "${OTEL_LOCAL_STACK_FIXED_NAMES[@]}" "${OTEL_TEST_FIXED_NAMES[@]}"; do
     echo "$name"
   done
 }

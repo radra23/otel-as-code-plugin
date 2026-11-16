@@ -65,6 +65,9 @@ jobs:
       - name: enrich.py database and queue client coverage, offline (/otel-enrich --clients, #276)
         run: bash tests/enrich-clients.test.sh
 
+      - name: telemetry_test.py renders the /otel-test test from a spec, checked and golden (#286)
+        run: bash tests/telemetry-test.test.sh
+
       - name: Run freshness-contract test (scanner identityInputs ↔ /otel-init regex; #150 uncovered services)
         run: bash tests/hooks/freshness-contract.test.sh
 
@@ -368,6 +371,27 @@ jobs:
 
       - name: One client span per call, end to end
         run: bash tests/e2e/enrich-clients.sh
+
+  # /otel-test: the generated telemetry tests, run on real apps. Each must pass on the instrumented
+  # service and fail, naming what is missing, when the enrichment, the instrumentor or the
+  # bootstrap is taken away (#286). No Docker.
+  telemetry-test-e2e:
+    name: /otel-test tests pass when instrumented, fail when not
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Generated telemetry tests end to end
+        run: bash tests/e2e/telemetry-test.sh
 
   validate-codex-bridge:
     name: Validate Codex bridge

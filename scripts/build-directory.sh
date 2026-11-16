@@ -28,7 +28,7 @@ for f in hooks.json write-guard.sh semconv-lint.sh session-summary.sh otel-paths
 done
 # Scripts the commands run through ${CLAUDE_PLUGIN_ROOT}; drift_check.py is CI-only.
 cp "$ROOT/scripts/lgtm_check.py" "$ROOT/scripts/write_context.py" "$ROOT/scripts/enrich.py" \
-   "$ROOT/scripts/client-coverage.json" "$OUT/scripts/"
+   "$ROOT/scripts/client-coverage.json" "$ROOT/scripts/telemetry_test.py" "$OUT/scripts/"
 cp "$ROOT/backends.txt" "$ROOT/LICENSE" "$ROOT/SECURITY.md" "$OUT/"
 
 # README: the directory shows it as the listing. Relative links point at files this folder does

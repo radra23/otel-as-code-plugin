@@ -1,0 +1,11 @@
+{
+  "language": "python",
+  "serviceRoot": ".",
+  "serviceName": "catalog",
+  "app": "wsgi:app",
+  "interface": "wsgi",
+  "request": { "method": "GET", "path": "/items/1?verbose=1", "expectStatus": 200 },
+  "serverSpan": "GET /items/<int:item_id>",
+  "spans": ["catalog.find_item"],
+  "metrics": []
+}
