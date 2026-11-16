@@ -257,7 +257,8 @@ rule {
   OTel JS `instrumentation-http` below `0.300.0`, or ANY current release of
   `opentelemetry-instrumentation-fastapi`/`-flask`, defaults to the OLD names/metric
   (`http.server.duration` in ms, `http.status_code`) unless `OTEL_SEMCONV_STABILITY_OPT_IN=http`
-  or `http/dup` is set — see `instrumentation-gen`'s "HTTP semconv stability check" section and
+  or `http/dup` is set (a FastAPI 0.142.0+ service behind this plugin's bootstrap is the
+  exception: it reports the stable names itself, #300); see `instrumentation-gen`'s "HTTP semconv stability check" section and
   `brownfield-auditor`'s `CF` finding for it. Without that opt-in, these panels/alerts/SLOs query
   real metric names that simply don't exist for that service: permanent NoData, not a bug in the
   generated Terraform.

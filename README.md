@@ -317,6 +317,13 @@ emitting a bootstrap that silently does nothing.
   `v8js.*`), and this process's CPU, memory, threads and garbage collection in Python
   (`process.*`, `cpython.*`). The Python ones come from a beta package that needs `psutil`; if it
   is not installed the service still starts and says so once.
+- FastAPI 0.142.0 and later reports its own request spans and duration metric, under the names
+  the generated dashboards query. The Python bootstrap leaves that on and calls
+  `opentelemetry-instrumentation-fastapi` only on older FastAPI, where it is still needed. One
+  server span per request either way, held in CI on both sides
+  ([`tests/e2e/fastapi-native.sh`](https://github.com/radra23/otel-as-code-plugin/blob/main/tests/e2e/fastapi-native.sh)). If you regenerate an existing
+  FastAPI service, its metric and attribute names move from the old HTTP names to the stable ones;
+  `OTEL_AS_CODE_FASTAPI_SOURCE=package` keeps the old behaviour.
 - Log lines say which trace they belong to, with your logger and format left as they are. In
   Node.js, pino, winston and bunyan lines gain `trace_id` and `span_id` fields; `console.log` does
   not. In Python, lines from the standard `logging` module get ` trace_id=... span_id=...` at the
