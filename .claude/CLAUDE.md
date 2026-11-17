@@ -133,7 +133,8 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
   `description`, Datadog `message`, Dash0 rule annotations, double-quoted because the text
   contains `: `). `tests/alert-text.test.sh` finds every alert in every golden (12 today) and
   requires its kind's text, rendered by `tests/alert_text_render.py`, byte for byte: a new alert
-  arrives with its text. Links only where the backend's own resources build them: Grafana gets
+  arrives with its text, and `agents/terraform-gen.md`'s alert list per backend must name the
+  same kinds as its golden. Links only where the backend's own resources build them: Grafana gets
   the dashboard URL and an Explore trace search on `var.tempo_datasource_uid` (its TraceQL query
   is run against the local Tempo by `tests/e2e/log-panel.sh`), New Relic the dashboard
   permalink, Datadog and Dash0 none. No backend has been seen showing the text in a

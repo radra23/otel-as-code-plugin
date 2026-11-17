@@ -46,6 +46,7 @@ GOLDENS = [
     ("tests/snapshots/dash0/main.tf.snap", "dash0", r'\nresource "dash0_check_rule"', r"- alert: (\w+)_"),
 ]
 total = 0
+kinds_in = {}
 for path, backend, start, name_re in GOLDENS:
     text = open(path, encoding="utf-8").read()
     # Each block runs to the next top-level resource (or rule): enough to hold its own fields.
@@ -60,17 +61,37 @@ for path, backend, start, name_re in GOLDENS:
         name = m.group(1) if m else "?"
         kind = kind_of(re.sub(r"(?<=[a-z])(?=[A-Z])", " ", name).replace("Error Log", "error-log"))
         total += 1
+        kinds_in.setdefault(path, set()).add(kind)
         if not kind:
             print(f"{path}: alert {name!r} matches no kind in alert-text.json")
             continue
         if "\n".join(render(table, kind, backend)) not in block:
             print(f"{path}: alert {name!r} does not carry the {kind} text from alert-text.json")
+# The generator's own list of alerts per backend ("Include: ... <resource> (...)") names the
+# same kinds its golden has: a list that promises an alert the golden lacks is how the Grafana
+# generator asked for a p99 rule that no golden or test had.
+gen = open("agents/terraform-gen.md", encoding="utf-8").read()
+for resource, path in [
+    ("grafana_rule_group", "tests/snapshots/grafana/main.tf.snap"),
+    ("datadog_monitor", "tests/snapshots/datadog/main.tf.snap"),
+    ("newrelic_nrql_alert_condition", "tests/snapshots/newrelic/main.tf.snap"),
+    ("dash0_check_rule", "tests/snapshots/dash0/main.tf.snap"),
+]:
+    m = re.search(r"Include:.*?" + resource + r" \(([^)]*)\)", gen)
+    if not m:
+        print(f"terraform-gen.md: no Include list names {resource} (...)")
+        continue
+    listed = m.group(1).split(";")[0].lower()
+    named = {k for k, words in [("error_rate", ("error rate",)), ("latency", ("latency", "p99")),
+                                ("error_logs", ("error-log",))] if any(w in listed for w in words)}
+    if named != kinds_in.get(path, set()):
+        print(f"terraform-gen.md lists {sorted(named)} for {resource}, the golden has {sorted(kinds_in.get(path, set()))}")
 print(f"COUNT {total}")
 PY
 )
 count=$(printf '%s\n' "$problems" | sed -n 's/^COUNT //p')
 problems=$(printf '%s\n' "$problems" | grep -v '^COUNT ')
-check "alert-text.json is well-formed and every golden alert carries its kind's text" '[ -z "$problems" ] || { printf "  %s\n" "$problems"; false; }'
+check "alert-text.json is well-formed, every golden alert carries its kind's text, and the generator lists the goldens' alerts" '[ -z "$problems" ] || { printf "  %s\n" "$problems"; false; }'
 # 2 Grafana Cloud + 3 self-hosted + 2 Datadog + 3 New Relic + 2 Dash0. A new alert raises this
 # number and must arrive with its text.
 check "all 12 golden alerts were found (found ${count:-0})" '[ "${count:-0}" = 12 ]'
