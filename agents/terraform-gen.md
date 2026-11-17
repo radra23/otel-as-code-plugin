@@ -398,7 +398,7 @@ links per backend.
 ## Grafana main.tf
 
 Generate using patterns from the `terraform-patterns` skill (grafana section).
-Include: provider block, grafana_folder, grafana_dashboard (request rate + error rate + p99 latency panels, **the runtime row for the service's language** (see "Runtime panel row" above), **plus one panel per confirmed `businessAttrs` entry** (see "Business-attribute panels" above), **and the log panel last** (see "Log panel and error-log alert" above)), grafana_rule_group (error rate > 5% for 5m, p99 > 500ms for 5m, error-log share above `var.error_log_ratio_threshold` for 5m).
+Include: provider block, grafana_folder, grafana_dashboard (request rate + error rate + p99 latency panels, **the runtime row for the service's language** (see "Runtime panel row" above), **plus one panel per confirmed `businessAttrs` entry** (see "Business-attribute panels" above), **and the log panel last** (see "Log panel and error-log alert" above)), grafana_rule_group (error rate > 5% for 5m, error-log share above `var.error_log_ratio_threshold` for 5m; no latency rule, the p99 panel is on the dashboard).
 
 **`grafanaFlavor` (`cloud` | `self-hosted`, from `/otel-backend`'s `--self-hosted` flag — default
 `cloud`, unchanged from before #167) decides the last piece:**
@@ -433,7 +433,7 @@ auth token needs management/write scope. All four are confirmed against live `ap
 (#102/#103/#104, and the `check_rule_yaml` shape caught by the first opt-in live run) — copy the
 variable descriptions and YAML shape from that section verbatim rather than reconstructing them.
 Verify current resource names from the Dash0 Terraform provider registry documentation
-before writing. Include: provider block, dashboard resource (generic panels, **the runtime panels for the service's language**, **plus one panel per confirmed `businessAttrs` entry** (see "Business-attribute panels" above), **and the `logVolume` panel last**), alert/monitoring resource, `dash0_slo` (availability SLO, #174) using the shape in the skill's "SLO resource (`dash0_slo`)" section — a fixed rolling 28d window, `budgetingMethod: Occurrences`, exactly one objective; never offer a configurable window for this resource, Dash0 rejects anything else with a 400.
+before writing. Include: provider block, dashboard resource (generic panels, **the runtime panels for the service's language**, **plus one panel per confirmed `businessAttrs` entry** (see "Business-attribute panels" above), **and the `logVolume` panel last**), dash0_check_rule (error rate + latency, one resource per rule), `dash0_slo` (availability SLO, #174) using the shape in the skill's "SLO resource (`dash0_slo`)" section — a fixed rolling 28d window, `budgetingMethod: Occurrences`, exactly one objective; never offer a configurable window for this resource, Dash0 rejects anything else with a 400.
 
 ## After writing and validating
 
