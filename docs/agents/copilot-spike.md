@@ -115,6 +115,15 @@ then ignores `hooks/hooks.json`, so nothing fires twice. The adapter should pars
 the scripts with `cwd` = the payload's `cwd`, emit `permissionDecision: "deny"` on exit 2, and
 emit `additionalContext` for lint findings.
 
-Before building it, check whether Claude Code ignores a root-level `hooks.json`
-(it auto-discovers `hooks/hooks.json`; that the root file is ignored is **not verified** here)
-and add the new files to `scripts/build-directory.sh` per `.claude/CLAUDE.md`.
+**Claude Code ignores a root-level `hooks.json`, so the seam is one-sided** (checked
+2026-11-19, Claude Code 2.1.311, `claude -p --plugin-dir` with one `Write`). Plugin A, with only a
+Copilot-format root `hooks.json`, fired nothing, raised no error and wrote nothing to stderr.
+Plugin B had a Claude-format root `hooks.json` next to `hooks/hooks.json`, and only
+`hooks/hooks.json` fired, once. A copy of this repo with a flat root `hooks.json` added still
+passes `claude plugin validate . --strict`. So each host reads exactly one of the two files, and
+neither guardrail runs twice. Confidence: High for 2.1.311; a future Claude Code release that
+starts reading the root file would double-fire, which the bridge's tests should notice.
+
+The Claude plugin directory build (`scripts/build-directory.sh`) does not need the root file
+or the Copilot adapters, since that build is for Claude Code only. Check that
+`tests/directory-build.test.sh` agrees once the adapters exist.
