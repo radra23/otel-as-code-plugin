@@ -19,7 +19,9 @@ does nothing when no SDK is loaded.
       occurs more than once. Prints the unified diff, then writes it (--dry-run: writes nothing
       and exits 1 if there is a diff). Python gets a decorator above the `def`; JavaScript gets
       one block at the top of the function body and one at the end, the body lines untouched.
-      The result must still parse (Python `compile`, `node --check`), or nothing is written.
+      TypeScript (.ts, .mts, .cts) is JavaScript here, its callback carrying the function's return
+      type. The result must still parse (Python `compile`, `node --check`, for TypeScript the
+      project's own `tsc`), or nothing is written.
 
   enrich.py metric --file F --function NAME --at LINE --where before|after --name METRIC
                    --meter-name T [--value EXPR] [--line N] [--context FILE] [--root R] [--dry-run]
@@ -80,6 +82,10 @@ METRIC_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.\-/]{0,254}$")
 SECONDS_BOUNDS = "0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10"
 UNIT_RE = re.compile(r"^[A-Za-z0-9{}_/%.*\- ]{1,63}$")
 JS_EXTS = (".js", ".cjs", ".mjs")
+# TypeScript is JavaScript to the scanner below, which also steps over type annotations. Its syntax
+# check is the project's own `tsc`: `node --check` can't parse TypeScript (decorators, parameter
+# properties). JSX (.tsx, .jsx) is refused: its text is not code, and the scanner would misread it.
+TS_EXTS = (".ts", ".mts", ".cts")
 PY_EXTS = (".py",)
 SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "env", "dist", "build", "target", "vendor",
              "__pycache__", ".next", ".nuxt", "site-packages", ".tox", "coverage"}
@@ -120,16 +126,24 @@ def write_atomically(path, text):
         raise
 
 
+def is_ts(path):
+    return os.path.splitext(path)[1].lower() in TS_EXTS
+
+
 def lang_of(path):
+    """"js" for JavaScript and TypeScript (is_ts tells them apart), "py" for Python."""
     ext = os.path.splitext(path)[1].lower()
-    if ext in JS_EXTS:
+    supported = ", ".join(JS_EXTS + TS_EXTS + PY_EXTS)
+    if re.search(r"\.d\.[mc]?ts$", path.lower()):
+        raise Refused(f"{os.path.basename(path)} is a type declaration file; it has no function bodies to enrich.")
+    if ext in JS_EXTS + TS_EXTS:
         return "js"
     if ext in PY_EXTS:
         return "py"
-    if ext in (".ts", ".tsx", ".mts", ".cts", ".jsx"):
-        raise Refused(f"{os.path.basename(path)}: TypeScript and JSX are not supported yet "
-                      f"(supported: {', '.join(JS_EXTS + PY_EXTS)}).")
-    raise Refused(f"{os.path.basename(path)}: unsupported file type (supported: {', '.join(JS_EXTS + PY_EXTS)}).")
+    if ext in (".tsx", ".jsx"):
+        raise Refused(f"{os.path.basename(path)}: JSX (.tsx, .jsx) is not supported yet; enrich a function in a "
+                      f".ts or .js module instead (supported: {supported}).")
+    raise Refused(f"{os.path.basename(path)}: unsupported file type (supported: {supported}).")
 
 
 def resolve(root, rel):
@@ -212,10 +226,58 @@ def check_js(text, full):
     return err[0] if err else "does not parse"
 
 
+def find_tsc(full):
+    """The project's own TypeScript compiler, from the nearest node_modules at or above the file."""
+    d = os.path.dirname(full)
+    while True:
+        tsc = os.path.join(d, "node_modules", "typescript", "bin", "tsc")
+        if os.path.isfile(tsc):
+            return tsc
+        parent = os.path.dirname(d)
+        if parent == d:
+            return None
+        d = parent
+
+
+TSC_ERROR_RE = re.compile(r"^(?P<file>[^(\s][^(]*)\((?P<line>\d+),\d+\): error (?P<code>TS\d+): (?P<msg>.*)$")
+
+
+def check_ts(text, full):
+    """Syntax only: the project's `tsc` on a copy in an empty temp directory (no tsconfig, nothing
+    imported resolved, no lib), keeping only its TS1xxx errors, which are the syntax ones. Types are
+    the project's build's business, and an import that can't be resolved here is not an error."""
+    node = shutil.which("node")
+    if not node:
+        raise Refused("node is not on PATH, so the edited file can't be syntax-checked; nothing written.")
+    tsc = find_tsc(full)
+    if not tsc:
+        raise Refused(f"{os.path.basename(full)}: no `typescript` in a node_modules at or above it, so the edited "
+                      f"file can't be syntax-checked. Install the project's dependencies (npm install) and run "
+                      f"this again; nothing written.")
+    name = "check" + os.path.splitext(full)[1].lower()
+    with tempfile.TemporaryDirectory(prefix="otel-enrich-ts.") as d:
+        with open(os.path.join(d, name), "w", encoding="utf-8", newline="") as f:
+            f.write(text)
+        r = subprocess.run([node, tsc, "--noEmit", "--pretty", "false", "--noResolve", "--noLib",
+                            "--target", "esnext", "--module", "esnext", "--experimentalDecorators", name],
+                           cwd=d, capture_output=True, text=True, timeout=120)
+    out = (r.stdout + r.stderr).splitlines()
+    for ln in out:
+        m = TSC_ERROR_RE.match(ln.strip())
+        if m and m.group("file") == name and m.group("code").startswith("TS1") and len(m.group("code")) == 6:
+            return f"line {m.group('line')}: {m.group('msg')} ({m.group('code')})"
+    if r.returncode != 0 and not any(re.search(r"error TS2\d{3}:", ln) for ln in out):
+        # Not a type error in the file (those are expected with no lib): tsc itself did not run.
+        raise Refused(f"the project's tsc ({tsc}) did not run cleanly: {' '.join(out)[:300]}; nothing written.")
+    return None
+
+
 def check(lang, text, full, rel):
     if lang == "txt":       # a requirements file: nothing to parse
         return None
-    return check_python(text, rel) if lang == "py" else check_js(text, full)
+    if lang == "py":
+        return check_python(text, rel)
+    return check_ts(text, full) if is_ts(full) else check_js(text, full)
 
 
 # --- JavaScript: find a function's body without a parser ----------------------------------------
@@ -323,16 +385,56 @@ def js_next(text, idx):
     return -1, ""
 
 
-def js_candidates(text, name):
-    """Every place `name` is defined as a function: [(decl_index, body_open_index, is_async)].
-    Raises Refused for a shape that can't take an insert-only wrap."""
+def ts_after_return_type(text, idx, arrow_ok):
+    """(index, char) just past a TypeScript return type annotation that starts at idx (after its
+    `:`): the `{` of the body, the `=>` of an arrow function (only when arrow_ok), or whatever ends
+    the annotation instead (`;` for an overload or interface signature: no body). A `{` where a
+    type is expected opens a type literal, not the body."""
+    depth, expect, last = 0, True, idx - 1
+    skip = -1
+    for i, c in js_code(text, idx):
+        if i <= skip or c.isspace():
+            continue
+        if text[last + 1:i].strip()[:1] in ("'", '"', "`"):
+            expect = False          # a string literal type, which js_code steps over
+        last = i
+        if text[i:i + 2] == "=>":
+            skip = i + 1
+            if depth == 0 and arrow_ok and not expect:
+                return i, "="
+            expect = True
+        elif c in "([{<":
+            if c == "{" and depth == 0 and not expect:
+                return i, c
+            depth, expect = depth + 1, True
+        elif c in ")]}>":
+            if depth == 0:
+                return i, c
+            depth, expect = depth - 1, False
+        elif depth == 0 and c in ";,=":
+            return i, c
+        elif c in "|&?:.,":
+            expect = True
+        else:
+            expect = False
+    return -1, ""
+
+
+def js_candidates(text, name, ts=False):
+    """Every place `name` is defined as a function: [(decl_index, body_open_index, is_async,
+    return type or None)].
+    Raises Refused for a shape that can't take an insert-only wrap. With ts, TypeScript's extras
+    are allowed too: type parameters, a return type, a variable's type, and member modifiers."""
     n = re.escape(name)
     code_at = {i for i, _ in js_code(text)}
+    tp = r"(?:<[^()]{0,200}?>\s*)?" if ts else ""             # <T extends { id: string }>
+    vt = r"(?::\s*[^=;{}()]+?\s*)?" if ts else ""              # const handler: Handler = ...
+    mods = r"(?:(?:public|private|protected|static|override|readonly)\s+)*" if ts else r"(?:static\s+)?"
     patterns = [
-        rf"(?P<async>async\s+)?function\s*(?P<gen>\*)?\s*{n}\s*(?=\()",
-        rf"(?:const|let|var)\s+{n}\s*=\s*(?P<async>async\s+)?(?:function\s*(?P<gen>\*)?\s*[A-Za-z_$\w]*\s*)?(?=\(|[A-Za-z_$][\w$]*\s*=>)",
-        rf"(?<![\w$]){n}\s*[:=]\s*(?P<async>async\s+)?(?:function\s*(?P<gen>\*)?\s*[A-Za-z_$\w]*\s*)?(?=\(|[A-Za-z_$][\w$]*\s*=>)",
-        rf"(?m)^[ \t]*(?:static\s+)?(?P<async>async\s+)?(?P<gen>\*\s*)?{n}\s*(?=\()",
+        rf"(?P<async>async\s+)?function\s*(?P<gen>\*)?\s*{n}\s*{tp}(?=\()",
+        rf"(?:const|let|var)\s+{n}\s*{vt}=\s*(?P<async>async\s+)?(?:function\s*(?P<gen>\*)?\s*[A-Za-z_$\w]*\s*)?{tp}(?=\(|[A-Za-z_$][\w$]*\s*=>)",
+        rf"(?<![\w$]){n}\s*[:=]\s*(?P<async>async\s+)?(?:function\s*(?P<gen>\*)?\s*[A-Za-z_$\w]*\s*)?{tp}(?=\(|[A-Za-z_$][\w$]*\s*=>)",
+        rf"(?m)^[ \t]*{mods}(?P<async>async\s+)?(?P<gen>\*\s*)?{n}\s*{tp}(?=\()",
     ]
     found, refused = {}, []
     for k, pat in enumerate(patterns):
@@ -342,11 +444,16 @@ def js_candidates(text, name):
                 continue  # inside a string or a comment
             pos = m.end()
             is_method = k == 3
+            ret = None      # a TypeScript return type, as written
             if text[pos] == "(":
                 close = js_match(text, pos)
                 if close < 0:
                     continue
                 j, c = js_next(text, close + 1)
+                if ts and c == ":":
+                    t0 = j + 1
+                    j, c = ts_after_return_type(text, t0, k in (1, 2) and "function" not in m.group(0))
+                    ret = text[t0:j].strip() if j > t0 else None
             else:  # single bare parameter of an arrow function
                 j, c = js_next(text, pos + len(re.match(r"[A-Za-z_$][\w$]*", text[pos:]).group(0)))
             arrow = text[j:j + 2] == "=>"
@@ -365,13 +472,13 @@ def js_candidates(text, name):
                 refused.append(Refused(f"`{name}` is a generator; a span around it would end before it runs."))
                 continue
             if j not in found or start < found[j][0]:
-                found[j] = (start, j, bool(m.group("async")) or (j in found and found[j][2]))
+                found[j] = (start, j, bool(m.group("async")) or (j in found and found[j][2]), ret)
     return [found[k] for k in sorted(found)] + refused
 
 
 def js_is_esm(text, full):
     ext = os.path.splitext(full)[1].lower()
-    if ext == ".mjs":
+    if ext == ".mjs" or ext in TS_EXTS:     # TypeScript writes `import` whatever it compiles to
         return True
     if ext == ".cjs":
         return False
@@ -417,7 +524,8 @@ def js_tracer_line(lines):
         elif re.match(r"""['"]use \w+['"];?$""", s):
             advance, header = True, False
         elif re.match(r"import\b", s) and not s.startswith("import("):
-            in_import = not re.search(r"""['"][^'"]+['"]\s*;?\s*$""", s)
+            # `\)?`: TypeScript's `import x = require('y');` ends its line too
+            in_import = not re.search(r"""['"][^'"]+['"]\)?\s*;?\s*$""", s)
             advance, header = not in_import, False
         else:
             break
@@ -440,7 +548,7 @@ def js_locate(text, rel, args):
     if name == "constructor":
         raise Refused("a constructor can't be wrapped in a span; enrich the method that does the work.")
     cands = []
-    for c in js_candidates(scope_text, name):
+    for c in js_candidates(scope_text, name, ts=is_ts(rel)):
         if isinstance(c, Refused):
             cands.append(c)
         elif c[0] >= offset:
@@ -459,11 +567,11 @@ def js_locate(text, rel, args):
     if len(real) > 1:
         where = ", ".join(str(line_of(c[0])) for c in real)
         raise Refused(f"`{args.function}` is defined {len(real)} times in {rel} (lines {where}); pass --line.")
-    decl, body_open, is_async = real[0]
+    decl, body_open, is_async, ret = real[0]
     body_close = js_match(text, body_open)
     if body_close < 0:
         raise Refused(f"can't find the end of `{args.function}` in {rel}.")
-    return decl, body_open, body_close, is_async
+    return decl, body_open, body_close, is_async, ret
 
 
 def shared_line(at, blocks):
@@ -474,8 +582,24 @@ def shared_line(at, blocks):
     return at
 
 
+def ts_callback_type(ret, function):
+    """The return type annotation for the span's callback, from the function's own. The body's
+    `return` statements move into the callback; without the same annotation there they lose their
+    contextual type, and a literal such as `status: 'confirmed'` widens to string and no longer
+    matches the declared type (measured with tsc --strict). A type predicate becomes boolean, an
+    assertion signature void: the callback has no parameter for them to name."""
+    if "//" in ret or "/*" in ret:
+        raise Refused(f"`{function}`'s return type contains a comment, which can't be copied onto one line; "
+                      f"move the comment out of the type first.")
+    if re.match(r"asserts\s", ret):
+        return ": void"
+    if re.match(r"[A-Za-z_$][\w$]*\s+is\s", ret):
+        return ": boolean"
+    return ": " + (" ".join(ret.split()) if "\n" in ret else ret)
+
+
 def js_span(lines, nl, text, full, rel, args, blocks):
-    decl, body_open, body_close, is_async = js_locate(text, rel, args)
+    decl, body_open, body_close, is_async, ret = js_locate(text, rel, args)
     line_of = lambda idx: text.count("\n", 0, idx) + 1
     open_line, close_line = line_of(body_open) - 1, line_of(body_close) - 1
     after_open = text[body_open + 1:text.find("\n", body_open) if "\n" in text[body_open:] else len(text)]
@@ -495,11 +619,14 @@ def js_span(lines, nl, text, full, rel, args, blocks):
     if args.client_span:
         kind, key, system = args.client_span
         opts = f"{{ kind: {SPAN_KINDS[kind]} /* SpanKind.{kind.upper()} */, attributes: {{ '{key}': '{system}' }} }}, "
+    rt = ts_callback_type(ret, args.function) if ret else ""
     top = [f"{indent}// otel-as-code: enrich begin {args.id}{nl}",
-           f"{indent}return otelTracer.startActiveSpan('{args.span_name}', {opts}{a}(otelSpan) => {{ try {{{nl}",
+           f"{indent}return otelTracer.startActiveSpan('{args.span_name}', {opts}{a}(otelSpan){rt} => {{ try {{{nl}",
            f"{indent}// otel-as-code: enrich end {args.id}{nl}"]
+    # A caught value is `unknown` in strict TypeScript, and recordException takes an Exception.
+    err = "otelErr as Error" if is_ts(full) else "otelErr"
     bottom = [f"{indent}// otel-as-code: enrich begin {args.id}{nl}",
-              f"{indent}}} catch (otelErr) {{ otelSpan.recordException(otelErr); "
+              f"{indent}}} catch (otelErr) {{ otelSpan.recordException({err}); "
               f"otelSpan.setStatus({{ code: OtelStatus.ERROR }}); throw otelErr; }} "
               f"finally {{ otelSpan.end(); }} }});{nl}",
               f"{indent}// otel-as-code: enrich end {args.id}{nl}"]
@@ -716,7 +843,7 @@ def py_metric_site(lines, text, rel, args, blocks):
 
 def js_metric_site(lines, text, rel, args, blocks):
     """(insertion line index, indent) for the call-site line in a JavaScript function."""
-    decl, body_open, body_close, _ = js_locate(text, rel, args)
+    decl, body_open, body_close, _, _ = js_locate(text, rel, args)
     line_of = lambda idx: text.count("\n", 0, idx) + 1
     first, last = line_of(body_open) + 1, line_of(body_close) - 1
     if not first <= args.at <= last:
@@ -960,7 +1087,7 @@ def enriched_files(root, only=None):
     for d, dirs, files in os.walk(base):
         dirs[:] = sorted(x for x in dirs if x not in SKIP_DIRS)
         for f in sorted(files):
-            if os.path.splitext(f)[1].lower() in JS_EXTS + PY_EXTS or f == "requirements.txt":
+            if os.path.splitext(f)[1].lower() in JS_EXTS + TS_EXTS + PY_EXTS or f == "requirements.txt":
                 full = os.path.join(d, f)
                 # A symlink could point outside the project (or at a dependency); writes follow
                 # links, so only a real file whose real path is under the root is ever touched.
@@ -1127,7 +1254,7 @@ def py_sources(sdir):
 
 
 def js_sources(sdir):
-    return source_files(sdir, JS_EXTS)
+    return source_files(sdir, JS_EXTS + TS_EXTS)
 
 
 def py_clients(sdir):

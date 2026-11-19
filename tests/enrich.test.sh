@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# tests/enrich.test.sh: offline tests of scripts/enrich.py, which makes /otel-enrich's edits to
+# tests/enrich.test.sh: tests of scripts/enrich.py, which makes /otel-enrich's edits to
 # hand-written code. Real files in a temp project. The enriched code is then RUN against a stub
 # OpenTelemetry API that records what it does, so "the function still behaves the same" is
-# observed, not assumed. No network, no SDK. Needs node (for `node --check` and the Node runs).
+# observed, not assumed. No SDK. Needs node (for `node --check` and the Node runs), and npm with
+# network for the TypeScript cases only (typescript and @opentelemetry/api, at the end).
 set -uo pipefail
 cd "$(dirname "$0")/.."
 ROOT=$PWD
@@ -168,9 +169,9 @@ rm -rf "$N/node_modules"
 cp tests/snapshots/instrument/nodejs/tracing.js "$N/tracing.js"
 refused "node: the generated bootstrap is refused" "$N" "otel-as-code generated" span --root "$N" --file tracing.js --function shutdown --span-name a.b --tracer-name t
 rm "$N/tracing.js"
-printf 'function f(a: number): number {\n  return a;\n}\n' > "$N/lib/x.ts"
-refused "node: TypeScript is refused as not supported yet" "$N" "TypeScript" span --root "$N" --file lib/x.ts --function f --span-name a.b --tracer-name t
-rm "$N/lib/x.ts"
+printf 'export function F() {\n  return <p>hi</p>;\n}\n' > "$N/lib/x.tsx"
+refused "node: JSX (.tsx) is refused as not supported yet" "$N" "JSX (.tsx, .jsx) is not supported yet" span --root "$N" --file lib/x.tsx --function F --span-name a.b --tracer-name t
+rm "$N/lib/x.tsx"
 printf 'const otelTracer = 1;\nfunction f() {\n  return otelTracer;\n}\nmodule.exports = { f };\n' > "$N/lib/clash.js"
 refused "node: a file that already uses one of the added names is refused" "$N" "already uses the name" span --root "$N" --file lib/clash.js --function f --span-name a.b --tracer-name t
 rm "$N/lib/clash.js"
@@ -582,6 +583,124 @@ nl_refused "span: an id ending in a newline is refused, not written into a marke
 nl_refused "span: a span name ending in a newline is refused by name, not by the parse check" "span name" --span-name "q.f<NL>" --tracer-name t
 nl_refused "span: a tracer name ending in a newline is refused by name" "tracer name" --span-name q.f --tracer-name "t<NL>"
 rm -rf "$P/nl"
+
+# ================================================================== TypeScript
+# A .ts file is enriched like JavaScript, with TypeScript's annotations stepped over, and is
+# syntax-checked by the project's own tsc. tests/enrich/ts-app has the shapes of a NestJS service
+# and a Next.js route handler. These cases need typescript (5.x, and 7.x, whose package has no JS
+# API, only the tsc command) and @opentelemetry/api (for its types) from npm: the only network
+# this test uses.
+TSDEPS="$TMPD/tsdeps"; TS7DEPS="$TMPD/ts7deps"; T="$TMPD/ts"; TOR=src/orders.ts
+npm install --prefix "$TSDEPS" --no-audit --no-fund --loglevel=error typescript@5.9.3 @opentelemetry/api@1.9.0 >/dev/null 2>&1
+npm install --prefix "$TS7DEPS" --no-audit --no-fund --loglevel=error typescript@7.0.2 >/dev/null 2>&1
+check "ts: typescript 5 and 7 and @opentelemetry/api installed from npm" \
+  '[ -f "$TSDEPS/node_modules/typescript/bin/tsc" ] && [ -f "$TSDEPS/node_modules/@opentelemetry/api/package.json" ] && [ -f "$TS7DEPS/node_modules/typescript/bin/tsc" ]'
+tsfresh() { rm -rf "$T"; mkdir -p "$T"; cp -R tests/enrich/ts-app/. "$T/"; ln -s "${1:-$TSDEPS}/node_modules" "$T/node_modules"; }
+tsc5() { node "$TSDEPS/node_modules/typescript/bin/tsc" "$@"; }
+tspan() { local f="$1"; shift; enrich span --root "$T" --file $TOR --function "$f" --tracer-name enrich-ts "$@"; }
+
+tsfresh; rm "$T/node_modules"
+refused "ts: with no typescript in node_modules the file can't be checked, and is refused" "$T" "no .typescript. in a node_modules" span --root "$T" --file $TOR --function parse --span-name a.b --tracer-name t
+tsfresh; snap "$T"
+out=$(tspan checkout --span-name orders.checkout --dry-run); rc=$?
+check "ts: --dry-run prints the diff, exits 1, writes nothing; no dependency note (@opentelemetry/api is declared)" \
+  '[ "$rc" -eq 1 ] && echo "$out" | grep -q "^+.*startActiveSpan(.orders.checkout." && same "$T" && ! echo "$out" | grep -q "^dependency:"'
+out=$(tspan checkout --span-name orders.checkout); rc=$?
+check "ts: a class method with modifiers, typed parameters and a return type applies; the interface's signature of the same name is not counted" \
+  '[ "$rc" -eq 0 ] && echo "$out" | grep -q "^OK: added span" && insert_only tests/enrich/ts-app/$TOR "$T/$TOR"'
+check "ts: the import goes after the leading import type line; the catch casts the unknown error" \
+  '[ "$(grep -n "enrich begin otel-tracer" "$T/$TOR" | cut -d: -f1)" = 4 ] && sed -n 5p "$T/$TOR" | grep -q "^import { trace as otelTrace, SpanStatusCode as OtelStatus } from .@opentelemetry/api.;$" && grep -q "otelSpan.recordException(otelErr as Error);" "$T/$TOR"'
+check "ts: the span callback carries the method's return type, so its returns keep their contextual type" \
+  'grep -q "startActiveSpan(.orders.checkout., async (otelSpan): Promise<Order> => { try {$" "$T/$TOR"'
+tspan loadLines --span-name orders.loadLines >/dev/null
+check "ts: an arrow function whose return type holds an object type literal (its braces are not the body)" \
+  'grep -q "async (otelSpan): Promise<Array<{ sku: string; qty: number; priceCents: number }>> => { try {$" "$T/$TOR"'
+tspan total --span-name orders.total >/dev/null
+check "ts: a generic function whose type parameter has an object constraint" 'grep -q "startActiveSpan(.orders.total., (otelSpan): number => { try {$" "$T/$TOR"'
+refused "ts: --line on an overload signature is refused: a signature has no body" "$T" "no definition of .parse. starts on line" span --root "$T" --file $TOR --function parse --line "$(ln_of "$T/$TOR" "export function parse(x: string): number;")" --span-name a.b --tracer-name t
+tspan parse --span-name orders.parse >/dev/null
+check "ts: overload signatures are skipped; the one implementation is wrapped" \
+  'grep -A2 -F "export function parse(x: string | number): number {" "$T/$TOR" | tail -1 | grep -q "startActiveSpan(.orders.parse."'
+out=$(tspan describe --span-name orders.describe)
+check "ts: a const typed by its variable (no return type of its own) is wrapped, with the sync note" \
+  'echo "$out" | grep -q "^note: .describe. is not async" && grep -q "startActiveSpan(.orders.describe., (otelSpan) => { try {$" "$T/$TOR"'
+tspan POST --span-name orders.post >/dev/null
+tspan LinesRepo.load --span-name orders.lines >/dev/null
+check "ts: a Next.js route handler and a method of another class are wrapped" \
+  'grep -q "startActiveSpan(.orders.post., async (otelSpan): Promise<{ status: number; body: string }> => { try {$" "$T/$TOR" && grep -q "startActiveSpan(.orders.lines., async (otelSpan): Promise<Line\[\]> => { try {$" "$T/$TOR"'
+refused "ts: an expression-bodied arrow function with a return type is refused" "$T" "expression body" span --root "$T" --file $TOR --function subtotal --span-name a.b --tracer-name t
+TRET="return { cartId, lines, status: 'confirmed' };"
+metric --root "$T" --file $TOR --function OrdersService.checkout --at "$(ln_of "$T/$TOR" "$TRET")" --where before --name com.example.checkout.order_placed --meter-name enrich-ts >/dev/null
+metric --root "$T" --file $TOR --function OrdersService.checkout --at "$(ln_of "$T/$TOR" "$TRET")" --where before --name com.example.checkout.payment_duration --value "(Date.now() - startedAt) / 1000" --meter-name enrich-ts >/dev/null
+check "ts: a counter and a histogram go into the method, the meter imported with import" \
+  'grep -q "^import { metrics as otelMetrics } from .@opentelemetry/api.;$" "$T/$TOR" && grep -B5 -F "$TRET" "$T/$TOR" | grep -q "otelOrderPlaced.add(1);" && grep -B2 -F "$TRET" "$T/$TOR" | grep -q "otelPaymentDuration.record((Date.now() - startedAt) / 1000);"'
+check "ts: the enriched file is insert-only, and every enrichment is listed" \
+  'insert_only tests/enrich/ts-app/$TOR "$T/$TOR" && [ "$(enrich list --root "$T" | grep -c "$TOR")" = 11 ]'
+tc=$(tsc5 -p "$T" --noEmit 2>&1); rc=$?
+check "ts: the enriched project still type-checks with tsc --strict, against @opentelemetry/api's own types" '[ "$rc" -eq 0 ]' || echo "$tc"
+check "ts: the enriched file passes semconv-lint in strict mode" 'lint_ok "$T/$TOR"'
+
+# The enriched code compiled by tsc, then run against a stub API.
+R="$TMPD/tsrun"; rm -rf "$R"; mkdir -p "$R/node_modules/@opentelemetry/api"
+tsc5 -p "$T" --outDir "$R/dist" >/dev/null 2>&1
+cat > "$R/node_modules/@opentelemetry/api/index.js" <<'JS'
+const spans = []; const stack = []; const points = [];
+const inst = (kind) => (name) => { const rec = (v) => points.push({ kind, name, v }); return { add: rec, record: rec }; };
+module.exports = {
+  SpanStatusCode: { ERROR: 2 },
+  trace: { getTracer: (scope) => ({ startActiveSpan: (name, fn) => {
+    const s = { scope, name, parent: stack.length ? stack[stack.length - 1].name : null, status: null, ended: false,
+      errors: 0, setStatus(x) { this.status = x.code; }, recordException() { this.errors++; }, end() { this.ended = true; } };
+    spans.push(s); stack.push(s);
+    try { return fn(s); } finally { stack.pop(); } } }) },
+  metrics: { getMeter: () => ({ createCounter: inst('counter'), createHistogram: inst('histogram') }) },
+  _spans: spans, _points: points,
+};
+JS
+run=$(cd "$R" && node -e "
+const o = require('./dist/orders'); const api = require('@opentelemetry/api');
+(async () => {
+  const ok = await o.POST({ json: async () => ({ cartId: 'c1' }) });
+  const bad = await o.POST({ json: async () => ({ cartId: 'c2', fail: true }) });
+  const order = await new o.OrdersService(new o.LinesRepo()).checkout('c3');
+  const s = api._spans;
+  const body = JSON.parse(ok.body);
+  console.log(JSON.stringify({ ok: [ok.status, body.status, body.lines.length, body.totalCents], bad: bad.status,
+    label: o.describe(order), parsed: o.parse('7') + o.parse(1),
+    names: [...new Set(s.map((x) => x.name))].sort(), ended: s.every((x) => x.ended),
+    errors: s.filter((x) => x.status === 2 && x.errors === 1).map((x) => x.name),
+    loadUnder: [...new Set(s.filter((x) => x.name === 'orders.lines').map((x) => x.parent))],
+    placed: api._points.filter((p) => p.kind === 'counter').length, durations: api._points.filter((p) => p.kind === 'histogram').length }));
+})();" 2>&1)
+check "ts: the compiled functions return what they returned before" \
+  'echo "$run" | grep -q "\"ok\":\[200,\"confirmed\",2,1000\],\"bad\":500,\"label\":\"c3: sku-1x1, sku-2x2\",\"parsed\":8"' || echo "$run"
+check "ts: every wrapped function made its span, each ended, nested where the code nests it" \
+  'echo "$run" | grep -q "\"names\":\[\"orders.checkout\",\"orders.describe\",\"orders.lines\",\"orders.loadLines\",\"orders.parse\",\"orders.post\",\"orders.total\"\],\"ended\":true" && echo "$run" | grep -q "\"loadUnder\":\[\"orders.loadLines\"\]"'
+check "ts: the failing checkout is the one span with the error; the route handler that catches it is not" \
+  'echo "$run" | grep -q "\"errors\":\[\"orders.checkout\"\]"'
+check "ts: the counter and the histogram record once per successful checkout (2 of 3)" 'echo "$run" | grep -q "\"placed\":2,\"durations\":2"'
+
+check "ts: remove restores the file byte for byte" \
+  'enrich remove --root "$T" | grep -q "^OK: removed 9 enrichment(s) from 1 file(s)" && cmp -s "$T/$TOR" tests/enrich/ts-app/$TOR'
+printf 'export function f(a: number): number {\n  return (;\n}\n' > "$T/src/broken.ts"
+refused "ts: a file that does not parse before the edit is refused, with tsc's syntax error" "$T" "does not parse before the edit (line 2: Expression expected. (TS1109))" span --root "$T" --file src/broken.ts --function f --span-name a.b --tracer-name t
+rm "$T/src/broken.ts"
+printf "import fs = require('node:fs');\n\nexport function size(p: string): number {\n  return fs.statSync(p).size;\n}\n" > "$T/src/req.ts"
+enrich span --root "$T" --file src/req.ts --function size --span-name req.size --tracer-name t >/dev/null
+check "ts: the tracer goes after an \`import x = require()\` line, not before it" \
+  '[ "$(grep -n "enrich begin otel-tracer" "$T/src/req.ts" | cut -d: -f1)" = 2 ]'
+rm "$T/src/req.ts"
+printf 'export declare function f(a: number): number;\n' > "$T/src/types.d.ts"
+refused "ts: a declaration file is refused" "$T" "type declaration file" span --root "$T" --file src/types.d.ts --function f --span-name a.b --tracer-name t
+rm "$T/src/types.d.ts"
+
+# TypeScript 7's package is the native compiler: no JS API, the same tsc command and output.
+tsfresh "$TS7DEPS"
+check "ts7: the syntax check runs the project's TypeScript 7 tsc, and the span applies" \
+  'tspan POST --span-name orders.post >/dev/null && grep -q "startActiveSpan(.orders.post." "$T/$TOR"'
+printf 'export function f(a: number): number {\n  return (;\n}\n' > "$T/src/broken.ts"
+refused "ts7: ... and refuses a file that does not parse, with its syntax error" "$T" "line 2: Expression expected. (TS1109)" span --root "$T" --file src/broken.ts --function f --span-name a.b --tracer-name t
+rm -rf "$T" "$R"
 
 echo
 echo "enrich: $pass passed, $fail failed"

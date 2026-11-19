@@ -30,7 +30,8 @@ Because it edits hand-written code, three things hold every time:
 The added code calls the plain OpenTelemetry API (no helper file), which does nothing when no SDK
 is loaded, so the code keeps working if the bootstrap is ever removed.
 
-All three work in **Node.js (`.js`, `.cjs`, `.mjs`)** and **Python**. Not part of the command yet:
+All three work in **Node.js (`.js`, `.cjs`, `.mjs`, and TypeScript `.ts`, `.mts`, `.cts`)** and
+**Python**. JSX (`.tsx`, `.jsx`) is refused. Not part of the command yet:
 business `dimension` attributes and a business span kind. Say so if asked, and do not improvise
 them.
 
@@ -98,7 +99,10 @@ do; the common ones:
 - *generator*, *constructor*: a span around it would not measure the work. Suggest the function
   that consumes or calls it.
 - *defined N times*: ask which line, then pass `--line`.
-- *TypeScript and JSX are not supported yet*: say so. Do not hand-write the wrap.
+- *JSX (.tsx, .jsx) is not supported yet*: say so, and offer a function in a `.ts`/`.js` module
+  that the component calls. Do not hand-write the wrap.
+- *no `typescript` in a node_modules*: a `.ts` file is syntax-checked by the project's own `tsc`;
+  the dependencies have to be installed (`npm install`) first.
 - *does not parse before the edit*: the file has a syntax error or uses syntax this machine's
   `node`/`python3` can't read. Not something to work around.
 
@@ -398,6 +402,15 @@ async function checkout(cartId, userId) {
 
 Each enriched file also gets one `otel-tracer` block near its top (the import and the tracer),
 shared by every span in that file and removed with the last one.
+
+TypeScript gets the same blocks, always with `import`, and two differences, both so the project
+still type-checks under `strict`: the callback carries the function's own return type
+(`async (otelSpan): Promise<Order> => {`), because without it the body's `return` loses its
+contextual type and a literal such as `status: 'confirmed'` widens to `string`; and the catch
+passes `otelErr as Error`, since a caught value is `unknown`. Only syntax is checked before the
+write (the project's `tsc`, no types); if the user's build then reports a type error in a block,
+show it rather than editing the block. A function typed only by its variable
+(`const h: Handler = (req) => {`) has no return type to copy, and its callback gets none.
 
 A business metric is two blocks with one id: the instrument near the top of the file (after an
 `otel-meter` block, shared like the tracer's), and one line at the call site:
