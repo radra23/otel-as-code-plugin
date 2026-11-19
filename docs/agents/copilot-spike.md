@@ -127,3 +127,18 @@ starts reading the root file would double-fire, which the bridge's tests should 
 The Claude plugin directory build (`scripts/build-directory.sh`) does not need the root file
 or the Copilot adapters, since that build is for Claude Code only. Check that
 `tests/directory-build.test.sh` agrees once the adapters exist.
+
+## Live check of the bridge (PR #317)
+
+Checked 2026-11-19 with Copilot CLI 1.0.56 and `gpt-4.1`, `-p --allow-tool=write`. The plugin was
+installed from a local marketplace made with `git archive` of the branch, so no untracked file
+was copied in. Two sessions were run in a scratch git repo.
+
+| Check | Result |
+|---|---|
+| Hooks loaded | `Loaded 2 hook(s) from 1 plugin(s)`: the root `hooks.json` only. `hooks/hooks.json` (3 hooks) was not loaded, so nothing ran twice. |
+| `edit` of a marker-stamped `tracing.py` | Denied: `Denied by preToolUse hook: otel-as-code write-guard: blocking overwrite of existing generated OTel file: …`. The file was unchanged. |
+| `create` of `attrs.py` with `http.method` | Written, and the model reported `'http.method' is deprecated since semconv 1.23. Replace with 'http.request.method'`. |
+| `create` of `.claude/otel-context.json` with an unconfirmed attribute | Denied, naming `com.acme.order.value`. The file was not written. |
+| Strict mode (`.claude/.otel-strict`), `http.status_code` | The hook returned `additionalContext` beginning `otel-as-code semconv-lint — STRICT: severe violation(s) must be fixed`, as the debug log shows. The model relayed the finding as guidance. Its prompt told it to stop after two writes, so whether it acts on the must-fix was not tested. |
+| File-writing tools offered to `gpt-4.1` | `create` and `edit`, plus `bash`, which Claude Code's hooks don't guard either. `apply_patch` was not offered. Other models may offer it, but this account can only use `gpt-4.1`. |
