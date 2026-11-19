@@ -49,7 +49,7 @@ check "node: --dry-run prints the file as a diff, exits 1, writes nothing" \
   '[ "$rc" -eq 1 ] && echo "$out" | grep -q "^+++ b/otel.test.cjs" && echo "$out" | grep -q "^dry run: would write otel.test.cjs" && same "$N"'
 out=$(tt render --root "$N" --spec "$NSPEC"); rc=$?
 check "node: render writes otel.test.cjs and says what it asserts" \
-  '[ "$rc" -eq 0 ] && echo "$out" | grep -q "^OK: wrote otel.test.cjs (4 span(s), 2 metric(s) asserted)"'
+  '[ "$rc" -eq 0 ] && echo "$out" | grep -q "^OK: wrote otel.test.cjs (4 span(s), 2 metric(s) asserted, plus the request.s duration metric)"'
 check "node: the rendered file equals the golden" 'cmp -s "$N/otel.test.cjs" tests/snapshots/telemetry-test/otel.test.cjs'
 check "node: the golden parses" 'node --check tests/snapshots/telemetry-test/otel.test.cjs'
 check "node: it carries the ownership marker and the plugin version" \
@@ -139,6 +139,22 @@ check "env: the rendered node test carries the values and names them in the head
   'grep -q "^const FIXED_ENV = {\"APP_MODE\": \"test\", \"AUTH_SECRET\": \"test-only-secret\"};" tests/snapshots/telemetry-test/otel.test.cjs && grep -q "^// Fixed environment for the service.*: APP_MODE, AUTH_SECRET" tests/snapshots/telemetry-test/otel.test.cjs'
 check "env: a spec with no env renders an empty set and no header line" \
   'out=$(spec_with "$NSPEC" "del s[\"env\"]" | tt render --root "$N" --spec - --dry-run 2>&1); echo "$out" | grep -q "^+const FIXED_ENV = {};" && ! echo "$out" | grep -q "Fixed environment"'
+# The request's duration metric, under the name the generated dashboards query (#286, #192).
+check "request metric: both goldens require http.server.request.duration and say why in the header" \
+  'grep -q "^  requestMetric: \"http.server.request.duration\",$" tests/snapshots/telemetry-test/otel.test.cjs && grep -q "^    \"requestMetric\": .http.server.request.duration.,$" tests/snapshots/telemetry-test/test_otel.py && grep -q "^// It also checks the request.s duration metric (http.server.request.duration, in seconds" tests/snapshots/telemetry-test/otel.test.cjs && grep -q "^# It also checks the request.s duration metric" tests/snapshots/telemetry-test/test_otel.py'
+check "request metric: the failure names the old HTTP name and the setting that fixes it" \
+  'grep -qF "the old HTTP name \${OLD_REQUEST_METRIC} arrived instead" tests/snapshots/telemetry-test/otel.test.cjs && grep -qF "Set OTEL_SEMCONV_STABILITY_OPT_IN=http/dup where the service is deployed" tests/snapshots/telemetry-test/test_otel.py'
+snap "$N"
+out=$(spec_with "$NSPEC" 's["env"]["OTEL_SEMCONV_STABILITY_OPT_IN"] = "http/dup"' | tt render --root "$N" --spec - --dry-run 2>&1); rc=$?
+check "env: the deployment's OTEL_SEMCONV_STABILITY_OPT_IN is the one OTEL_ name it accepts" \
+  '[ "$rc" -eq 1 ] && echo "$out" | grep -qF "\"OTEL_SEMCONV_STABILITY_OPT_IN\": \"http/dup\"" && same "$N"'
+refused "spec: a requestMetric that is not true or false is refused" "$N" "$NSPEC" 's["requestMetric"] = "no"' "true or false"
+out=$(spec_with "$NSPEC" 's["requestMetric"] = False' | tt render --root "$N" --spec - --dry-run 2>&1)
+check "request metric: turned off, the node test checks nothing for it and says so" \
+  'echo "$out" | grep -q "^+  requestMetric: null,$" && echo "$out" | grep -q "^+// Not checked: the request.s duration metric" && ! echo "$out" | grep -q "^+// It also checks"'
+out=$(spec_with "$PSPEC" 's["requestMetric"] = False' | tt render --root "$P" --spec - --dry-run 2>&1)
+check "request metric: turned off, the python test checks nothing for it and says so" \
+  'echo "$out" | grep -q "^+    \"requestMetric\": None,$" && echo "$out" | grep -q "^+# Not checked: the request.s duration metric"'
 # `build` and `startSearch`: a service whose entry only exists after a build, at a path that
 # differs per machine (#319).
 SEARCH='{"dir": ".next/standalone", "file": "server.js"}'
