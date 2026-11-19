@@ -94,8 +94,22 @@ case "$VENDOR" in
   datadog)
     export TF_VAR_datadog_api_key="$DATADOG_API_KEY"
     export TF_VAR_datadog_app_key="$DATADOG_APP_KEY"
-    # datadoghq.eu / us3 / us5 / ddog-gov.com all need this; the module builds api_url from it.
-    [ -n "${DATADOG_SITE:-}" ] && export TF_VAR_datadog_site="$DATADOG_SITE"
+    # Any site but the US1 default needs this. The module builds api_url as
+    # "https://api.${datadog_site}/", so the value must be the site's bare domain
+    # (us3.datadoghq.com, datadoghq.eu, ...): a short form like "us3" or a pasted URL would send
+    # the apply to a host that does not exist, and fail in a way that reads like a provider break.
+    # Refuse it here, before init, so nothing is created and the message names the secret.
+    if [ -n "${DATADOG_SITE:-}" ]; then
+      case "$DATADOG_SITE" in
+        *://*|*/*|*[[:space:]]*|api.*|*.)
+          echo "::error::DATADOG_SITE='$DATADOG_SITE' is not a bare site domain. Use the site's domain, e.g. us3.datadoghq.com or datadoghq.eu (no scheme, no 'api.' prefix, no path). Nothing was applied."
+          exit 1 ;;
+        *.*) export TF_VAR_datadog_site="$DATADOG_SITE" ;;
+        *)
+          echo "::error::DATADOG_SITE='$DATADOG_SITE' is not a bare site domain (a short form like 'us3' becomes https://api.us3/). Use e.g. us3.datadoghq.com. Nothing was applied."
+          exit 1 ;;
+      esac
+    fi
     ;;
 esac
 

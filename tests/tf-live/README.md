@@ -74,7 +74,7 @@ matrix is safe to run with only some vendors configured.
 |---|---|---|
 | `DATADOG_API_KEY` | yes | org API key |
 | `DATADOG_APP_KEY` | yes | application key — resource CRUD is rejected with only an API key |
-| `DATADOG_SITE` | optional | `datadoghq.com` (default), `datadoghq.eu`, `us3`/`us5`, `ddog-gov.com` |
+| `DATADOG_SITE` | optional | the site's bare domain: `datadoghq.com` (default), `us3.datadoghq.com`, `us5.datadoghq.com`, `datadoghq.eu`, `ddog-gov.com`. The module calls `https://api.<site>/`, so a short form (`us3`), a URL or an `api.` prefix is refused before anything is applied |
 
 > No pre-existing-entity caveat for Datadog: the golden module's SLO is `type = "metric"` with its
 > own query, so it does not attach to monitors that have to exist first.

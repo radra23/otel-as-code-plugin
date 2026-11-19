@@ -46,6 +46,15 @@ VENDOR_ARG="datadog"     run DATADOG_APP_KEY=dummy
 check "datadog app key but no api key → still SKIPs" 'printf "%s" "$OUT" | grep -q "^SKIP: datadog"'
 VENDOR_ARG="datadog"     run DATADOG_API_KEY=dummy DATADOG_APP_KEY=dummy
 check "datadog WITH both → gate opens (no SKIP)"    '! printf "%s" "$OUT" | grep -q "^SKIP:"'
+# DATADOG_SITE is spliced into api_url as https://api.<site>/, so only a bare domain works. A short
+# form or a URL must stop before init (no "=== datadog: init" line), with an error naming the secret.
+for bad in us3 https://us3.datadoghq.com api.datadoghq.eu us5.datadoghq.com/ "datadoghq. com"; do
+  VENDOR_ARG="datadog"   run DATADOG_API_KEY=dummy DATADOG_APP_KEY=dummy "DATADOG_SITE=$bad"
+  check "datadog site '$bad' → refused before init" \
+    '[ "$EC" -ne 0 ] && printf "%s" "$OUT" | grep -q "::error::DATADOG_SITE=" && ! printf "%s" "$OUT" | grep -q "=== datadog: init"'
+done
+VENDOR_ARG="datadog"     run DATADOG_API_KEY=dummy DATADOG_APP_KEY=dummy DATADOG_SITE=us3.datadoghq.com
+check "datadog site 'us3.datadoghq.com' → accepted"  '! printf "%s" "$OUT" | grep -q "::error::DATADOG_SITE="'
 
 # Coverage contract: the workflow matrix, the harness's cred gate, and the golden snapshots must
 # agree. The matrix is read from backends.txt at run time, so every backend listed there needs a
