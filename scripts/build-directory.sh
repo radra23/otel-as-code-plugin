@@ -22,7 +22,8 @@ mkdir -p "$OUT/.claude-plugin" "$OUT/hooks" "$OUT/scripts"
 # The manifest and its icon; not marketplace.json, which would make the folder read as a
 # marketplace rather than one plugin.
 cp "$ROOT/.claude-plugin/plugin.json" "$ROOT/.claude-plugin/icon.png" "$OUT/.claude-plugin/"
-# Claude Code hooks only; hooks/codex/ is the Codex bridge and runs from a repo checkout.
+# Claude Code hooks only; hooks/codex/ is the Codex bridge and runs from a repo checkout, and the
+# root hooks.json with hooks/copilot/ is the Copilot CLI bridge, which this build is not for.
 for f in hooks.json write-guard.sh semconv-lint.sh session-summary.sh otel-paths.sh otel-python.sh otel-force-match.py otel-context-check.py; do
   cp "$ROOT/hooks/$f" "$OUT/hooks/"
 done

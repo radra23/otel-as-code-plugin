@@ -47,6 +47,9 @@ jobs:
       - name: Run Codex context-cache confirmation tests (#254)
         run: bash tests/hooks/codex-cache-confirm.test.sh
 
+      - name: Run Copilot CLI hook-adapter tests
+        run: bash tests/hooks/copilot-adapters.test.sh
+
       - name: Run drift-check parser tests (offline)
         run: bash tests/drift-check.test.sh
 
@@ -210,7 +213,7 @@ jobs:
       - name: Syntax-check hook scripts and helpers
         run: |
           for f in hooks/*.sh; do bash -n "$f"; done
-          python3 -m py_compile hooks/otel-force-match.py hooks/codex/*.py
+          python3 -m py_compile hooks/otel-force-match.py hooks/codex/*.py hooks/copilot/*.py
 
       - name: Run write-guard tests
         run: bash tests/hooks/write-guard.test.sh

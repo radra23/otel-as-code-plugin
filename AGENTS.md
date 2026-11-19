@@ -66,6 +66,19 @@ here), so resolve these paths against otel-as-code's own checkout directory, not
   unaffected and remain the guardrail in that setup. SessionEnd/`session-summary` is not ported —
   Codex has SessionEnd, but its PR-changelog output has no natural Codex surface.
 
+### GitHub Copilot CLI
+Copilot CLI installs this repo as a plugin and loads its skills. Its hooks come from the
+root-level `hooks.json` (Copilot's flat format, camelCase `preToolUse`/`postToolUse`), which
+Copilot reads in place of `hooks/hooks.json` and Claude Code does not read at all, so each host
+runs the guardrails once. The adapters in `hooks/copilot/` map Copilot's `create`/`edit` tools
+to the Write/Edit payload `hooks/*.sh` read, run the scripts in the user's repo (the payload's
+`cwd`; the hook process itself starts in the plugin's install folder) and answer in the JSON
+Copilot acts on: `permissionDecision: "deny"` for a write-guard block (Copilot 1.0.56 does not
+deny on exit 2) and `additionalContext` for lint findings (stderr never reaches the model).
+Measured payloads and the reasons are in `docs/agents/copilot-spike.md` and
+`tests/hooks/fixtures/copilot/`. Not ported: SessionEnd (Copilot discards its output), and any
+write tool other than `create`/`edit`, which passes unchecked.
+
 ## Conventions & architecture
 Tool-agnostic conventions — the single-sourced `SEMCONV_VERSION`, the `backends.txt` vendor list,
 and the Terraform snapshot layout — plus Claude Code plugin architecture (auto-discovery,

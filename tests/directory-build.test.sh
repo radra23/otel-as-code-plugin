@@ -19,8 +19,9 @@ check "no marketplace.json (the folder must read as one plugin)" '[ ! -e "$OUT/.
 check "README, LICENSE and backends.txt are present" '[ -f "$OUT/README.md" ] && [ -f "$OUT/LICENSE" ] && [ -f "$OUT/backends.txt" ]'
 check "every command, agent and skill ships" \
   '[ "$(git ls-files commands agents skills | wc -l)" -eq "$(cd "$OUT" && find commands agents skills -type f | wc -l)" ]'
-check "no development tree (fixtures, tests, evals, .github, .agents, hooks/codex, node_modules)" \
-  '[ -z "$(cd "$OUT" && find . \( -name fixtures -o -name tests -o -name evals -o -name .github -o -name .agents -o -name node_modules -o -path ./hooks/codex \) -print)" ]'
+check "no development tree (fixtures, tests, evals, .github, .agents, hooks/codex, hooks/copilot, node_modules)" \
+  '[ -z "$(cd "$OUT" && find . \( -name fixtures -o -name tests -o -name evals -o -name .github -o -name .agents -o -name node_modules -o -path ./hooks/codex -o -path ./hooks/copilot \) -print)" ]'
+check "no root hooks.json (it is the Copilot CLI bridge; the directory build is Claude Code only)" '[ ! -e "$OUT/hooks.json" ]'
 check "no __pycache__ or .DS_Store" '[ -z "$(find "$OUT" \( -name __pycache__ -o -name .DS_Store \) -print)" ]'
 check "512 files or fewer (the directory holds a bigger plugin for review)" '[ "$(find "$OUT" -type f | wc -l)" -le 512 ]'
 check "every non-image file is under 256 KiB" \
