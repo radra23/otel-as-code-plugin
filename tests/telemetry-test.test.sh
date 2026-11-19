@@ -30,6 +30,14 @@ refused() {
   check "$name" '[ "$rc" -eq 2 ] && echo "$msg" | grep -q "^REFUSED: " && echo "$msg" | grep -qi -- "$words" && same "$dir"'
 }
 
+# ================================================================== the command's text (#319)
+CMD=commands/otel-test.md
+STEP1=$(sed -n '/^## Step 1/,/^## Step 2/p' "$CMD")   # captured once: grep -q + pipefail would race
+check "command: Step 1 names the Next.js limits before a route is asked for" \
+  'grep -qF "Say what this stack cannot do before asking for a route" <<<"$STEP1" && grep -qF "never set \`startScript\`" <<<"$STEP1" && grep -qF "neither runs the build" <<<"$STEP1"'
+check "command: Step 2 tells the user to fix service values with the spec's env" \
+  'grep -qF "spec'"'"'s \`env\`" "$CMD" && grep -qF "never a real secret" "$CMD"'
+
 # ================================================================== rendering
 check "the file names are the ones hooks/otel-paths.sh guards" \
   '[ "$(. hooks/otel-paths.sh; otel_test_globs | sort | tr "\n" " ")" = "$(python3 -c "import sys; sys.path.insert(0, \"scripts\"); import telemetry_test as t; print(\" \".join(sorted(t.FILE_NAMES.values())), end=\" \")")" ]'
@@ -119,6 +127,16 @@ for route in 'GET /api/services/[id]' 'GET /api/auth/[...nextauth]'; do
     '[ "$rc" -eq 1 ] && ! echo "$out" | grep -q "^REFUSED" && echo "$out" | grep -qF "serverSpan: \"$route\"" && same "$N"'
 done
 refused "spec: brackets do not open a way to inject code" "$N" "$NSPEC" 's["serverSpan"] = "GET /x[`id`]"' "request span.s name"
+# `env`: fixed test-only values for the service (#319). Checked like every other spec value.
+refused "spec: an env name that is not a variable name is refused" "$N" "$NSPEC" 's["env"] = {"a b": "x"}' "environment variable names"
+refused "spec: an env value with a newline is refused" "$N" "$NSPEC" 's["env"] = {"X": "a\nprocess.exit(0)//"}' "plain text values"
+refused "spec: an env value that is not text is refused" "$N" "$NSPEC" 's["env"] = {"X": 1}' "plain text values"
+refused "spec: an env that sets an OTEL_ variable is refused" "$N" "$NSPEC" 's["env"] = {"OTEL_TRACES_EXPORTER": "none"}' "OTEL_"
+refused "spec: an env that sets the port variable is refused" "$N" "$NSPEC" 's["env"] = {"PORT": "1"}' "port variable"
+check "env: the rendered node test carries the values and names them in the header" \
+  'grep -q "^const FIXED_ENV = {\"APP_MODE\": \"test\", \"AUTH_SECRET\": \"test-only-secret\"};" tests/snapshots/telemetry-test/otel.test.cjs && grep -q "^// Fixed environment for the service.*: APP_MODE, AUTH_SECRET" tests/snapshots/telemetry-test/otel.test.cjs'
+check "env: a spec with no env renders an empty set and no header line" \
+  'out=$(spec_with "$NSPEC" "del s[\"env\"]" | tt render --root "$N" --spec - --dry-run 2>&1); echo "$out" | grep -q "^+const FIXED_ENV = {};" && ! echo "$out" | grep -q "Fixed environment"'
 refused "spec: the server span repeated under spans is refused" "$N" "$NSPEC" 's["spans"].append("POST /checkout")' "repeats"
 refused "spec: a service root outside the project is refused" "$N" "$NSPEC" 's["serviceRoot"] = "../.."; del s["startScript"]' "not a directory under"
 refused "spec: python needs module:attribute" "$P" "$PSPEC" 's["app"] = "main.app()"' "module:attribute"

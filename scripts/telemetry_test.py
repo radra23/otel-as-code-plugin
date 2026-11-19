@@ -29,6 +29,10 @@ The spec:
    "app": "main:app", "interface": "asgi" | "wsgi", python: the app object the server runs
    "bootstrap": "tracing",                          python, optional: the bootstrap's module name; the
                                                     test then fails if importing the app does not import it
+   "env": {"AUTH_SECRET": "test-only-secret"},      optional: fixed values the service needs before it answers
+                                                    (dummy secrets, a base URL). Names and values are plain
+                                                    text in the test file: never a real secret. OTEL_* names
+                                                    and the port variable are the test's own and are refused.
    "request": {"method": "POST", "path": "/checkout", "json": {...}, "expectStatus": 200},
    "serverSpan": "POST /checkout",       the request's own span, as the instrumentation names it
    "spans": ["orders.checkout"],         spans /otel-enrich added on this code path
@@ -52,6 +56,7 @@ FILE_NAMES = {"nodejs": "otel.test.cjs", "python": "test_otel.py"}
 METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE")
 ARG_RE = re.compile(r"^[A-Za-z0-9_./@=:+-]{1,200}$")
 ENV_RE = re.compile(r"^[A-Z_][A-Z0-9_]{0,63}$")
+ENV_VALUE_RE = re.compile(r"^[\x20-\x7e]{0,200}$")
 APP_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]{0,199}:[A-Za-z_][A-Za-z0-9_]{0,99}$")
 PATH_RE = re.compile(r"^/[A-Za-z0-9_\-./~%?=&:,+@]{0,500}$")
 SERVER_SPAN_RE = re.compile(r"^[A-Za-z0-9_ ./:{}<>*\[\]\-]{1,200}$")
@@ -104,6 +109,13 @@ def check_spec(spec):
     need(isinstance(status, int) and not isinstance(status, bool) and 100 <= status <= 599,
          "`request.expectStatus` must be an HTTP status code.")
     need("json" not in req or req["method"] != "GET", "a GET request carries no `json` body.")
+    env = spec.get("env", {})
+    need(isinstance(env, dict) and len(env) <= 30 and all(
+        isinstance(k, str) and ENV_RE.fullmatch(k) and isinstance(v, str) and ENV_VALUE_RE.fullmatch(v)
+        for k, v in env.items()),
+        "`env` must map environment variable names to plain text values (printable ASCII, no newline).")
+    need(not any(k.startswith("OTEL_") or k == spec.get("portEnv", "PORT") for k in env),
+         "`env` may not set an OTEL_* variable or the port variable: the test sets those itself.")
     spans = names(spec, "spans", SPAN_NAME_RE, "span")
     metrics = names(spec, "metrics", METRIC_NAME_RE, "metric")
     need(spec["serverSpan"] not in spans, "`spans` repeats the server span.")
@@ -150,6 +162,14 @@ def not_covered_lines(not_covered, lead):
     return out
 
 
+def env_lines(spec, lead):
+    env = spec.get("env", {})
+    if not env:
+        return []
+    return [f"{lead}", f"{lead} Fixed environment for the service (test-only values, never real secrets): "
+            + ", ".join(sorted(env))]
+
+
 def render_node(spec, spans, metrics, not_covered):
     req = spec["request"]
     start = spec["start"]
@@ -167,7 +187,7 @@ def render_node(spec, spans, metrics, not_covered):
         "// Nothing leaves the machine and no backend is needed.",
         "//",
         "// Run it: node --test otel.test.cjs",
-    ] + not_covered_lines(not_covered, "//")
+    ] + env_lines(spec, "//") + not_covered_lines(not_covered, "//")
     body = r"""'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
@@ -180,6 +200,8 @@ const { spawn } = require('node:child_process');
 const START_SCRIPT = __START_SCRIPT__;
 const START = startArguments(__START__);
 const PORT_ENV = __PORT_ENV__;
+// Fixed values the service needs before it answers (dummy test-only secrets, a base URL).
+const FIXED_ENV = __FIXED_ENV__;
 const REQUEST = __REQUEST__;
 const EXPECTED = {
   serverSpan: __SERVER_SPAN__,
@@ -260,7 +282,7 @@ test(`${REQUEST.method} ${REQUEST.path} still emits its telemetry`, { timeout: 6
   for (const [key, value] of Object.entries(process.env)) {
     if (!key.startsWith('OTEL_EXPORTER_OTLP_')) env[key] = value;
   }
-  Object.assign(env, {
+  Object.assign(env, FIXED_ENV, {
     [PORT_ENV]: String(port),
     OTEL_EXPORTER_OTLP_ENDPOINT: `http://127.0.0.1:${receiver.address().port}`,
     OTEL_EXPORTER_OTLP_PROTOCOL: 'http/json',
@@ -323,6 +345,7 @@ test(`${REQUEST.method} ${REQUEST.path} still emits its telemetry`, { timeout: 6
     if "json" in req:
         request["json"] = req["json"]
     fills = {"__START__": json.dumps(start), "__PORT_ENV__": json.dumps(spec.get("portEnv", "PORT")),
+             "__FIXED_ENV__": json.dumps(spec.get("env", {})),
              "__REQUEST__": json.dumps(request), "__SERVER_SPAN__": json.dumps(spec["serverSpan"]),
              "__SPANS__": json.dumps(spans), "__METRICS__": json.dumps(metrics),
              "__START_SCRIPT__": json.dumps(spec.get("startScript"))}
@@ -348,7 +371,7 @@ def render_python(spec, spans, metrics, not_covered):
         "# Run it: python -m unittest test_otel     (pytest runs it too: python -m pytest test_otel.py)",
         "# Run it in its own process: OpenTelemetry can be set up once per process, so a test that",
         "# imported the app earlier in the same run would leave this one with nothing to read.",
-    ] + not_covered_lines(not_covered, "#")
+    ] + env_lines(spec, "#") + not_covered_lines(not_covered, "#")
     body = r'''import importlib
 import json
 import os
@@ -370,6 +393,8 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 APP = __APP__
 BOOTSTRAP = __BOOTSTRAP__
 INTERFACE = __INTERFACE__
+# Fixed values the service needs before it answers (dummy test-only secrets, a base URL).
+os.environ.update(__FIXED_ENV__)
 REQUEST = json.loads(__REQUEST__)
 EXPECTED = {
     "serverSpan": __SERVER_SPAN__,
@@ -507,6 +532,7 @@ if __name__ == "__main__":
         request["json"] = req["json"]
     fills = {"__APP__": json.dumps([module, attr]), "__INTERFACE__": json.dumps(spec["interface"]),
              "__BOOTSTRAP__": repr(spec.get("bootstrap")),
+             "__FIXED_ENV__": repr(spec.get("env", {})),
              "__REQUEST__": repr(json.dumps(request)), "__SERVER_SPAN__": json.dumps(spec["serverSpan"]),
              "__SPANS__": json.dumps(spans), "__METRICS__": json.dumps(metrics)}
     return "\n".join(header) + "\n" + fill(body, fills)
