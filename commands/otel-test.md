@@ -75,7 +75,8 @@ Work out, by reading the code:
 
 **The request span's name** is `<METHOD> <route template>`, written the way the framework writes
 the route: `POST /checkout`, `GET /items/:id` (Express), `GET /items/{item_id}` (FastAPI),
-`GET /items/<int:item_id>` (Flask). If you are not sure, Step 4 tells you: the failure lists the
+`GET /items/<int:item_id>` (Flask), `GET /api/items/[id]` and the catch-all
+`GET /api/auth/[...nextauth]` (Next.js). If you are not sure, Step 4 tells you: the failure lists the
 spans that did arrive.
 
 **How the service starts.**
