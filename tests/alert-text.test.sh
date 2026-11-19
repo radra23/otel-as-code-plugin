@@ -92,9 +92,9 @@ PY
 count=$(printf '%s\n' "$problems" | sed -n 's/^COUNT //p')
 problems=$(printf '%s\n' "$problems" | grep -v '^COUNT ')
 check "alert-text.json is well-formed, every golden alert carries its kind's text, and the generator lists the goldens' alerts" '[ -z "$problems" ] || { printf "  %s\n" "$problems"; false; }'
-# 2 Grafana Cloud + 3 self-hosted + 2 Datadog + 3 New Relic + 2 Dash0. A new alert raises this
+# 2 Grafana Cloud + 3 self-hosted + 3 Datadog + 3 New Relic + 2 Dash0. A new alert raises this
 # number and must arrive with its text.
-check "all 12 golden alerts were found (found ${count:-0})" '[ "${count:-0}" = 12 ]'
+check "all 13 golden alerts were found (found ${count:-0})" '[ "${count:-0}" = 13 ]'
 
 for g in grafana grafana-selfhosted; do
   f=tests/snapshots/$g/main.tf.snap

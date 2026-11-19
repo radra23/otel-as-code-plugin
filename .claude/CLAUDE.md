@@ -126,13 +126,15 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
   alert's query is proven, its rule evaluation is not. New Relic has a Logs page and the same
   alert on `severity.number` (New Relic's documented OTLP mapping); Dash0 has a `dash0.logs`
   volume panel and deliberately NO alert, because the severity values of that metric's label are
-  not documented and a guessed filter would never fire while looking healthy. Neither is run
-  against data. Datadog has nothing yet.
+  not documented and a guessed filter would never fire while looking healthy. Datadog has a log
+  stream and an error-log monitor (a `log alert` formula over two `status:` searches, because its
+  OTLP mapping keeps the severity number only as a string; JUL's `SEVERE` reads as `ok` there and
+  is missed). None of the three is run against data.
 - Every generated alert explains itself (#288): what it means (with its threshold), likely
   causes and what to check first, from `skills/terraform-patterns/alert-text.json`, one entry
   per alert kind, in each backend's own field (Grafana rule annotations, New Relic
   `description`, Datadog `message`, Dash0 rule annotations, double-quoted because the text
-  contains `: `). `tests/alert-text.test.sh` finds every alert in every golden (12 today) and
+  contains `: `). `tests/alert-text.test.sh` finds every alert in every golden (13 today) and
   requires its kind's text, rendered by `tests/alert_text_render.py`, byte for byte: a new alert
   arrives with its text, and `agents/terraform-gen.md`'s alert list per backend must name the
   same kinds as its golden. Links only where the backend's own resources build them: Grafana gets

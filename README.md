@@ -439,8 +439,8 @@ alert on the share of error lines (5% for 5 minutes by default, a variable). Bot
 service to export its logs, and both queries are run against a real Loki in CI
 ([`tests/e2e/log-panel.sh`](tests/e2e/log-panel.sh)); the alert rule itself is not evaluated there.
 New Relic gets a Logs page and the same alert, and Dash0 a log-volume panel with no alert (the
-severity values its log metric uses are not documented). Both are written from the vendor's
-documentation and not run against data. Datadog has neither yet.
+severity values its log metric uses are not documented), and Datadog a log stream and the same
+alert. All three are written from the vendor's documentation and not run against data.
 
 Ruby, Rust and PHP emit no runtime metrics: none of them has a stable package for it. The full
 picture, with how settled each language's metric names are, is in

@@ -55,8 +55,8 @@ check "the Loki datasource default is Grafana Cloud's for cloud and loki for sel
   'grep -A3 "^variable \"loki_datasource_uid\"" tests/snapshots/grafana/main.tf.snap | grep -q "\"grafanacloud-logs\"" && grep -A3 "^variable \"loki_datasource_uid\"" tests/snapshots/grafana-selfhosted/main.tf.snap | grep -q "default     = \"loki\""'
 check "the panel says when it will be empty" \
   'grep -q "Empty until the service exports its logs over OTLP" tests/snapshots/grafana/main.tf.snap'
-check "the generator sends the reader to the skill's section and keeps it to Grafana" \
-  'grep -q "Log panel and error-log alert" agents/terraform-gen.md && grep -q "log panel: none for Datadog yet" agents/terraform-gen.md'
+check "the generator sends the reader to the skill's sections, Datadog's included" \
+  'grep -q "Log panel and error-log alert" agents/terraform-gen.md && grep -q "stream and error-log monitor" agents/terraform-gen.md && ! grep -q "log panel: none for Datadog" agents/terraform-gen.md'
 # New Relic and Dash0: written from each vendor's documentation, pinned to the skill, run nowhere.
 NR=tests/snapshots/newrelic/main.tf.snap; D0=tests/snapshots/dash0/main.tf.snap
 # backend_query <heading> <bullet prefix>: the query in backticks on that bullet of that section.
@@ -84,7 +84,43 @@ check "the skill states Dash0's log-volume query and the golden carries exactly 
   'grep -qF -- "- \`$D0_Q\`" "$SKILL" && grep -qF "query: $D0_Q" $D0 && [ "$(sed -n "/^resource \"dash0_dashboard\"/,/^  YAML$/p" $D0 | grep -E "^        [a-zA-Z0-9]+:$" | tail -1 | tr -d " :")" = logVolume ]'
 check "Dash0 gets no error-log alert, and the skill says why" \
   '[ "$(grep -c "^resource \"dash0_check_rule\"" $D0)" = 2 ] && ! grep -qi "error.log\|dash0.logs.*>" <(sed -n "/dash0_check_rule/,\$p" $D0) && grep -q "No error-log alert for Dash0" "$SKILL"'
-check "Datadog has no log panel or log alert yet" '! grep -qi "logs\b\|log_stream\|error_log" tests/snapshots/datadog/main.tf.snap'
+# Datadog: written from its OTLP log mapping and the provider schema, pinned to the skill, run nowhere.
+DD=tests/snapshots/datadog/main.tf.snap
+DD_SEC='### Log stream and error-log monitor (#279)'
+DD_ALL='service:${var.service_name}'
+DD_ERR='service:${var.service_name} status:(error OR critical OR alert OR emergency)'
+check "the skill states Datadog's three log searches" \
+  '[ "$(backend_query "$DD_SEC" "- Log stream")" = "$DD_ALL" ] && [ "$(backend_query "$DD_SEC" "- Error lines")" = "$DD_ERR" ] && [ "$(backend_query "$DD_SEC" "- All lines")" = "$DD_ALL" ]'
+check "the Datadog log stream is the dashboard's last widget, searches the service and says it was not run" \
+  'python3 -c "
+import re,sys
+s=open(sys.argv[1]).read()
+d=s[s.index(\"resource \\\"datadog_dashboard\\\"\"):s.index(\"resource \\\"datadog_monitor\\\"\")]
+kinds=re.findall(r\"\n    (\w+_definition) \{\", d)
+assert kinds[-1]==\"log_stream_definition\" and kinds.count(\"log_stream_definition\")==1, kinds
+w=d[d.index(\"log_stream_definition\"):]
+assert \"title               = \\\"Logs\\\"\" in w and \"query               = \\\"service:\${var.service_name}\\\"\" in w
+assert \"not run against a Datadog account\" in w and \"Empty until the service exports its logs over OTLP\" in w
+" $DD'
+check "the Datadog error-log monitor is a share of the two searches, over 5 minutes, at the variable" \
+  'python3 -c "
+import sys
+s=open(sys.argv[1]).read()
+m=s[s.index(\"resource \\\"datadog_monitor\\\" \\\"error_logs\\\"\"):]
+m=m[:m.index(\"\n}\n\")]
+err,allq=sys.argv[2],sys.argv[3]
+assert \"type    = \\\"log alert\\\"\" in m
+assert \"query   = \\\"formula(\\\\\\\"errors / total\\\\\\\").last(\\\\\\\"5m\\\\\\\") > \${var.error_log_ratio_threshold}\\\"\" in m, m
+assert m.count(\"data_source = \\\"logs\\\"\")==2 and m.count(\"aggregation = \\\"count\\\"\")==2
+assert \"name        = \\\"errors\\\"\" in m and \"name        = \\\"total\\\"\" in m
+assert m.count(\"query = \\\"\"+err+\"\\\"\")==1 and m.count(\"query = \\\"\"+allq+\"\\\"\")==1
+assert \"critical = var.error_log_ratio_threshold\" in m
+assert \"on_missing_data\" not in m and \"notify_no_data\" not in m
+" $DD "$DD_ERR" "$DD_ALL"'
+check "the Datadog threshold variable defaults to 5%, and its monitor query is in the skill" \
+  'grep -A3 "^variable \"error_log_ratio_threshold\"" $DD | grep -q "default     = 0.05" && grep -qF "formula(\\\"errors / total\\\").last(\\\"5m\\\") > \${var.error_log_ratio_threshold}" "$SKILL"'
+check "the skill says why Datadog filters by status and what it misses" \
+  'grep -q "Why status and not the number" "$SKILL" && grep -q "SEVERE" "$SKILL"'
 
 check "the sections the new text was inserted before are still there" \
   'grep -q "^## Grafana main.tf$" agents/terraform-gen.md && grep -q "^### Notification routing (contact points)$" "$SKILL"'
