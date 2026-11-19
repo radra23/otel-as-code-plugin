@@ -79,6 +79,12 @@ check "pre: denies an edit that unconfirms a business attribute" deny "$OUT"
 ARGS=$(python3 -c 'import json,sys; print(json.dumps({"path":sys.argv[1]+"/.claude/otel-context.json","old_str":"","new_str":"x"}))' "$TMP")
 OUT=$(payload "$TMP" edit "$ARGS" | python3 "$PRE")
 check "pre: denies a cache edit with no old_str (nothing to rebuild the file from)" deny "$OUT"
+ARGS=$(python3 -c 'import json,sys; print(json.dumps({"path":sys.argv[1]+"/.claude/otel-context.json","old_str":7,"new_str":"x"}))' "$TMP")
+OUT=$(payload "$TMP" edit "$ARGS" | python3 "$PRE")
+check "pre: denies a cache edit whose old_str is not text" deny "$OUT"
+ARGS=$(python3 -c 'import json,sys; print(json.dumps({"path":sys.argv[1]+"/.claude/otel-context.json","file_text":{"businessAttrs":[{"name":"biz.x","confirmed":False}]}}))' "$TMP")
+OUT=$(payload "$TMP" create "$ARGS" | python3 "$PRE")
+check "pre: denies creating the cache from content that is not text" deny "$OUT"
 ln -s .claude/otel-context.json "$TMP/ctx-alias.json"
 ARGS=$(python3 -c 'import json,sys; print(json.dumps({"path":sys.argv[1]+"/ctx-alias.json","file_text":"{}"}))' "$TMP")
 OUT=$(payload "$TMP" create "$ARGS" | python3 "$PRE")

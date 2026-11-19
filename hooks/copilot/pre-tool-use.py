@@ -16,6 +16,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _copilot import bridge_env, claude_tool, is_context_path, read_payload, resolves_to_cache, run_hook
 
 
+def checkable(name, tool_input):
+    """True when hooks/otel-context-check.py can see what this write leaves in the cache."""
+    if name == "Write":
+        return isinstance(tool_input["content"], str)
+    old, new = tool_input["old_string"], tool_input["new_string"]
+    return isinstance(old, str) and bool(old) and isinstance(new, str)
+
+
 def deny(reason):
     print(json.dumps({"permissionDecision": "deny", "permissionDecisionReason": reason}))
 
@@ -32,11 +40,12 @@ def main(payload):
              "another name (a link or an alias), so its business attributes can't be checked. "
              "Write the cache by its own path.")
         return
-    if tool[0] == "Edit" and not tool[1]["old_string"] and resolves_to_cache(path, cwd):
-        # The cache check rebuilds the file by replacing old_string; with none it can't, and
-        # would let the edit through unchecked. Copilot's edit with no old_str is not measured.
-        deny("otel-as-code write-guard: this edit of .claude/otel-context.json gives no text to "
-             "replace, so its business attributes can't be checked. Write the whole file instead.")
+    if resolves_to_cache(path, cwd) and not checkable(*tool):
+        # The cache check reads a Write's content, or rebuilds the file by replacing an Edit's
+        # old_string; anything else it can't read it lets through, so refuse it here.
+        deny("otel-as-code write-guard: this write to .claude/otel-context.json doesn't give the "
+             "file's content (or, for an edit, the text to replace and its replacement) as text, "
+             "so its business attributes can't be checked. Write the whole file instead.")
         return
     proc = run_hook("write-guard.sh", path, None, cwd, bridge_env(cwd), tool=tool)
     if proc.returncode == 2:  # exit 2 = block in write-guard.sh; any other code allows, as in Claude Code
