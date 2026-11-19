@@ -11,7 +11,11 @@ Cross-agent instructions live in `AGENTS.md` (read by Codex et al.); the same ca
 bridged to Codex: skills in `.agents/skills/` (thin wrappers pointing back at `commands/`,
 `skills/`, `agents/`), and the guardrails in `.codex/hooks.json` (PreToolUse/PostToolUse adapters
 in `hooks/codex/` that reuse `hooks/*.sh`, translating Codex's `apply_patch` payload +
-`permissionDecision` contract). Keep the bridges in sync when you rename/move a command, skill,
+`permissionDecision` contract). GitHub Copilot CLI gets the same guardrails from the root-level
+`hooks.json` (Copilot's flat format; Claude Code ignores it, Copilot reads it instead of
+`hooks/hooks.json`) calling `hooks/copilot/`, which maps `create`/`edit` to Write/Edit and answers
+with top-level `permissionDecision`/`additionalContext`, since Copilot ignores exit 2 and stderr
+(`docs/agents/copilot-spike.md`). Keep the bridges in sync when you rename/move a command, skill,
 agent, or hook — the `validate-codex-bridge` CI job checks the skill references resolve.
 
 ## Hooks (`hooks/*.sh`, registered in `hooks/hooks.json`)
