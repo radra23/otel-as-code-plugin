@@ -68,12 +68,18 @@ def real(path):
         return None
 
 
+def real_of(raw, canon_):
+    """real() of the path as anchored: a relative raw path would resolve against the hook's
+    working directory, not the project root, so it is resolved through its anchored form."""
+    return real(raw) if os.path.isabs(raw) or windows_shaped(raw) else real(canon_)
+
+
 def same(a_raw, a_canon, b_raw, b_canon):
     if a_canon == b_canon:
         return True
     if (windows_shaped(a_raw) or windows_shaped(b_raw)) and a_canon.lower() == b_canon.lower():
         return True
-    a_real, b_real = real(a_raw), real(b_raw)
+    a_real, b_real = real_of(a_raw, a_canon), real_of(b_raw, b_canon)
     return a_real is not None and a_real == b_real
 
 
