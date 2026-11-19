@@ -5,13 +5,25 @@
   "app": "main:app",
   "interface": "asgi",
   "bootstrap": "tracing",
+  "env": {
+    "APP_MODE": "test"
+  },
   "request": {
     "method": "POST",
     "path": "/inventory/reserve",
-    "json": { "sku": "s1", "quantity": 2, "warehouse": "w" },
+    "json": {
+      "sku": "s1",
+      "quantity": 2,
+      "warehouse": "w"
+    },
     "expectStatus": 200
   },
   "serverSpan": "POST /inventory/reserve",
-  "spans": ["inventory.reserve_stock"],
-  "metrics": ["com.example.inventory.reservations", "com.example.inventory.reserved_quantity"]
+  "spans": [
+    "inventory.reserve_stock"
+  ],
+  "metrics": [
+    "com.example.inventory.reservations",
+    "com.example.inventory.reserved_quantity"
+  ]
 }

@@ -2,14 +2,39 @@
   "language": "nodejs",
   "serviceRoot": ".",
   "serviceName": "enrich-orders",
-  "start": ["-r", "./tracing.js", "index.js"],
+  "start": [
+    "-r",
+    "./tracing.js",
+    "index.js"
+  ],
   "startScript": "start",
   "portEnv": "PORT",
-  "request": { "method": "POST", "path": "/checkout", "json": { "cartId": "c1" }, "expectStatus": 200 },
+  "env": {
+    "APP_MODE": "test",
+    "AUTH_SECRET": "test-only-secret"
+  },
+  "request": {
+    "method": "POST",
+    "path": "/checkout",
+    "json": {
+      "cartId": "c1"
+    },
+    "expectStatus": 200
+  },
   "serverSpan": "POST /checkout",
-  "spans": ["orders.checkout", "orders.loadLines", "pricing.total"],
-  "metrics": ["com.example.checkout.order_placed", "com.example.checkout.payment_duration"],
+  "spans": [
+    "orders.checkout",
+    "orders.loadLines",
+    "pricing.total"
+  ],
+  "metrics": [
+    "com.example.checkout.order_placed",
+    "com.example.checkout.payment_duration"
+  ],
   "notCovered": [
-    { "name": "orders.describe", "reason": "no route calls describe()" }
+    {
+      "name": "orders.describe",
+      "reason": "no route calls describe()"
+    }
   ]
 }

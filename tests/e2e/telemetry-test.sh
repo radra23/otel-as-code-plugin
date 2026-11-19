@@ -68,6 +68,18 @@ grep -qF "Spans that did arrive:" "$WORK/run.log" && grep -qF "POST /checkout" "
   && ok "node: the failure lists what did arrive, so the cause is readable" || { bad "node: failure output lacks the arrived list"; tail -20 "$WORK/run.log"; }
 node_enrich
 passes "node: with the enrichment back it passes again" "${NODE_TEST[@]}"
+# The service answers only when the fixed test environment reaches it (#319): the spec's `env`
+# supplies AUTH_SECRET, and the same spec without it must fail on the status, not pass by luck.
+cp index.js index.js.orig
+sed -i.bak "s|^app.use(express.json());|app.use((req, res, next) => process.env.AUTH_SECRET === 'test-only-secret' ? next() : res.status(401).json({ error: 'no secret' }));\napp.use(express.json());|" index.js && rm index.js.bak
+passes "node: the spec's env reaches the service, so a service that needs a secret answers" "${NODE_TEST[@]}"
+python3 -c 'import json, sys; s = json.load(open(sys.argv[1])); del s["env"]; json.dump(s, open(sys.argv[2], "w"))' \
+  "$SRC/tests/telemetry-test/node.spec.json" "$WORK/node-no-env.json"
+render --root . --spec "$WORK/node-no-env.json" --force >/dev/null
+fails_with "node: without the env the same service answers 401 and the test fails on the status" "401" - "${NODE_TEST[@]}"
+mv index.js.orig index.js
+render --root . --spec "$SRC/tests/telemetry-test/node.spec.json" --force >/dev/null
+passes "node: restored, it passes again" "${NODE_TEST[@]}"
 sed -i.bak 's|"start": "node -r ./tracing.js index.js"|"start": "node index.js"|' package.json && rm package.json.bak
 fails_with "node: with the bootstrap flag dropped from the start script it fails and says so" \
   "no longer loads the OpenTelemetry bootstrap: node index.js" - "${NODE_TEST[@]}"
