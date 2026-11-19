@@ -14,6 +14,7 @@ docs/*
 !docs/demo.gif
 !docs/demo-grafana.png
 !docs/listing/
+!docs/agents/
 
 # Local Claude Code settings
 .claude/settings.local.json

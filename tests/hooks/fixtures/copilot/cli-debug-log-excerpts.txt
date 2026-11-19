@@ -1,0 +1,30 @@
+# Copilot CLI 1.0.56 --log-level debug, hook lines only, scrubbed.
+
+## Run A: only otel-as-code installed (session 3, before the logger plugins). Note: write-guard.sh never executes; semconv-lint.sh does.
+2026-11-19T10:22:04.209Z [DEBUG] Loaded 3 hook(s) from 1 plugin(s)
+2026-11-19T10:22:32.161Z [DEBUG] Executing hook: bash "<COPILOT_HOME>/installed-plugins/otel-as-code/otel-as-code/hooks/semconv-lint.sh"
+2026-11-19T10:22:36.453Z [DEBUG] Executing hook: bash "<COPILOT_HOME>/installed-plugins/otel-as-code/otel-as-code/hooks/session-summary.sh"
+
+## Run B: exit-2 deny ignored (session 5). The edit to tracing.py then ran and succeeded.
+2026-11-19T10:28:04.920Z [DEBUG] Executing hook: SPIKE_CAPTURE=/scratch/capture python3 /scratch/logger.py copilotfmt-preToolUse "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-copilot-fmt"
+2026-11-19T10:28:05.063Z [DEBUG] [hook stderr] SPIKE-DENY-STDERR: tracing.py is protected
+2026-11-19T10:28:05.475Z [DEBUG] Tool calls count: 2
+2026-11-19T10:28:05.477Z [DEBUG] edit: /work/fixture/tracing.py
+
+## Run C: JSON deny honoured (session 6), from the --output-format json event stream.
+{"type":"tool.execution_complete","data":{"success":false,"error":{"message":"Denied by preToolUse hook: SPIKE-DENY-JSON-TOPLEVEL","code":"denied"}}}
+{"type":"tool.execution_complete","data":{"success":false,"error":{"message":"Denied by preToolUse hook: SPIKE-DENY-CLAUDE-SHAPE","code":"denied"}}}
+
+## Run D: one plugin with BOTH hooks.json (flat, root) and hooks/hooks.json (nested). Only the root file loaded (3 otel-as-code + 1).
+2026-11-19T10:31:23.591Z [DEBUG] Loaded 4 hook(s) from 2 plugin(s)
+2026-11-19T10:31:41.610Z [DEBUG] Executing hook: bash "<COPILOT_HOME>/installed-plugins/otel-as-code/otel-as-code/hooks/semconv-lint.sh"
+2026-11-19T10:31:42.695Z [DEBUG] Executing hook: SPIKE_CAPTURE=/scratch/capture python3 /scratch/logger.py both-flat-root-postToolUse
+2026-11-19T10:31:43.727Z [DEBUG] [hook stdout] {}
+2026-11-19T10:31:43.898Z [DEBUG] Executing hook: bash "<COPILOT_HOME>/installed-plugins/otel-as-code/otel-as-code/hooks/semconv-lint.sh"
+2026-11-19T10:31:44.880Z [DEBUG] Executing hook: SPIKE_CAPTURE=/scratch/capture python3 /scratch/logger.py both-flat-root-postToolUse
+2026-11-19T10:31:45.838Z [DEBUG] [hook stdout] {}
+2026-11-19T10:31:50.284Z [DEBUG] Executing hook: bash "<COPILOT_HOME>/installed-plugins/otel-as-code/otel-as-code/hooks/session-summary.sh"
+2026-11-19T10:31:50.890Z [DEBUG] runPromptMode: exiting with code 0
+
+## Run E: postToolUse additionalContext reaches the model (session 5), from the --output-format json event stream.
+{"type":"tool.execution_complete","data":{"success":true,"result":{"content":"Created file /work/fixture/attrs.py with 104 characters\n\nTool \"create\" succeeded. Additional guidance from postToolUse hooks:\nSPIKE-CONTEXT-MARKER: semconv lint would speak here"}}}
