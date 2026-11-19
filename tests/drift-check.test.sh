@@ -135,6 +135,18 @@ otel_minors = {d.ver_tuple(v)[1] for k, v in rp.items()
 check("rust group: opentelemetry* crates share one minor", len(otel_minors) == 1)
 check("rust group: tracing-opentelemetry is one minor ahead",
       len(otel_minors) == 1 and d.ver_tuple(rp.get("tracing-opentelemetry"))[1] == next(iter(otel_minors)) + 1)
+jp = d.java_agent_pins()
+check("java agent pin parsed from the generator, its download URL and the e2e harness", all(jp.values()))
+jvals = {f: m.group(1) for f, m in jp.items() if m}
+check(f"java agent pin agrees across {len(jvals)} locations", len(set(jvals.values())) == 1)
+if len(set(jvals.values())) > 1:
+    print("  disagreeing pins:", jvals)
+check("java_agent_pin() reports the generator's pin line", d.java_agent_pin() == jvals.get("agents/instrumentation-gen.md"))
+_real_fetch_text = d.fetch_text
+d.fetch_text = lambda url: ("<metadata><versioning><latest>9.0.0-alpha</latest><release>2.34.0</release>"
+                            "<versions><version>2.31.1</version><version>2.34.0</version></versions></versioning></metadata>")
+check("latest_java_agent reads Maven Central's <release>, not <latest>", d.latest_java_agent() == "2.34.0")
+d.fetch_text = _real_fetch_text
 tf = dict(d.tf_pins())
 check("tf provider pins parsed (all 4 vendors)", len(tf) == 4 and "grafana/grafana" in tf)
 check("semconv pin parsed (1.45.0)", d.semconv_pin() == "1.45.0")
