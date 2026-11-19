@@ -34,7 +34,9 @@ refused() {
 CMD=commands/otel-test.md
 STEP1=$(sed -n '/^## Step 1/,/^## Step 2/p' "$CMD")   # captured once: grep -q + pipefail would race
 check "command: Step 1 names the Next.js limits before a route is asked for" \
-  'grep -qF "Say what this stack cannot do before asking for a route" <<<"$STEP1" && grep -qF "never set \`startScript\`" <<<"$STEP1" && grep -qF "neither runs the build" <<<"$STEP1"'
+  'grep -qF "Say what this stack cannot do before asking for a route" <<<"$STEP1" && grep -qF "never set \`startScript\`" <<<"$STEP1" && grep -qF "let \`startSearch\` find the entry" <<<"$STEP1"'
+check "command: the build step and startSearch are explained, with the skip switch" \
+  'grep -qF "spec'"'"'s \`build\`" "$CMD" && grep -qF "OTEL_TEST_SKIP_BUILD=1" "$CMD" && grep -qF "let \`startSearch\` find the entry" "$CMD"'
 check "command: Step 2 tells the user to fix service values with the spec's env" \
   'grep -qF "spec'"'"'s \`env\`" "$CMD" && grep -qF "never a real secret" "$CMD"'
 
@@ -137,6 +139,23 @@ check "env: the rendered node test carries the values and names them in the head
   'grep -q "^const FIXED_ENV = {\"APP_MODE\": \"test\", \"AUTH_SECRET\": \"test-only-secret\"};" tests/snapshots/telemetry-test/otel.test.cjs && grep -q "^// Fixed environment for the service.*: APP_MODE, AUTH_SECRET" tests/snapshots/telemetry-test/otel.test.cjs'
 check "env: a spec with no env renders an empty set and no header line" \
   'out=$(spec_with "$NSPEC" "del s[\"env\"]" | tt render --root "$N" --spec - --dry-run 2>&1); echo "$out" | grep -q "^+const FIXED_ENV = {};" && ! echo "$out" | grep -q "Fixed environment"'
+# `build` and `startSearch`: a service whose entry only exists after a build, at a path that
+# differs per machine (#319).
+SEARCH='{"dir": ".next/standalone", "file": "server.js"}'
+refused "spec: startSearch with a directory that climbs out is refused" "$N" "$NSPEC" 'del s["startScript"]; s["startSearch"] = {"dir": "../x", "file": "server.js"}' "startSearch"
+refused "spec: startSearch with an absolute directory is refused" "$N" "$NSPEC" 'del s["startScript"]; s["startSearch"] = {"dir": "/tmp", "file": "server.js"}' "startSearch"
+refused "spec: startSearch with a path as the file name is refused" "$N" "$NSPEC" 'del s["startScript"]; s["startSearch"] = {"dir": "dist", "file": "a/server.js"}' "startSearch"
+refused "spec: startSearch with an extra key is refused" "$N" "$NSPEC" 'del s["startScript"]; s["startSearch"] = {"dir": "dist", "file": "s.js", "x": 1}' "startSearch"
+refused "spec: startSearch together with startScript is refused" "$N" "$NSPEC" 's["startSearch"] = {"dir": "dist", "file": "server.js"}' "cannot be used together"
+refused "spec: a build command with a shell metacharacter is refused" "$N" "$NSPEC" 's["build"] = ["npm", "run", "build;id"]' "build"
+refused "spec: a build command that is not a list is refused" "$N" "$NSPEC" 's["build"] = "npm run build"' "build"
+refused "spec: a python spec with a build command is refused" "$P" "$PSPEC" 's["build"] = ["make"]' "Node.js services only"
+snap "$N"
+out=$(spec_with "$NSPEC" 'del s["startScript"]; s["start"] = ["-r", "./tracing.js"]; s["build"] = ["npm", "run", "build"]; s["startSearch"] = {"dir": ".next/standalone", "file": "server.js"}' | tt render --root "$N" --spec - --dry-run 2>&1); rc=$?
+check "build: a searched entry need not exist yet, and the test says so in its header" \
+  '[ "$rc" -eq 1 ] && echo "$out" | grep -q "^+// Build: npm run build runs before the service starts" && echo "$out" | grep -q "<server.js found under .next/standalone>" && echo "$out" | grep -q "^+const START_SEARCH = {\"dir\": \".next/standalone\", \"file\": \"server.js\"};" && same "$N"'
+check "build: without build or startSearch both are null" \
+  'grep -q "^const BUILD = null;" tests/snapshots/telemetry-test/otel.test.cjs && grep -q "^const START_SEARCH = null;" tests/snapshots/telemetry-test/otel.test.cjs'
 refused "spec: the server span repeated under spans is refused" "$N" "$NSPEC" 's["spans"].append("POST /checkout")' "repeats"
 refused "spec: a service root outside the project is refused" "$N" "$NSPEC" 's["serviceRoot"] = "../.."; del s["startScript"]' "not a directory under"
 refused "spec: python needs module:attribute" "$P" "$PSPEC" 's["app"] = "main.app()"' "module:attribute"

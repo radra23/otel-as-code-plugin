@@ -61,7 +61,7 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
   `/otel-instrument` never mistakes a test for a bootstrap). `scripts/telemetry_test.py` renders it
   from a spec and checks every spec value before it reaches the generated code; the command never
   writes the test by hand and never hands one over that it has not seen pass. The spec's `env` gives the service fixed test-only values (dummy secrets, a base
-  URL), written in plain text into the test file; `OTEL_*` names and the port variable are refused. The two languages
+  URL), written in plain text into the test file; `OTEL_*` names and the port variable are refused. `build` + `startSearch` serve a Node.js service whose entry exists only after a build, at a path that differs per machine (Next.js standalone): the test runs the build before every start and finds the one entry by file name, never a path written into `start`. The two languages
   capture differently on purpose: Python uses the SDK's in-memory exporter in process; Node.js
   starts the service as a child process and receives OTLP/JSON on loopback, because NodeSDK takes
   over the global provider (an in-memory provider registered before or after it captured nothing)

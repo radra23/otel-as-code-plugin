@@ -45,11 +45,12 @@ the service.
   there is no telemetry to protect yet.
 - **Say what this stack cannot do before asking for a route.** For a Next.js service (a `next`
   dependency in its `package.json`), tell the user, in one short message, before Step 2:
-  - the test starts the service with a plain `node <entry>` command, so it needs an entry that exists
-    without a build step. `next build` output (`.next/standalone/.../server.js`) can sit at a path
-    that mirrors the checkout's absolute path, and this command neither runs the build nor resolves
-    that path; a `next dev` script is not what production runs. If the entry does not exist yet, ask
-    the user to build first, and do not put a path that holds on one machine into the spec.
+  - the test starts the service with a plain `node <entry>` command, so it needs a built entry.
+    `next build` output (`.next/standalone/.../server.js`) can sit at a path that mirrors the
+    checkout's absolute path, and a `next dev` script is not what production runs. Put the build
+    command in the spec's `build` (`["npm", "run", "build"]`) and let `startSearch` find the entry
+    by name (`{"dir": ".next/standalone", "file": "server.js"}`, with `start` left empty). Never
+    write a path that holds on one machine into `start`.
   - Next.js loads its bootstrap from the `instrumentation` hook, not from a start-command flag, so
     never set `startScript` for it.
   - a route behind `middleware.ts` or an auth gate will answer a redirect or 401 to a request with no
@@ -107,6 +108,12 @@ the chosen route needed.
   a start command that loses its bootstrap flag fails the test. `portEnv` is the variable the
   service reads its port from (default `PORT`); if the port is hard-coded, say that the test
   cannot pick a free port and stop.
+  When the entry only exists after a build, or sits at a path that differs per machine, give the
+  spec `build` (the build command, as a list) and `startSearch` (`{"dir", "file"}`): the test runs
+  the build before every start, finds the one file with that name under `dir` (never under
+  `node_modules`), and starts it after the `start` arguments, which may then be empty. Two matches
+  or none is a failure that says so. The build can be slow; `OTEL_TEST_SKIP_BUILD=1` skips it when
+  the output is already fresh. Not together with `startScript`.
 - Python: `app` is the object the server runs, as `module:attribute` (`main:app`, what follows
   `uvicorn` or `gunicorn` in the start command), and `interface` is `asgi` (FastAPI, Starlette) or
   `wsgi` (Flask, Django's WSGI app). `bootstrap` is the generated bootstrap's module name
