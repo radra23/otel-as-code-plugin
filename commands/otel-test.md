@@ -9,8 +9,13 @@ Instrumentation breaks silently. A refactor renames a handler, drops a middlewar
 bootstrap flag from the start command, and no test fails: the dashboards and alerts just go quiet.
 This command writes one test into the service that fails instead, and names what is missing.
 
-The test sends **one real request** through the service and asserts three things came out:
+The test sends **one real request** through the service and asserts four things came out:
 - the request's own span (the server span auto-instrumentation makes),
+- the request's duration metric, `http.server.request.duration` in seconds with the
+  `http.response.status_code` the request answered: the series the generated dashboards and alerts
+  read (request rate, error rate, latency). An instrumentation that reports the old HTTP names
+  (`http.server.duration`) sends every span and leaves every panel empty (#192), so the spans alone
+  do not prove the dashboards have data,
 - every span `/otel-enrich` added on that code path, inside the request's trace,
 - every confirmed business metric `/otel-enrich --business` emits on that path.
 
@@ -101,6 +106,16 @@ into the test file in plain text, so they are dummy values and never a real secr
 variables and the port variable are the test's own and are refused. Tell the user which variables
 the chosen route needed.
 
+**The HTTP names on the wire.** One `OTEL_*` variable belongs to the service, not the test:
+`OTEL_SEMCONV_STABILITY_OPT_IN`, which decides whether the HTTP instrumentation reports the stable
+names the dashboards read. When the service's deployment settings set it (`/otel-instrument`
+Step 8 writes `http/dup` for a fresh Python service), copy the same value into the spec's `env`, so
+the test runs the service the way it is deployed. Never add it when the deployment does not set
+it: the test then fails on the duration metric, and that failure is the finding (the dashboards are
+empty in production too). Leave the duration metric checked (`requestMetric`, default true); turn
+it off with `"requestMetric": false` only when the user says no generated dashboard or alert reads
+this service, and the test then says in its header that it is not checked.
+
 **How the service starts.**
 - Node.js: `start` is the argument list node runs it with (`["-r", "./tracing.js", "index.js"]`).
   When `package.json` has a script that is exactly that command (`"start": "node -r ./tracing.js
@@ -133,6 +148,7 @@ the test will do before showing the file:
 ```
 This test sends POST /checkout to <service> and fails unless these came out:
   - the request's span:  POST /checkout
+  - dashboards' data:    http.server.request.duration, in seconds, with status 200
   - spans:               orders.checkout, orders.loadLines, pricing.total
   - metrics:             com.myorg.checkout.order_placed
 Not covered (this request does not reach them):
@@ -163,6 +179,11 @@ python -m unittest test_otel              # Python, with the project's interpret
   request does not reach it, move it to `notCovered` with the reason. If it should reach it and
   does not, that is a real finding: the telemetry is already broken. Report it and stop; do not
   delete the expectation to get a green test.
+- **It fails on `http.server.request.duration`** (the old name arrived instead, or the unit or the
+  status code is wrong): if the deployment sets `OTEL_SEMCONV_STABILITY_OPT_IN` and the spec's `env`
+  does not, copy it in and render again with `--force`. Otherwise it is a real finding: the
+  generated dashboards and alerts have no data for this service. Report it with the setting the
+  failure names, and stop; do not turn `requestMetric` off to get a green test.
 - **The service does not start, or the request does not answer as expected:** the request needs
   something this test does not provide. Tell the user what, and ask how to proceed.
 
@@ -175,7 +196,7 @@ exited 0.
 ✓ Wrote <path>. It passes.
 
 It sends <METHOD> <path> through <service> and fails if any of these stops coming out:
-  <the request's span, the spans, the metrics>
+  <the request's span, the request's duration metric, the spans, the metrics>
 Not covered: <notCovered, or "nothing: every enriched span and business metric is asserted">
 
 Run it:    <the command from Step 4>

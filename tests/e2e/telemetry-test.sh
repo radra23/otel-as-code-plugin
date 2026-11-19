@@ -10,6 +10,10 @@
 #     no longer importing the bootstrap, and the enrichment removed. Also run under pytest.
 #   - Python (WSGI): a Flask app, to prove the WSGI caller. Broken two ways: the line that
 #     instruments the app removed, and the enrichment removed.
+#   - Every test also requires the request's http.server.request.duration in seconds with its
+#     status code, which the generated dashboards read. Broken by putting the old HTTP names on
+#     the wire (FastAPI through the instrumentation package, Flask without the deployment's
+#     OTEL_SEMCONV_STABILITY_OPT_IN): every span still arrives, and the test must fail anyway.
 # The rendered files must equal the goldens in tests/snapshots/telemetry-test/. No Docker.
 # Needs Node 18+, Python 3.9+ with venv, and network for npm and pip.
 set -euo pipefail
@@ -163,6 +167,21 @@ if __name__ == "__main__":
 PY
 fails_with "python: when OpenTelemetry was already set up in the process, it says to run on its own" \
   "Run this file in its own process" - "$WORK/venv/bin/python" early.py
+# The request's duration metric under the name the dashboards query (#192): FastAPI 0.142.0+
+# reports the stable names itself, so the test above passed on them. The instrumentation package,
+# with no OTEL_SEMCONV_STABILITY_OPT_IN, reports the old ones: every span still arrives and every
+# dashboard panel is empty, and the test must say exactly that.
+fails_with "python: on the old HTTP names (package, no opt-in) it fails on the duration metric and names the fix" \
+  "the old HTTP name http.server.duration was recorded instead" "the request's own span" \
+  env OTEL_AS_CODE_FASTAPI_SOURCE=package "${PY_TEST[@]}"
+grep -qF "OTEL_SEMCONV_STABILITY_OPT_IN=http/dup" "$WORK/run.log" && ! grep -qF 'span "inventory.reserve_stock"' "$WORK/run.log" \
+  && ok "python: that failure names the setting and blames no span" || { bad "python: the old-name failure is not specific"; tail -20 "$WORK/run.log"; }
+spec_with_optin() { python3 -c 'import json, sys; s = json.load(open(sys.argv[1])); s.setdefault("env", {})["OTEL_SEMCONV_STABILITY_OPT_IN"] = "http/dup"; json.dump(s, open(sys.argv[2], "w"))' "$@"; }
+spec_with_optin "$SRC/tests/telemetry-test/python.spec.json" "$WORK/py-optin.json"
+render --root . --spec "$WORK/py-optin.json" --force >/dev/null
+passes "python: with the deployment's opt-in in the spec's env, the package's stable names pass" \
+  env OTEL_AS_CODE_FASTAPI_SOURCE=package "${PY_TEST[@]}"
+render --root . --spec "$SRC/tests/telemetry-test/python.spec.json" --force >/dev/null
 
 # ---------------------------------------------------------------- Python (WSGI, Flask)
 mkdir -p "$WORK/flask"
@@ -177,6 +196,20 @@ fails_with "flask: with the line that instruments the app removed it fails and n
   "the request's own span \"GET /items/<int:item_id>\"" 'span "catalog.find_item"' "${FLASK_TEST[@]}"
 cp "$SRC/tests/telemetry-test/flask-app.py" wsgi.py
 fails_with "flask: with the enrichment removed it fails and names the span" 'span "catalog.find_item"' "the request's own span" "${FLASK_TEST[@]}"
+enrich span --root . --file wsgi.py --function find_item --span-name catalog.find_item --tracer-name catalog >/dev/null
+passes "flask: with the enrichment back it passes again" "${FLASK_TEST[@]}"
+# Flask's instrumentation has no release that defaults to the stable HTTP names: the spec carries
+# the deployment's OTEL_SEMCONV_STABILITY_OPT_IN. Without it the duration metric is the old one.
+python3 -c 'import json, sys; s = json.load(open(sys.argv[1])); del s["env"]; json.dump(s, open(sys.argv[2], "w"))' \
+  "$SRC/tests/telemetry-test/flask.spec.json" "$WORK/flask-no-optin.json"
+render --root . --spec "$WORK/flask-no-optin.json" --force >/dev/null
+fails_with "flask: without the stability opt-in it fails on the duration metric only, naming the old name" \
+  "the old HTTP name http.server.duration was recorded instead" 'span "catalog.find_item"' "${FLASK_TEST[@]}"
+grep -qF "the request's own span" "$WORK/run.log" \
+  && { bad "flask: the old-name failure also blamed the request's span"; tail -20 "$WORK/run.log"; } \
+  || ok "flask: the old-name failure blames only the metric"
+render --root . --spec "$SRC/tests/telemetry-test/flask.spec.json" --force >/dev/null
+passes "flask: restored, it passes again" "${FLASK_TEST[@]}"
 
 [ "$failed" -eq 0 ] && echo "TELEMETRY TEST E2E PASS: the generated tests pass when instrumented and fail, naming the gap, when not"
 exit "$failed"

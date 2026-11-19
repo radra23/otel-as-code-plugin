@@ -4,6 +4,7 @@
   "serviceName": "catalog",
   "app": "wsgi:app",
   "interface": "wsgi",
+  "env": { "OTEL_SEMCONV_STABILITY_OPT_IN": "http/dup" },
   "request": { "method": "GET", "path": "/items/1?verbose=1", "expectStatus": 200 },
   "serverSpan": "GET /items/<int:item_id>",
   "spans": ["catalog.find_item"],
