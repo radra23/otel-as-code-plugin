@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # tests/readme-guardrails.test.sh
 # Locks #252: the README's Guardrails section must say what each agent actually runs. Which agent
-# runs a hook is read from hooks/hooks.json and .codex/hooks.json, and which commands take
+# runs a hook is read from hooks/hooks.json, .codex/hooks.json and the root hooks.json (Copilot
+# CLI), and which commands take
 # --dry-run from each command's argument-hint, so a hook or flag added later can't leave the
 # README describing something that isn't there.
 set -uo pipefail
@@ -49,6 +50,36 @@ sys.exit(0 if all(ev in codex for ev in events) else 1)
 ' "$1"
 }
 
+# copilot_runs <hook script>: true when the root hooks.json (Copilot CLI's flat format) runs an
+# adapter in hooks/copilot/ that runs the script.
+copilot_runs() {
+  python3 -c '
+import json, os, re, sys
+cfg = json.load(open("hooks.json"))["hooks"]
+for groups in cfg.values():
+    for h in groups:
+        for path in re.findall(r"hooks/copilot/[\w.-]+\.py", h.get("bash", "")):
+            if sys.argv[1] in open(path, encoding="utf-8").read():
+                sys.exit(0)
+sys.exit(1)
+' "$1"
+}
+# agents_for <hook script>: "Claude Code", then each other agent whose config runs it.
+agents_for() {
+  local a="Claude Code"
+  codex_runs "$1" && a="$a|Codex"
+  copilot_runs "$1" && a="$a|Copilot CLI"
+  echo "$a"
+}
+# label <a|b|c>: "(Claude Code only)", "(Claude Code and Codex)", "(Claude Code, Codex and Copilot CLI)".
+label() {
+  python3 -c '
+import sys
+a = sys.argv[1].split("|")
+print("(" + (a[0] + " only" if len(a) == 1 else ", ".join(a[:-1]) + " and " + a[-1]) + ")")
+' "$1"
+}
+
 section Guardrails > "$TMPD/guardrails.txt"
 section "Using with Codex" > "$TMPD/codex.txt"
 check "the README has a Guardrails section and a Using with Codex section" \
@@ -58,7 +89,8 @@ check "the README has a Guardrails section and a Using with Codex section" \
 claude_only=0
 for pair in "Write guard:write-guard.sh" "Semconv lint:semconv-lint.sh" "Session summary:session-summary.sh"; do
   name=${pair%%:*}; script=${pair#*:}
-  if codex_runs "$script"; then label="(Claude Code and Codex)"; else label="(Claude Code only)"; claude_only=1; fi
+  codex_runs "$script" || claude_only=1
+  label=$(label "$(agents_for "$script")")
   b=$(bullet "$name")
   check "the $name bullet says $label, as the hook configs register it (#252)" \
     '[ -n "$b" ] && case "$b" in *"$label"*) true ;; *) false ;; esac'
@@ -82,6 +114,54 @@ fi
 DRY=$(bullet "\`--dry-run\`")
 named=$(echo "${DRY%%can preview*}" | grep -o '/otel-[a-z-]*' | sort -u | tr '\n' ' ')
 actual=$(grep -l -- '^argument-hint:.*--dry-run' commands/*.md | sed 's#commands/#/#; s#\.md$##' | sort -u | tr '\n' ' ')
+# Copilot CLI: the install commands use the real marketplace and plugin names, and the section
+# says what does not run there.
+section "Using with GitHub Copilot CLI" > "$TMPD/copilot.txt"
+INSTALL=$(python3 -c '
+import json
+m = json.load(open(".claude-plugin/marketplace.json"))
+print(m["plugins"][0]["name"] + "@" + m["name"])
+')
+check "the README has a Using with GitHub Copilot CLI section" '[ -s "$TMPD/copilot.txt" ]'
+check "it installs with copilot plugin install $INSTALL, the names in marketplace.json" \
+  'grep -qF "copilot plugin install $INSTALL" "$TMPD/copilot.txt" && grep -qF "copilot plugin marketplace add radra23/otel-as-code-plugin" "$TMPD/copilot.txt"'
+if ! copilot_runs session-summary.sh; then
+  check "Using with GitHub Copilot CLI says the session summary does not run there" \
+    'grep -qi "session summary" "$TMPD/copilot.txt"'
+fi
+
+# The compatibility table: a hook cell says "yes" exactly where that agent's config runs the hook,
+# and every file the "Proven by" column names exists.
+section "Which agents it works in" > "$TMPD/agents.txt"
+check "the README has a Which agents it works in table" 'grep -q "^| Agent |" "$TMPD/agents.txt"'
+RUNS=""
+for script in write-guard.sh semconv-lint.sh session-summary.sh; do
+  codex_runs "$script" && RUNS="$RUNS|Codex:$script"
+  copilot_runs "$script" && RUNS="$RUNS|GitHub Copilot CLI:$script"
+done
+while IFS= read -r line; do
+  name=${line#*: }
+  case "$line" in PASS:*) check "$name" true ;; *) check "$name" false ;; esac
+done < <(RUNS="$RUNS" python3 -c '
+import os, re, sys
+rows = [l for l in open(sys.argv[1], encoding="utf-8") if l.startswith("|") and not l.startswith("|---")]
+split = lambda r: [c.strip() for c in r.strip().strip("|").split("|")]
+head, body = split(rows[0]), {split(r)[0]: split(r) for r in rows[1:]}
+runs = set(os.environ["RUNS"].split("|"))
+hooks = {"Write guard": "write-guard.sh", "Semconv lint": "semconv-lint.sh", "Session summary": "session-summary.sh"}
+for name in ("Claude Code", "Codex", "GitHub Copilot CLI"):
+    row = body.get(name)
+    if row is None:
+        print("FAIL: the table has a row for " + name); continue
+    for col, script in hooks.items():
+        cell = row[head.index(col)].lower()
+        expect = name == "Claude Code" or (name + ":" + script) in runs
+        print(("PASS" if cell.startswith("yes") == expect else "FAIL")
+              + ": the table says " + repr(cell) + " for " + col + " in " + name + ", as the hook configs register it")
+for name, row in body.items():
+    for path in re.findall(r"`([\w./-]+/[\w./-]*)`", row[head.index("Proven by")]):
+        print(("PASS" if os.path.exists(path) else "FAIL") + ": Proven by for " + name + " names " + path + ", which exists")
+' "$TMPD/agents.txt")
 check "the --dry-run bullet names exactly the commands that take --dry-run ($actual)" \
   '[ -n "$actual" ] && [ "$named" = "$actual" ]'
 check "the --dry-run bullet does not claim every writing command has it" \
@@ -109,8 +189,8 @@ check "the Semconv lint bullet does not claim strict mode blocks the write" \
 check "the Session summary bullet says it lists the whole working tree" \
   'bullet "Session summary" | grep -qi "working tree"'
 
-grep -n $'\xe2\x80\x94' "$TMPD/guardrails.txt" "$TMPD/codex.txt" >/dev/null && dash=1 || dash=0
-check "no em dashes in the two sections" '[ "$dash" -eq 0 ]'
+grep -n $'\xe2\x80\x94' "$TMPD/guardrails.txt" "$TMPD/codex.txt" "$TMPD/copilot.txt" "$TMPD/agents.txt" >/dev/null && dash=1 || dash=0
+check "no em dashes in the four agent sections" '[ "$dash" -eq 0 ]'
 
 echo
 echo "readme-guardrails: $pass passed, $fail failed"
