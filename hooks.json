@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "hooks": {
+    "preToolUse": [
+      {
+        "type": "command",
+        "bash": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/copilot/pre-tool-use.py\"",
+        "timeoutSec": 30
+      }
+    ],
+    "postToolUse": [
+      {
+        "type": "command",
+        "bash": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/copilot/post-tool-use.py\"",
+        "timeoutSec": 30
+      }
+    ]
+  }
+}

@@ -1,0 +1,1 @@
+{"sessionId":"00000000-0000-0000-0000-000000000000","timestamp":1795084084918,"cwd":"/work/fixture","toolName":"edit","toolArgs":"{\"path\": \"/work/fixture/tracing.py\", \"old_str\": \"# Re-run /otel-instrument to regenerate.\", \"new_str\": \"# hand edited\"}"}

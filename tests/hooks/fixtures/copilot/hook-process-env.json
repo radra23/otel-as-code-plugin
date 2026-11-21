@@ -1,0 +1,97 @@
+{
+  "copilotfmt-preToolUse": {
+    "process_cwd": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-copilot-fmt",
+    "env": {
+      "CLAUDE_PLUGIN_ROOT": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-copilot-fmt",
+      "PLUGIN_ROOT": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-copilot-fmt",
+      "COPILOT_PLUGIN_ROOT": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-copilot-fmt",
+      "PWD": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-copilot-fmt"
+    },
+    "command_arg_after_expansion": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-copilot-fmt"
+  },
+  "copilotfmt-PreToolUse": {
+    "process_cwd": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-copilot-fmt",
+    "env": {
+      "CLAUDE_PLUGIN_ROOT": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-copilot-fmt",
+      "PLUGIN_ROOT": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-copilot-fmt",
+      "COPILOT_PLUGIN_ROOT": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-copilot-fmt",
+      "PWD": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-copilot-fmt"
+    },
+    "command_arg_after_expansion": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-copilot-fmt"
+  },
+  "copilotfmt-postToolUse": {
+    "process_cwd": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-copilot-fmt",
+    "env": {
+      "CLAUDE_PLUGIN_ROOT": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-copilot-fmt",
+      "PLUGIN_ROOT": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-copilot-fmt",
+      "COPILOT_PLUGIN_ROOT": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-copilot-fmt",
+      "PWD": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-copilot-fmt"
+    },
+    "command_arg_after_expansion": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-copilot-fmt"
+  },
+  "copilotfmt-PostToolUse": {
+    "process_cwd": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-copilot-fmt",
+    "env": {
+      "CLAUDE_PLUGIN_ROOT": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-copilot-fmt",
+      "PLUGIN_ROOT": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-copilot-fmt",
+      "COPILOT_PLUGIN_ROOT": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-copilot-fmt",
+      "PWD": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-copilot-fmt"
+    },
+    "command_arg_after_expansion": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-copilot-fmt"
+  },
+  "claudefmt-PostToolUse-WriteEdit": {
+    "process_cwd": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-claude-fmt",
+    "env": {
+      "CLAUDE_PLUGIN_ROOT": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-claude-fmt",
+      "PLUGIN_ROOT": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-claude-fmt",
+      "COPILOT_PLUGIN_ROOT": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-claude-fmt",
+      "PWD": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-claude-fmt"
+    },
+    "command_arg_after_expansion": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-claude-fmt"
+  },
+  "copilotfmt-sessionEnd": {
+    "process_cwd": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-copilot-fmt",
+    "env": {
+      "CLAUDE_PLUGIN_ROOT": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-copilot-fmt",
+      "PLUGIN_ROOT": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-copilot-fmt",
+      "COPILOT_PLUGIN_ROOT": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-copilot-fmt",
+      "PWD": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-copilot-fmt"
+    },
+    "command_arg_after_expansion": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-copilot-fmt"
+  },
+  "copilotfmt-SessionEnd": {
+    "process_cwd": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-copilot-fmt",
+    "env": {
+      "CLAUDE_PLUGIN_ROOT": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-copilot-fmt",
+      "PLUGIN_ROOT": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-copilot-fmt",
+      "COPILOT_PLUGIN_ROOT": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-copilot-fmt",
+      "PWD": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-copilot-fmt"
+    },
+    "command_arg_after_expansion": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-copilot-fmt"
+  },
+  "_note": "Copilot CLI 1.0.56, plugin hooks. 'process_cwd' is the hook process's own cwd; the user's repo arrives as the payload's 'cwd' and as CLAUDE_PROJECT_DIR/COPILOT_PROJECT_DIR. Captured from a Copilot started inside a Claude Code session, so CLAUDECODE/CLAUDE_CODE_* names were inherited and are omitted; COPILOT_DEBUG_NONCE value not recorded.",
+  "spike-both-flat-postToolUse": {
+    "process_cwd": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-both",
+    "env": {
+      "CLAUDE_PLUGIN_ROOT": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-both",
+      "PLUGIN_ROOT": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-both",
+      "COPILOT_PLUGIN_ROOT": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-both",
+      "PWD": "<COPILOT_HOME>/installed-plugins/spike-mkt/spike-both",
+      "CLAUDE_PROJECT_DIR": "/work/fixture",
+      "COPILOT_PROJECT_DIR": "/work/fixture",
+      "PROJECT_DIR": null
+    },
+    "env_names_set_by_copilot": [
+      "CLAUDE_PLUGIN_DATA",
+      "CLAUDE_PLUGIN_ROOT",
+      "CLAUDE_PROJECT_DIR",
+      "COPILOT_CLI",
+      "COPILOT_CLI_BINARY_VERSION",
+      "COPILOT_DEBUG_NONCE",
+      "COPILOT_PLUGIN_DATA",
+      "COPILOT_PLUGIN_ROOT",
+      "COPILOT_PROJECT_DIR",
+      "PLUGIN_ROOT"
+    ]
+  }
+}
