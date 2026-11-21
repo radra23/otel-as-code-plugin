@@ -111,6 +111,14 @@ refused "spec: a status that is not a status is refused" "$N" "$NSPEC" 's["reque
 refused "spec: a span name with a quote is refused" "$N" "$NSPEC" 's["spans"] = ["a\"b"]' "plain span name"
 refused "spec: a metric name with a space is refused" "$N" "$NSPEC" 's["metrics"] = ["a b"]' "plain metric name"
 refused "spec: a server span with a backtick is refused" "$N" "$NSPEC" 's["serverSpan"] = "POST /x`id`"' "request span.s name"
+# Next.js names a dynamic route with brackets and a catch-all with `[...name]` (#318).
+for route in 'GET /api/services/[id]' 'GET /api/auth/[...nextauth]'; do
+  snap "$N"
+  out=$(spec_with "$NSPEC" "s['serverSpan'] = '$route'" | tt render --root "$N" --spec - --dry-run 2>&1); rc=$?
+  check "spec: the Next.js route \"$route\" is accepted" \
+    '[ "$rc" -eq 1 ] && ! echo "$out" | grep -q "^REFUSED" && echo "$out" | grep -qF "serverSpan: \"$route\"" && same "$N"'
+done
+refused "spec: brackets do not open a way to inject code" "$N" "$NSPEC" 's["serverSpan"] = "GET /x[`id`]"' "request span.s name"
 refused "spec: the server span repeated under spans is refused" "$N" "$NSPEC" 's["spans"].append("POST /checkout")' "repeats"
 refused "spec: a service root outside the project is refused" "$N" "$NSPEC" 's["serviceRoot"] = "../.."; del s["startScript"]' "not a directory under"
 refused "spec: python needs module:attribute" "$P" "$PSPEC" 's["app"] = "main.app()"' "module:attribute"
