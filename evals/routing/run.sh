@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # Routing eval driver (local). Costs real model calls on your account; not run in CI by default.
 #
-#   evals/routing/run.sh [a|b|both] [label]
+#   evals/routing/run.sh [a|b|both|c] [label]
 #     a     claude plugin eval: isolated session, ONLY otel-as-code loaded
 #     b     run-headless.sh: your normal user config (all your plugins), this checkout's plugin
+#     c     run-copilot.sh: GitHub Copilot CLI, non-interactive, ONLY otel-as-code installed
 #   env:  RUNS (default 3)  JOBS (default 3)  EVAL_MODEL (default claude-opus-5-5)
 #         MAX_COST_USD (default 40, condition a ceiling)  CASE (glob, default all cases)
-# Results: evals/results/routing/<label>-<UTC timestamp>/{a,b}/ + summary-{a,b}.json
+#         COPILOT_MODEL (default gpt-4.1)  COPILOT_BIN (default copilot)  COPILOT_JOBS (default 1:
+#         parallel sessions hit Copilot's per-user rate limit)  condition c only
+# Results: evals/results/routing/<label>-<UTC timestamp>/{a,b,c}/ + summary-{a,b,c}.json
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; ROOT="$(cd "$HERE/../.." && pwd)"
 COND=${1:-both}; LABEL=${2:-run}
@@ -77,9 +80,25 @@ run_b() {
     --title "Condition (b): normal user config ($LABEL)" --json "$OUT/summary-b.json"
 }
 
+run_c() {
+  local C="$OUT/c"; mkdir -p "$C"
+  local start=$(date +%s)
+  local pass_tmp; pass_tmp=$(mktemp -d "${TMPDIR:-/tmp}/otel-routing-pass.XXXXXX")
+  for c in "$HERE"/cases/$CASE/; do
+    grep -q 'tags: \[routing' "$c/prompt.md" || continue
+    for n in $(seq 1 "$RUNS"); do printf '%s %s %s\n' "$c" "$n" "$C"; done
+  done | TMPDIR="$pass_tmp" xargs -P "${COPILOT_JOBS:-1}" -L 1 "$HERE/run-copilot.sh" || true
+  rm -rf "${pass_tmp:?}"
+  echo "condition c wall time: $(( $(date +%s) - start ))s"
+  # score.py labels every --headless run "b"; the title and summary-c.json say which it is.
+  python3 "$HERE/score.py" --headless "$C" --per-run \
+    --title "Condition (c): Copilot CLI, only otel-as-code installed ($LABEL)" --json "$OUT/summary-c.json"
+}
+
 case "$COND" in
   a) run_a ;;
   b) run_b ;;
   both) run_a; run_b ;;
-  *) echo "usage: $0 [a|b|both] [label]" >&2; exit 2 ;;
+  c) run_c ;;
+  *) echo "usage: $0 [a|b|both|c] [label]" >&2; exit 2 ;;
 esac
