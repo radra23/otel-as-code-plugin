@@ -25,10 +25,22 @@ The spec:
    "start": ["-r", "./tracing.js", "index.js"],     nodejs: the arguments node starts the service with
    "startScript": "start",                          nodejs, optional: the package.json script that IS
                                                     that command; the test then reads it on every run
+   "build": ["npx", "next", "build"],               nodejs, optional: run in the service directory before every
+                                                    start (set OTEL_TEST_SKIP_BUILD=1 to skip it), so the test
+                                                    never runs against a stale or missing build
+   "startSearch": {"dir": ".next/standalone", "file": "server.js"},
+                                                    nodejs, optional: find the entry under dir by file name on
+                                                    every run and start it after the `start` arguments, for build
+                                                    output whose path differs per machine. Exactly one match;
+                                                    `start` may then be empty; not with `startScript`
    "portEnv": "PORT",                               nodejs: the variable the service reads its port from
    "app": "main:app", "interface": "asgi" | "wsgi", python: the app object the server runs
    "bootstrap": "tracing",                          python, optional: the bootstrap's module name; the
                                                     test then fails if importing the app does not import it
+   "env": {"AUTH_SECRET": "test-only-secret"},      optional: fixed values the service needs before it answers
+                                                    (dummy secrets, a base URL). Names and values are plain
+                                                    text in the test file: never a real secret. OTEL_* names
+                                                    and the port variable are the test's own and are refused.
    "request": {"method": "POST", "path": "/checkout", "json": {...}, "expectStatus": 200},
    "serverSpan": "POST /checkout",       the request's own span, as the instrumentation names it
    "spans": ["orders.checkout"],         spans /otel-enrich added on this code path
@@ -52,6 +64,9 @@ FILE_NAMES = {"nodejs": "otel.test.cjs", "python": "test_otel.py"}
 METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE")
 ARG_RE = re.compile(r"^[A-Za-z0-9_./@=:+-]{1,200}$")
 ENV_RE = re.compile(r"^[A-Z_][A-Z0-9_]{0,63}$")
+SEARCH_DIR_RE = re.compile(r"^(?!.*(^|/)\.\.(/|$))[A-Za-z0-9_.@-]+(/[A-Za-z0-9_.@-]+)*$")
+SEARCH_FILE_RE = re.compile(r"^[A-Za-z0-9_.-]{1,100}$")
+ENV_VALUE_RE = re.compile(r"^[\x20-\x7e]{0,200}$")
 APP_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]{0,199}:[A-Za-z_][A-Za-z0-9_]{0,99}$")
 PATH_RE = re.compile(r"^/[A-Za-z0-9_\-./~%?=&:,+@]{0,500}$")
 SERVER_SPAN_RE = re.compile(r"^[A-Za-z0-9_ ./:{}<>*\[\]\-]{1,200}$")
@@ -104,6 +119,13 @@ def check_spec(spec):
     need(isinstance(status, int) and not isinstance(status, bool) and 100 <= status <= 599,
          "`request.expectStatus` must be an HTTP status code.")
     need("json" not in req or req["method"] != "GET", "a GET request carries no `json` body.")
+    env = spec.get("env", {})
+    need(isinstance(env, dict) and len(env) <= 30 and all(
+        isinstance(k, str) and ENV_RE.fullmatch(k) and isinstance(v, str) and ENV_VALUE_RE.fullmatch(v)
+        for k, v in env.items()),
+        "`env` must map environment variable names to plain text values (printable ASCII, no newline).")
+    need(not any(k.startswith("OTEL_") or k == spec.get("portEnv", "PORT") for k in env),
+         "`env` may not set an OTEL_* variable or the port variable: the test sets those itself.")
     spans = names(spec, "spans", SPAN_NAME_RE, "span")
     metrics = names(spec, "metrics", METRIC_NAME_RE, "metric")
     need(spec["serverSpan"] not in spans, "`spans` repeats the server span.")
@@ -112,14 +134,27 @@ def check_spec(spec):
         isinstance(n, dict) and isinstance(n.get("name"), str) and isinstance(n.get("reason"), str)
         for n in not_covered), "`notCovered` must be a list of {name, reason}.")
     if lang == "nodejs":
-        start = spec.get("start")
-        need(isinstance(start, list) and start and all(isinstance(a, str) and ARG_RE.fullmatch(a) for a in start),
+        search = spec.get("startSearch")
+        need(search is None or (isinstance(search, dict) and set(search) == {"dir", "file"}
+                                and isinstance(search["dir"], str) and SEARCH_DIR_RE.fullmatch(search["dir"])
+                                and isinstance(search["file"], str) and SEARCH_FILE_RE.fullmatch(search["file"])),
+             "`startSearch` must be {dir, file}: a relative directory under the service (no ..) and a file name, "
+             "such as {\"dir\": \".next/standalone\", \"file\": \"server.js\"}.")
+        need(search is None or "startScript" not in spec,
+             "`startScript` and `startSearch` cannot be used together: a script names its own entry.")
+        start = spec.get("start", [] if search else None)
+        need(isinstance(start, list) and (start or search) and all(isinstance(a, str) and ARG_RE.fullmatch(a) for a in start),
              "`start` must be the list of arguments node runs the service with, e.g. [\"-r\", \"./tracing.js\", \"index.js\"].")
+        build = spec.get("build")
+        need(build is None or (isinstance(build, list) and 1 <= len(build) <= 20
+                               and all(isinstance(a, str) and ARG_RE.fullmatch(a) for a in build)),
+             "`build` must be the command that builds the service, as a list of plain arguments, e.g. [\"npm\", \"run\", \"build\"].")
         need(ENV_RE.fullmatch(spec.get("portEnv", "PORT")), "`portEnv` must be an environment variable name.")
         need("startScript" not in spec or (isinstance(spec["startScript"], str)
                                            and re.fullmatch(r"[A-Za-z0-9_:.-]{1,60}", spec["startScript"])),
              "`startScript` must be the name of a package.json script, such as start.")
     else:
+        need("build" not in spec and "startSearch" not in spec, "`build` and `startSearch` are for Node.js services only.")
         need(isinstance(spec.get("app"), str) and APP_RE.fullmatch(spec["app"]),
              "`app` must be `module:attribute`, the app object the server runs (e.g. main:app).")
         need(spec.get("interface") in ("asgi", "wsgi"), "`interface` must be asgi or wsgi.")
@@ -150,9 +185,24 @@ def not_covered_lines(not_covered, lead):
     return out
 
 
+def env_lines(spec, lead):
+    env = spec.get("env", {})
+    if not env:
+        return []
+    return [f"{lead}", f"{lead} Fixed environment for the service (test-only values, never real secrets): "
+            + ", ".join(sorted(env))]
+
+
 def render_node(spec, spans, metrics, not_covered):
     req = spec["request"]
-    start = spec["start"]
+    start = spec.get("start", [])
+    search = spec.get("startSearch")
+    entry = f"{comment_text(search['file'])} found under {comment_text(search['dir'])}" if search else None
+    started = " ".join(filter(None, [comment_text(" ".join(start)), entry and f"<{entry}>"]))
+    build_lines = []
+    if spec.get("build"):
+        build_lines = ["//", f"// Build: {comment_text(' '.join(spec['build']))} runs before the service starts, so this never tests a",
+                       "// stale build. It can be slow: set OTEL_TEST_SKIP_BUILD=1 when the build is already fresh."]
     header = [
         f"// Telemetry test for {comment_text(spec['serviceName'])}: {MARKER} v{plugin_version()} (/otel-test)",
         "// Re-run /otel-test --force to regenerate. /otel-uninstrument removes this file.",
@@ -162,24 +212,32 @@ def render_node(spec, spans, metrics, not_covered):
         "// from the start command without breaking any other test. The dashboards and alerts then go",
         "// quiet and nothing fails. This test fails instead, and says which span or metric is missing.",
         "//",
-        f"// How it works: it starts the service the way production does (node {comment_text(' '.join(start))}) on a",
+        f"// How it works: it starts the service the way production does (node {started}) on a",
         "// free port, with the OpenTelemetry exporter pointed at a small receiver inside this test.",
         "// Nothing leaves the machine and no backend is needed.",
         "//",
         "// Run it: node --test otel.test.cjs",
-    ] + not_covered_lines(not_covered, "//")
+    ] + build_lines + env_lines(spec, "//") + not_covered_lines(not_covered, "//")
     body = r"""'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
 const http = require('node:http');
 const net = require('node:net');
-const { spawn } = require('node:child_process');
+const fs = require('node:fs');
+const path = require('node:path');
+const { spawn, spawnSync } = require('node:child_process');
 
 // The arguments node starts the service with. When START_SCRIPT names a package.json script, the
 // arguments are read from it each run, so a start command that loses its bootstrap flag fails here.
 const START_SCRIPT = __START_SCRIPT__;
-const START = startArguments(__START__);
+let START = startArguments(__START__);
+// A build command to run before every start, and where to find the built entry (a path that can
+// differ per machine, so it is searched for rather than written down). Both are null when unused.
+const BUILD = __BUILD__;
+const START_SEARCH = __START_SEARCH__;
 const PORT_ENV = __PORT_ENV__;
+// Fixed values the service needs before it answers (dummy test-only secrets, a base URL).
+const FIXED_ENV = __FIXED_ENV__;
 const REQUEST = __REQUEST__;
 const EXPECTED = {
   serverSpan: __SERVER_SPAN__,
@@ -187,6 +245,7 @@ const EXPECTED = {
   metrics: __METRICS__,
 };
 const WAIT_MS = 15000;
+const TEST_TIMEOUT_MS = BUILD ? 600000 : 60000;
 
 function startArguments(fallback) {
   if (!START_SCRIPT) return fallback;
@@ -195,6 +254,39 @@ function startArguments(fallback) {
     `package.json "scripts.${START_SCRIPT}" is no longer a plain \`node ...\` command (${JSON.stringify(script)}), ` +
     'so this test cannot start the service the way production does. Re-run /otel-test --force.');
   return script.trim().split(/\s+/).slice(1);
+}
+
+// Build when the spec says so, then add the entry found by name to the start arguments.
+function prepareStart(args) {
+  const ranBuild = Boolean(BUILD) && !process.env.OTEL_TEST_SKIP_BUILD;
+  if (ranBuild) {
+    const built = spawnSync(BUILD[0], BUILD.slice(1), {
+      cwd: __dirname, env: { ...process.env, ...FIXED_ENV }, encoding: 'utf8', shell: process.platform === 'win32',
+    });
+    assert.ok(built.status === 0,
+      `the build command failed (${BUILD.join(' ')}), exit ${built.status}${built.error ? `: ${built.error.message}` : ''}.\n` +
+      `${String(built.stdout || '') + String(built.stderr || '')}`.slice(-2000));
+  }
+  if (!START_SEARCH) return args;
+  const root = path.join(__dirname, START_SEARCH.dir);
+  const found = [];
+  const walk = (dir) => {
+    let entries = [];
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (err) { return; }
+    for (const entry of entries) {
+      if (entry.name === 'node_modules') continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.name === START_SEARCH.file) found.push(path.relative(__dirname, full));
+    }
+  };
+  walk(root);
+  assert.ok(found.length > 0,
+    `no ${START_SEARCH.file} under ${START_SEARCH.dir}, so there is nothing to start.` +
+    (ranBuild ? ` The build command ran (${BUILD.join(' ')}) but did not produce it.` : ' Build the service first, or add a `build` command to the spec.'));
+  assert.ok(found.length === 1,
+    `more than one ${START_SEARCH.file} under ${START_SEARCH.dir}: ${found.join(', ')}. Remove the stale build output, or narrow the spec's startSearch.dir.`);
+  return [...args, found[0]];
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -253,14 +345,15 @@ function missing(seen) {
   return out;
 }
 
-test(`${REQUEST.method} ${REQUEST.path} still emits its telemetry`, { timeout: 60000 }, async () => {
+test(`${REQUEST.method} ${REQUEST.path} still emits its telemetry`, { timeout: TEST_TIMEOUT_MS }, async () => {
+  START = prepareStart(START);
   const { server: receiver, seen } = await startReceiver();
   const port = await freePort();
   const env = {};
   for (const [key, value] of Object.entries(process.env)) {
     if (!key.startsWith('OTEL_EXPORTER_OTLP_')) env[key] = value;
   }
-  Object.assign(env, {
+  Object.assign(env, FIXED_ENV, {
     [PORT_ENV]: String(port),
     OTEL_EXPORTER_OTLP_ENDPOINT: `http://127.0.0.1:${receiver.address().port}`,
     OTEL_EXPORTER_OTLP_PROTOCOL: 'http/json',
@@ -323,6 +416,8 @@ test(`${REQUEST.method} ${REQUEST.path} still emits its telemetry`, { timeout: 6
     if "json" in req:
         request["json"] = req["json"]
     fills = {"__START__": json.dumps(start), "__PORT_ENV__": json.dumps(spec.get("portEnv", "PORT")),
+             "__BUILD__": json.dumps(spec.get("build")), "__START_SEARCH__": json.dumps(spec.get("startSearch")),
+             "__FIXED_ENV__": json.dumps(spec.get("env", {})),
              "__REQUEST__": json.dumps(request), "__SERVER_SPAN__": json.dumps(spec["serverSpan"]),
              "__SPANS__": json.dumps(spans), "__METRICS__": json.dumps(metrics),
              "__START_SCRIPT__": json.dumps(spec.get("startScript"))}
@@ -348,7 +443,7 @@ def render_python(spec, spans, metrics, not_covered):
         "# Run it: python -m unittest test_otel     (pytest runs it too: python -m pytest test_otel.py)",
         "# Run it in its own process: OpenTelemetry can be set up once per process, so a test that",
         "# imported the app earlier in the same run would leave this one with nothing to read.",
-    ] + not_covered_lines(not_covered, "#")
+    ] + env_lines(spec, "#") + not_covered_lines(not_covered, "#")
     body = r'''import importlib
 import json
 import os
@@ -370,6 +465,8 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 APP = __APP__
 BOOTSTRAP = __BOOTSTRAP__
 INTERFACE = __INTERFACE__
+# Fixed values the service needs before it answers (dummy test-only secrets, a base URL).
+os.environ.update(__FIXED_ENV__)
 REQUEST = json.loads(__REQUEST__)
 EXPECTED = {
     "serverSpan": __SERVER_SPAN__,
@@ -507,6 +604,7 @@ if __name__ == "__main__":
         request["json"] = req["json"]
     fills = {"__APP__": json.dumps([module, attr]), "__INTERFACE__": json.dumps(spec["interface"]),
              "__BOOTSTRAP__": repr(spec.get("bootstrap")),
+             "__FIXED_ENV__": repr(spec.get("env", {})),
              "__REQUEST__": repr(json.dumps(request)), "__SERVER_SPAN__": json.dumps(spec["serverSpan"]),
              "__SPANS__": json.dumps(spans), "__METRICS__": json.dumps(metrics)}
     return "\n".join(header) + "\n" + fill(body, fills)
@@ -562,9 +660,10 @@ def cmd_render(args):
             need(isinstance(declared, str) and declared.split() == ["node"] + spec["start"],
                  f"package.json \"scripts.{spec['startScript']}\" is {declared!r}, not `node {' '.join(spec['start'])}`; "
                  f"make `start` match it, or drop `startScript`.")
-        script = next((a for a in spec["start"] if not a.startswith("-") and a.endswith((".js", ".cjs", ".mjs"))
-                       and os.path.isfile(os.path.join(sdir, a))), None)
-        need(script, f"none of the `start` arguments is a script that exists under {spec['serviceRoot']}.")
+        if not spec.get("startSearch"):  # a searched entry is built later, so it need not exist yet
+            script = next((a for a in spec["start"] if not a.startswith("-") and a.endswith((".js", ".cjs", ".mjs"))
+                           and os.path.isfile(os.path.join(sdir, a))), None)
+            need(script, f"none of the `start` arguments is a script that exists under {spec['serviceRoot']}.")
     else:
         module = spec["app"].split(":")[0].replace(".", os.sep)
         need(os.path.isfile(os.path.join(sdir, module + ".py")) or os.path.isdir(os.path.join(sdir, module)),
