@@ -172,7 +172,11 @@ done
 TMP=$(mktemp -d); mkdir -p "$TMP/real/api" "$TMP/cwd/api" "$TMP/other"
 ln -s "$TMP/real" "$TMP/link"; : > "$TMP/real/api/x.ts"; : > "$TMP/cwd/api/x.ts"
 echo "api/x.ts" > "$TMP/sentinel"
-if python3 "$FM" "$TMP/link/api/x.ts" "$TMP/real" "$TMP/sentinel"; then echo "PASS: relative entry matches a file reached through a symlinked root"; PASS=$((PASS+1))
+# Git Bash's `ln -s` copies the directory unless native symlinks are on, so on MSYS link/ and real/
+# are two files and no match is the right answer there; the bug this guards is POSIX-only.
+if [ "$IS_MSYS" = 1 ] || [ ! -L "$TMP/link" ]; then
+  echo "SKIP (MSYS, no real symlink): relative entry matches a file reached through a symlinked root"
+elif python3 "$FM" "$TMP/link/api/x.ts" "$TMP/real" "$TMP/sentinel"; then echo "PASS: relative entry matches a file reached through a symlinked root"; PASS=$((PASS+1))
 else echo "FAIL: relative entry missed the file through a symlinked root"; FAIL=$((FAIL+1)); fi
 FM_ABS="$(cd "$(dirname "$FM")" && pwd)/$(basename "$FM")"
 if (cd "$TMP/cwd" && python3 "$FM_ABS" "$TMP/cwd/api/x.ts" "$TMP/other" "$TMP/sentinel"); then echo "FAIL: relative entry resolved against the working directory, not the project root"; FAIL=$((FAIL+1))
