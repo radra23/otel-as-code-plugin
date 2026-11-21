@@ -43,6 +43,65 @@ check sibling-dir neither
 check relative neither
 check abs-glob routed
 
+# Condition (c): evals/routing/copilot_trace.py turns Copilot CLI's JSON events into the
+# stream-json above, so the same score.classify decides. Event shapes as Copilot CLI 1.0.56 sent
+# them (skills_loaded lists each skill's source and path; tool calls are tool.execution_start).
+CROOT=/opt/copilot-home/installed-plugins/otel-as-code/otel-as-code
+cskills() { python3 -c 'import json,sys; r=sys.argv[1]; print(json.dumps({"type":"session.skills_loaded","data":{"skills":[
+  {"name":"otel-instrument","source":"plugin","path":r+"/commands/otel-instrument.md"},
+  {"name":"customize-cloud-agent","source":"builtin","path":"/opt/copilot/builtin-skills/customize-cloud-agent/SKILL.md"},
+  {"name":"add-tracing","source":"personal-agents","path":"/home/u/.agents/skills/add-tracing/SKILL.md"}]}}))' "$CROOT"; }
+ctool() { python3 -c 'import json,sys; a=sys.argv[2]; print(json.dumps({"type":"tool.execution_start","data":{"toolName":sys.argv[1],"arguments":a if sys.argv[3:] else json.loads(a)}}))' "$@"; }
+ctrace() { python3 evals/routing/copilot_trace.py "$T/$1.copilot.jsonl" "$CROOT" > "$T/$1.jsonl"; }
+{ cskills; ctool skill '{"skill":"otel-instrument"}'; } > "$T/c-skill.copilot.jsonl"
+{ cskills; ctool skill '{"skill":"customize-cloud-agent"}'; ctool skill '{"skill":"add-tracing"}'; } > "$T/c-other-skill.copilot.jsonl"
+{ cskills; ctool view "{\"path\":\"$CROOT/skills/semconv-discipline/SKILL.md\"}"; } > "$T/c-view-root.copilot.jsonl"
+{ cskills; ctool task '{"agent_type":"otel-as-code:instrumentation-gen","prompt":"x"}'; } > "$T/c-agent.copilot.jsonl"
+{ cskills; ctool bash '{"command":"npm install @opentelemetry/api @opentelemetry/sdk-node"}'; ctool skill '{"skill":"otel-instrument"}'; } > "$T/c-npm.copilot.jsonl"
+{ cskills; ctool create '{"path":"/w/tracing.js","file_text":"require(\"@opentelemetry/sdk-node\")"}' str; } > "$T/c-create-string-args.copilot.jsonl"
+{ cskills; ctool apply_patch '{"input":"*** Add File: tracing.js\n+const { NodeSDK } = require(\"@opentelemetry/sdk-node\")"}'; } > "$T/c-patch.copilot.jsonl"
+{ cskills; ctool edit '{"path":"/w/lib/orders.js","old_str":"floor","new_str":"round"}'; ctool web_fetch '{"url":"https://opentelemetry.io"}'; } > "$T/c-neither.copilot.jsonl"
+for c in c-skill c-other-skill c-view-root c-agent c-npm c-create-string-args c-patch c-neither; do ctrace "$c"; done
+check c-skill routed
+check c-other-skill neither
+check c-view-root routed
+check c-agent routed
+check c-npm hand-rolled
+check c-create-string-args hand-rolled
+check c-patch hand-rolled
+check c-neither neither
+if grep -q '"x-unmapped", "name": "web_fetch"' "$T/c-neither.jsonl"; then echo "PASS c-neither keeps web_fetch as unmapped"; else echo "FAIL c-neither: web_fetch not recorded as unmapped"; fail=1; fi
+
+# run-copilot.sh end to end against a stub `copilot` (no model calls): a session whose model
+# calls were rate limited must be recorded as a failed run and stop the pass (exit 255), never
+# scored as a real "neither"; a clean session that calls the plugin's skill scores routed.
+STUB="$T/copilot-stub"
+cat > "$STUB" <<'SH'
+#!/usr/bin/env bash
+[ "$1" = plugin ] && exit 0
+root="$COPILOT_HOME/installed-plugins/otel-as-code/otel-as-code"
+printf '{"type":"session.skills_loaded","data":{"skills":[{"name":"otel-instrument","source":"plugin","path":"%s/commands/otel-instrument.md"}]}}\n' "$root"
+if [ "$STUB_MODE" = limited ]; then
+  printf '{"type":"model.call_failure","data":{"model":"gpt-4.1","statusCode":429,"errorMessage":"rate limit for utility models"}}\n'
+else
+  printf '{"type":"tool.execution_start","data":{"toolName":"skill","arguments":{"skill":"otel-instrument"}}}\n'
+fi
+printf '{"type":"result","exitCode":0,"usage":{"premiumRequests":0}}\n'
+SH
+chmod +x "$STUB"
+for mode in limited clean; do
+  rc=0
+  STUB_MODE=$mode COPILOT_BIN="$STUB" COPILOT_GITHUB_TOKEN=stub TMPDIR="$T" \
+    bash evals/routing/run-copilot.sh evals/routing/cases/add-tracing 1 "$T/c-$mode" >/dev/null 2>&1 || rc=$?
+  echo "$rc" > "$T/c-$mode.rc"
+done
+got=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["exitCode"])' "$T/c-limited/add-tracing/run-1/meta.json" 2>/dev/null || echo none)
+if [ "$(cat "$T/c-limited.rc")" = 255 ] && [ "$got" = 75 ]; then echo "PASS run-copilot flags a rate-limited run and stops the pass"
+else echo "FAIL run-copilot rate limit: runner exit $(cat "$T/c-limited.rc"), recorded exitCode $got"; fail=1; fi
+got=$(python3 -c 'import sys; sys.path.insert(0,"evals/routing"); import score; print(score.load_b(sys.argv[1], score.case_expectations("evals/routing/cases"))[0]["verdict"])' "$T/c-clean" 2>/dev/null || echo none)
+if [ "$(cat "$T/c-clean.rc")" = 0 ] && [ "$got" = routed ]; then echo "PASS run-copilot scores a clean skill call as routed"
+else echo "FAIL run-copilot clean run: runner exit $(cat "$T/c-clean.rc"), verdict $got"; fail=1; fi
+
 # Every case directory carries a prompt, a should-/should-not-route tag, a grader and a scaffold.
 python3 - <<'PY' || fail=1
 import glob, os, sys

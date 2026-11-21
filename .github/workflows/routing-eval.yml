@@ -4,13 +4,21 @@
 #
 # Manual only (workflow_dispatch). Every case is a real model call billed to the
 # ANTHROPIC_API_KEY secret: the default 10 prompts x 3 runs costs roughly $15-40 at list price.
-# It runs condition (a), only otel-as-code loaded; condition (b), your personal plugin set, can
-# only run on your own machine (evals/routing/run.sh b).
+# It runs condition (a), only otel-as-code loaded, or condition (c), GitHub Copilot CLI with only
+# otel-as-code installed, billed to the Copilot seat of whoever owns the COPILOT_GITHUB_TOKEN
+# secret (a fine-grained personal access token with the "Copilot Requests" account permission;
+# classic tokens are not accepted). Condition (b), your personal plugin set, can only run on your
+# own machine (evals/routing/run.sh b).
 name: Routing eval
 
 on:
   workflow_dispatch:
     inputs:
+      condition:
+        description: "a = Claude Code, only otel-as-code; c = Copilot CLI, only otel-as-code"
+        type: choice
+        options: [a, c]
+        default: a
       runs:
         description: Runs per prompt
         default: '3'
@@ -18,8 +26,11 @@ on:
         description: Model under test (pin it so a model rollout is not read as a regression)
         default: claude-opus-5-5
       max_cost_usd:
-        description: Cost ceiling in USD (list-price estimate)
+        description: Cost ceiling in USD (list-price estimate, condition a)
         default: '40'
+      copilot_model:
+        description: Copilot model under test (condition c)
+        default: gpt-4.1
 
 permissions:
   contents: read
@@ -27,6 +38,7 @@ permissions:
 jobs:
   routing-eval:
     name: Routing eval (condition a)
+    if: inputs.condition == 'a'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -63,5 +75,42 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: routing-eval-results
+          path: evals/results/routing/
+          if-no-files-found: warn
+
+  routing-eval-copilot:
+    name: Routing eval (condition c, Copilot CLI)
+    if: inputs.condition == 'c'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install Copilot CLI
+        run: |
+          npm install -g @github/copilot@1.0.56
+          copilot --version
+
+      - name: Run the routing eval
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+          RUNS: ${{ inputs.runs }}
+          COPILOT_MODEL: ${{ inputs.copilot_model }}
+        run: |
+          if [ -z "$COPILOT_GITHUB_TOKEN" ]; then
+            echo "::error::COPILOT_GITHUB_TOKEN secret is not set; condition c needs a fine-grained token with the Copilot Requests permission."
+            exit 1
+          fi
+          bash evals/routing/run.sh c ci | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: routing-eval-results-copilot
           path: evals/results/routing/
           if-no-files-found: warn
