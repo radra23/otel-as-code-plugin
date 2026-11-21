@@ -138,11 +138,27 @@ if { otel_is_generated_path "$FILE_PATH" || otel_is_tf_module_basename "$(basena
   # same file is `/c/Users/me/repo/src/tracing.ts`, and Codex's apply_patch reports paths
   # relative to the session cwd. An exact-string match can never succeed across those shapes,
   # which silently turned --force into a no-op. See hooks/otel-force-match.py.
-  PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
-  FORCE_FILE="$PROJECT_DIR/.claude/.otel-force"
-  if [ -f "$FORCE_FILE" ] && py "${CLAUDE_PLUGIN_ROOT}/hooks/otel-force-match.py" "$FILE_PATH" "$PROJECT_DIR" "$FORCE_FILE" 2>/dev/null; then
-    exit 0
+  #
+  # Where the sentinel lives: the commands write it to `.claude/` of the directory they run in.
+  # In a session started from the main checkout but working in a LINKED WORKTREE,
+  # CLAUDE_PROJECT_DIR is the main checkout, so the worktree's own sentinel was never read and
+  # --force was a no-op there. Look in both places: CLAUDE_PROJECT_DIR, then the git toplevel of
+  # the file being written. Each sentinel is matched against its OWN root, which also anchors
+  # its relative entries.
+  FORCE_ROOTS=("${CLAUDE_PROJECT_DIR:-$(pwd)}")
+  FILE_DIR="$(dirname "$FILE_PATH")"
+  if [ -d "$FILE_DIR" ]; then
+    FILE_TOP="$(git -C "$FILE_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
+    if [ -n "$FILE_TOP" ] && [ "$FILE_TOP" != "${FORCE_ROOTS[0]}" ]; then
+      FORCE_ROOTS+=("$FILE_TOP")
+    fi
   fi
+  for PROJECT_DIR in "${FORCE_ROOTS[@]}"; do
+    FORCE_FILE="$PROJECT_DIR/.claude/.otel-force"
+    if [ -f "$FORCE_FILE" ] && py "${CLAUDE_PLUGIN_ROOT}/hooks/otel-force-match.py" "$FILE_PATH" "$PROJECT_DIR" "$FORCE_FILE" 2>/dev/null; then
+      exit 0
+    fi
+  done
   echo "otel-as-code write-guard: blocking overwrite of existing generated OTel file: $FILE_PATH" >&2
   echo "Re-run the originating /otel-* command with --force to overwrite." >&2
   exit 2
