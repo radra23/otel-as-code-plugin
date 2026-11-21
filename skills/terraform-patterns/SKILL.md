@@ -427,7 +427,7 @@ Rules:
   the printed logging add-on. Generate both regardless, put that sentence in the panel
   description, and repeat it in the summary when the service's bootstrap does not export logs.
 - **Other backends.** New Relic gets a Logs page and an error-log alert, Dash0 a log-volume
-  panel and no alert: see their sections below. Datadog gets neither yet.
+  panel and no alert, Datadog a log stream and an error-log monitor: see their sections below.
 
 ### Notification routing (contact points)
 Emit contact points only when the user asks for alert routing. Without one, the generated
@@ -537,6 +537,36 @@ Two gotchas baked into those queries:
   distribution (not a gauge/count) — have the user confirm the metric type in Metrics Explorer if
   the panel is empty; an OTLP histogram maps to a Datadog distribution by default, but a custom
   exporter/pipeline could remap it.
+
+### Log stream and error-log monitor (#279)
+The dashboard's last widget is a `log_stream_definition` titled `Logs`, and the module gains one
+`datadog_monitor.error_logs`, named `High error-log share — ${var.service_name}`. Datadog's OTLP log mapping (`pkg/otlp/logs` in
+DataDog/opentelemetry-mapping-go, used by the Collector's Datadog exporter and the Agent's OTLP
+ingest) puts `service.name` into the log's `service` and sets its `status` from the record's
+severity text, or, when there is none, from its severity number (17 to 20 `error`, 21 to 24
+`fatal`). Datadog then reads the status by its documented prefixes: `err` is `error`, `c`
+`critical`, `a` `alert`, `emerg` or `f` `emergency`.
+
+- Log stream: `service:${var.service_name}` (the widget's `query`)
+- Error lines: `service:${var.service_name} status:(error OR critical OR alert OR emergency)` (the monitor's `errors` search)
+- All lines: `service:${var.service_name}` (the monitor's `total` search)
+- The monitor is `type = "log alert"` with `query = "formula(\"errors / total\").last(\"5m\") > ${var.error_log_ratio_threshold}"`,
+  two `variables { event_query { ... } }` blocks (`data_source = "logs"`, `indexes = ["*"]`,
+  `compute { aggregation = "count" }`, the search above) and
+  `monitor_thresholds { critical = var.error_log_ratio_threshold }` (the same variable and
+  default as Grafana's). Leave `on_missing_data` and `notify_no_data` unset: Datadog documents
+  that a log monitor's count queries treat missing data as zero, and a service with no lines
+  then divides zero by zero, which cannot cross the threshold and does not notify.
+- **Why status and not the number.** Datadog keeps the number only as the string attribute
+  `otel.severity_number`, which a range search cannot use without a measure facet the module does
+  not create. The status follows the text when the text is set, so a level whose name does not
+  start with `err`, `c`, `a` or `f` is not counted: Java's `java.util.logging` `SEVERE` reads as
+  `ok` by those prefixes. Say so in the summary for a Java service that logs through JUL.
+- **Not run.** `terraform validate` proves the schema; the monitor's formula form follows the
+  provider's own event-platform formula examples, and neither query was run against a Datadog
+  account. `terraform plan` with credentials asks Datadog to validate the monitor query; say in
+  the summary that the plan is the first place a wrong query shows. The widget's `description`
+  says when it is empty and that it was not run.
 
 ---
 

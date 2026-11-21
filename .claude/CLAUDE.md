@@ -61,7 +61,7 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
   `/otel-instrument` never mistakes a test for a bootstrap). `scripts/telemetry_test.py` renders it
   from a spec and checks every spec value before it reaches the generated code; the command never
   writes the test by hand and never hands one over that it has not seen pass. The spec's `env` gives the service fixed test-only values (dummy secrets, a base
-  URL), written in plain text into the test file; `OTEL_*` names and the port variable are refused. `build` + `startSearch` serve a Node.js service whose entry exists only after a build, at a path that differs per machine (Next.js standalone): the test runs the build before every start and finds the one entry by file name, never a path written into `start`. The two languages
+  URL), written in plain text into the test file; `OTEL_*` names and the port variable are refused. `build` + `startSearch` serve a Node.js service whose entry exists only after a build, at a path that differs per machine (Next.js standalone): the test runs the build before every start and finds the one entry by file name, never a path written into `start`. Both templates also require `http.server.request.duration` in seconds with a point carrying the request's status, the series the generated dashboards read, so an instrumentation on the OLD HTTP names fails the test instead of leaving panels empty; `OTEL_SEMCONV_STABILITY_OPT_IN` is the one OTEL_ name `env` accepts, and `requestMetric: false` opts out and says so in the header. The two languages
   capture differently on purpose: Python uses the SDK's in-memory exporter in process; Node.js
   starts the service as a child process and receives OTLP/JSON on loopback, because NodeSDK takes
   over the global provider (an in-memory provider registered before or after it captured nothing)
@@ -126,13 +126,15 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
   alert's query is proven, its rule evaluation is not. New Relic has a Logs page and the same
   alert on `severity.number` (New Relic's documented OTLP mapping); Dash0 has a `dash0.logs`
   volume panel and deliberately NO alert, because the severity values of that metric's label are
-  not documented and a guessed filter would never fire while looking healthy. Neither is run
-  against data. Datadog has nothing yet.
+  not documented and a guessed filter would never fire while looking healthy. Datadog has a log
+  stream and an error-log monitor (a `log alert` formula over two `status:` searches, because its
+  OTLP mapping keeps the severity number only as a string; JUL's `SEVERE` reads as `ok` there and
+  is missed). None of the three is run against data.
 - Every generated alert explains itself (#288): what it means (with its threshold), likely
   causes and what to check first, from `skills/terraform-patterns/alert-text.json`, one entry
   per alert kind, in each backend's own field (Grafana rule annotations, New Relic
   `description`, Datadog `message`, Dash0 rule annotations, double-quoted because the text
-  contains `: `). `tests/alert-text.test.sh` finds every alert in every golden (12 today) and
+  contains `: `). `tests/alert-text.test.sh` finds every alert in every golden (13 today) and
   requires its kind's text, rendered by `tests/alert_text_render.py`, byte for byte: a new alert
   arrives with its text, and `agents/terraform-gen.md`'s alert list per backend must name the
   same kinds as its golden. Links only where the backend's own resources build them: Grafana gets
