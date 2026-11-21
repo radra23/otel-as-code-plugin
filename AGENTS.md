@@ -1,7 +1,7 @@
 # AGENTS.md — otel-as-code
 
-Cross-agent instructions for this repo, read by Codex (and other agents that honor
-`AGENTS.md`). Claude Code plugin-development specifics live in `.claude/CLAUDE.md`.
+Cross-agent instructions for this repo, read by Codex, GitHub Copilot CLI and other agents that
+honor `AGENTS.md`. Claude Code plugin-development specifics live in `.claude/CLAUDE.md`.
 
 <!-- Maintainer note: Codex loads this file up to `project_doc_max_bytes` (32 KiB default) —
      keep it lean. An `AGENTS.override.md` beside it, if present, takes precedence. -->
@@ -13,7 +13,8 @@ on their own machine the same day. It instruments a codebase (Node.js, Python, J
 Ruby, Rust, PHP), tracks the user's own functions and business numbers, writes a test that fails
 when the telemetry goes missing, infers service identity from the repo, and generates
 vendor-neutral Terraform for Grafana / Datadog / New Relic / Dash0. It ships as a Claude Code
-plugin AND as Codex skills. When you describe it to a user, use their words (tracing, slow
+plugin, as a GitHub Copilot CLI plugin and as Codex skills (which checks run in which agent, and
+what proves it: README "Which agents it works in"). When you describe it to a user, use their words (tracing, slow
 requests, dashboards) before OpenTelemetry's.
 
 ## Using with Codex
@@ -67,7 +68,10 @@ here), so resolve these paths against otel-as-code's own checkout directory, not
   Codex has SessionEnd, but its PR-changelog output has no natural Codex surface.
 
 ### GitHub Copilot CLI
-Copilot CLI installs this repo as a plugin and loads its skills. Its hooks come from the
+Install: `copilot plugin marketplace add radra23/otel-as-code-plugin`, then
+`copilot plugin install otel-as-code@otel-as-code` (marketplace and plugin are both named
+`otel-as-code` in `.claude-plugin/marketplace.json`). The skills are expected to load with the
+plugin; no test here proves it. Its hooks come from the
 root-level `hooks.json` (Copilot's flat format, camelCase `preToolUse`/`postToolUse`), which
 Copilot reads in place of `hooks/hooks.json` and Claude Code does not read at all, so each host
 runs the guardrails once. The adapters in `hooks/copilot/` map Copilot's `create`/`edit` tools
@@ -76,8 +80,14 @@ to the Write/Edit payload `hooks/*.sh` read, run the scripts in the user's repo 
 Copilot acts on: `permissionDecision: "deny"` for a write-guard block (Copilot 1.0.56 does not
 deny on exit 2) and `additionalContext` for lint findings (stderr never reaches the model).
 Measured payloads and the reasons are in `docs/agents/copilot-spike.md` and
-`tests/hooks/fixtures/copilot/`. Not ported: SessionEnd (Copilot discards its output), and any
-write tool other than `create`/`edit`, which passes unchecked.
+`tests/hooks/fixtures/copilot/`. Unlike Codex, the hooks load wherever the plugin is installed,
+not only when this repo is the project root. Not ported: SessionEnd (Copilot discards its
+output), and any write tool other than `create`/`edit`, which passes unchecked.
+- **Subagent dispatch: not tested.** Where a `commands/otel-*.md` says "dispatch the `<x>`
+  agent" and you can't, read `agents/<x>.md` and do that work inline, as in Codex.
+- **VS Code: not tested.** GitHub's docs say Copilot in VS Code shares the CLI's hooks, but the
+  CLI already differed from those docs (exit 2 did not deny; Claude-format `PreToolUse` never
+  ran), so don't assume VS Code matches until it is run.
 
 ## Conventions & architecture
 Tool-agnostic conventions — the single-sourced `SEMCONV_VERSION`, the `backends.txt` vendor list,
