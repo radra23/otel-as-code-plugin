@@ -439,8 +439,8 @@ alert on the share of error lines (5% for 5 minutes by default, a variable). Bot
 service to export its logs, and both queries are run against a real Loki in CI
 ([`tests/e2e/log-panel.sh`](https://github.com/radra23/otel-as-code-plugin/blob/main/tests/e2e/log-panel.sh)); the alert rule itself is not evaluated there.
 New Relic gets a Logs page and the same alert, and Dash0 a log-volume panel with no alert (the
-severity values its log metric uses are not documented). Both are written from the vendor's
-documentation and not run against data. Datadog has neither yet.
+severity values its log metric uses are not documented), and Datadog a log stream and the same
+alert. All three are written from the vendor's documentation and not run against data.
 
 Ruby, Rust and PHP emit no runtime metrics: none of them has a stable package for it. The full
 picture, with how settled each language's metric names are, is in
@@ -459,7 +459,7 @@ images) can get a deployment-config diff from `/otel-remediate` instead; v1 cove
 | `/otel-evaluate` | Read-only audit of existing OTel: coverage gaps, semconv conformance, cardinality risks |
 | `/otel-collector [agent\|gateway]` | Generate an `otelcol-contrib` config |
 | `/otel-backend <vendor>` | Generate Terraform for `grafana`, `datadog`, `newrelic`, or `dash0` |
-| `/otel-enrich <file>:<function>` | Add a span around one of your own functions (Node.js, Python): an in-place edit, shown as a diff first, insert-only between markers |
+| `/otel-enrich <file>:<function>` | Add a span around one of your own functions (Node.js, TypeScript included, and Python): an in-place edit, shown as a diff first, insert-only between markers |
 | `/otel-enrich --business` | Emit the business metrics you confirmed (counters, histograms, gauges) where your code owns the value, so the panels `/otel-backend` generated for them have data |
 | `/otel-enrich --clients` | Check which database and queue clients are actually traced, turn on the instrumentation package for one that is not (Python), and add a client span where no package exists. One client span per call, never two |
 | `/otel-test` | Generate a test that fails when the service's telemetry goes missing: one request, asserting its span, the spans `/otel-enrich` added and the confirmed business metrics (Node.js, Python). No backend needed |
