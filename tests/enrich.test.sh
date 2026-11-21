@@ -601,6 +601,13 @@ tspan() { local f="$1"; shift; enrich span --root "$T" --file $TOR --function "$
 
 tsfresh; rm "$T/node_modules"
 refused "ts: with no typescript in node_modules the file can't be checked, and is refused" "$T" "no .typescript. in a node_modules" span --root "$T" --file $TOR --function parse --span-name a.b --tracer-name t
+# A tsc above the project root is not the project's: it is never run, and the file is refused.
+ABOVE=$(mktemp -d); mkdir -p "$ABOVE/node_modules/typescript/bin" "$ABOVE/proj"
+printf '#!/usr/bin/env node\nrequire("fs").writeFileSync(%s, "ran");\n' "'$ABOVE/ran'" > "$ABOVE/node_modules/typescript/bin/tsc"
+cp -R tests/enrich/ts-app/. "$ABOVE/proj/"
+refused "ts: a typescript above the project root is not looked for, and the file is refused" "$ABOVE/proj" "inside the project root" span --root "$ABOVE/proj" --file $TOR --function parse --span-name a.b --tracer-name t
+check "ts: ... and that tsc never ran" '[ ! -e "$ABOVE/ran" ]'
+rm -rf "$ABOVE"
 tsfresh; snap "$T"
 out=$(tspan checkout --span-name orders.checkout --dry-run); rc=$?
 check "ts: --dry-run prints the diff, exits 1, writes nothing; no dependency note (@opentelemetry/api is declared)" \

@@ -226,34 +226,35 @@ def check_js(text, full):
     return err[0] if err else "does not parse"
 
 
-def find_tsc(full):
-    """The project's own TypeScript compiler, from the nearest node_modules at or above the file."""
+def find_tsc(full, root):
+    """The project's own TypeScript compiler, from the nearest node_modules at or above the file and
+    never above the project root: a tsc found further up is not the project's, and running it would
+    run a file from outside the project. A node_modules linked from inside the root is the project's."""
+    base = os.path.realpath(root)
     d = os.path.dirname(full)
-    while True:
+    while d == base or d.startswith(base + os.sep):
         tsc = os.path.join(d, "node_modules", "typescript", "bin", "tsc")
         if os.path.isfile(tsc):
             return tsc
-        parent = os.path.dirname(d)
-        if parent == d:
-            return None
-        d = parent
+        d = os.path.dirname(d)
+    return None
 
 
 TSC_ERROR_RE = re.compile(r"^(?P<file>[^(\s][^(]*)\((?P<line>\d+),\d+\): error (?P<code>TS\d+): (?P<msg>.*)$")
 
 
-def check_ts(text, full):
+def check_ts(text, full, root):
     """Syntax only: the project's `tsc` on a copy in an empty temp directory (no tsconfig, nothing
     imported resolved, no lib), keeping only its TS1xxx errors, which are the syntax ones. Types are
     the project's build's business, and an import that can't be resolved here is not an error."""
     node = shutil.which("node")
     if not node:
         raise Refused("node is not on PATH, so the edited file can't be syntax-checked; nothing written.")
-    tsc = find_tsc(full)
+    tsc = find_tsc(full, root)
     if not tsc:
-        raise Refused(f"{os.path.basename(full)}: no `typescript` in a node_modules at or above it, so the edited "
-                      f"file can't be syntax-checked. Install the project's dependencies (npm install) and run "
-                      f"this again; nothing written.")
+        raise Refused(f"{os.path.basename(full)}: no `typescript` in a node_modules at or above it inside the "
+                      f"project root, so the edited file can't be syntax-checked. Install the project's "
+                      f"dependencies (npm install) and run this again; nothing written.")
     name = "check" + os.path.splitext(full)[1].lower()
     with tempfile.TemporaryDirectory(prefix="otel-enrich-ts.") as d:
         with open(os.path.join(d, name), "w", encoding="utf-8", newline="") as f:
@@ -272,12 +273,12 @@ def check_ts(text, full):
     return None
 
 
-def check(lang, text, full, rel):
+def check(lang, text, full, rel, root):
     if lang == "txt":       # a requirements file: nothing to parse
         return None
     if lang == "py":
         return check_python(text, rel)
-    return check_ts(text, full) if is_ts(full) else check_js(text, full)
+    return check_ts(text, full, root) if is_ts(full) else check_js(text, full)
 
 
 # --- JavaScript: find a function's body without a parser ----------------------------------------
@@ -916,7 +917,7 @@ def cmd_metric(args):
     clash = [w for w in ours if re.search(rf"(?<![\w$]){re.escape(w)}(?![\w$])", user_text)]
     if clash:
         raise Refused(f"{rel} already uses the name `{clash[0]}`, which this enrichment would add.")
-    before = check(lang, text, full, rel)
+    before = check(lang, text, full, rel, args.root)
     if before:
         raise Refused(f"{rel} does not parse before the edit ({before}); nothing written.")
     value = check_value(lang, args, kind)
@@ -960,7 +961,7 @@ def cmd_metric(args):
         raise Refused(f"can't place the instrument above line {args.at} in {rel}.")
     out = lines[:top_at] + top + lines[top_at:site] + call + lines[site:]
     new = "".join(out)
-    after = check(lang, new, full, rel)
+    after = check(lang, new, full, rel, args.root)
     if after:
         raise Refused(f"the edited {rel} would not parse ({after}); nothing written. "
                       f"Line {args.at} is not a place a new statement can go, or --value is not valid there.")
@@ -1043,12 +1044,12 @@ def cmd_span(args):
     clash = [w for w in ours if re.search(rf"(?<![\w$]){re.escape(w)}(?![\w$])", outside_blocks(lines, blocks))]
     if clash:
         raise Refused(f"{rel} already uses the name `{clash[0]}`, which this enrichment would add.")
-    before = check(lang, text, full, rel)
+    before = check(lang, text, full, rel, args.root)
     if before:
         raise Refused(f"{rel} does not parse before the edit ({before}); nothing written.")
     out, notes = (py_span if lang == "py" else js_span)(lines, nl, text, full, rel, args, blocks)
     new = "".join(out)
-    after = check(lang, new, full, rel)
+    after = check(lang, new, full, rel, args.root)
     if after:
         raise Refused(f"the edited {rel} would not parse ({after}); nothing written. "
                       f"This function's shape is not one this command can wrap.")
@@ -1152,7 +1153,7 @@ def cmd_remove(args):
             if used:
                 raise Refused(f"{rel}:{n + 1} still uses `{used[0]}`, which the enrichment defines; removing it "
                               f"would break that line. Nothing removed: delete or change that line first.")
-        bad = check(lang, new, full, rel)
+        bad = check(lang, new, full, rel, args.root)
         if bad:
             raise Refused(f"removing the enrichment from {rel} would leave a file that does not parse ({bad}); "
                           f"nothing removed. The code around a block was changed: remove that block by hand.")
