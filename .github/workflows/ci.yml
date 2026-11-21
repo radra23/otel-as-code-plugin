@@ -59,9 +59,6 @@ jobs:
       - name: README guardrails match the hook configs and command flags (#252)
         run: bash tests/readme-guardrails.test.sh
 
-      - name: enrich.py edits to hand-written code, applied, run and removed (/otel-enrich, #276)
-        run: bash tests/enrich.test.sh
-
       - name: enrich.py database and queue client coverage, offline (/otel-enrich --clients, #276)
         run: bash tests/enrich-clients.test.sh
 
@@ -370,7 +367,7 @@ jobs:
   # call, from the package (Python, sqlite3) or from the span around the calling function (Node.js,
   # node:sqlite). No Docker.
   enrich-clients:
-    name: /otel-enrich --clients makes one client span per call
+    name: /otel-enrich edits (JS, TS, Python) and --clients one client span per call
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -383,6 +380,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      # Here, not in lint-hooks: the TypeScript cases install typescript 5 and 7 and
+      # @opentelemetry/api from npm, and need a pinned Node (lint-hooks has no setup-node).
+      - name: enrich.py edits to hand-written code (JavaScript, TypeScript, Python), applied, run and removed (/otel-enrich, #276)
+        run: bash tests/enrich.test.sh
 
       - name: The coverage table matches the published packages
         run: bash tests/client-coverage.test.sh

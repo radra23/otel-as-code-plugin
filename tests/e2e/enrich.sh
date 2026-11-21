@@ -4,6 +4,9 @@
 # grafana/otel-lgtm stack from the golden compose file:
 #   - Node: tests/enrich/node-app + the golden tracing.js; spans around an async function, an
 #     arrow function and a class method (scripts/enrich.py span).
+#   - TypeScript: tests/enrich/ts-app + the same tracing.js; spans around a Next.js-shaped route
+#     handler, a NestJS-shaped class method and a typed arrow function, plus the counter, built
+#     with the project's own tsc before it runs.
 #   - Python: fixtures/python-greenfield + the golden tracing.py; a span around a FastAPI route
 #     handler, which must keep its signature (the request body still validates).
 # Asserts, reading back the way /otel-enrich does (scripts/lgtm_check.py span, Tempo through
@@ -123,6 +126,53 @@ enrich remove --root . >/dev/null
 rm -f app.log
 diff -r "$WORK/node-before" "$WORK/node" >/dev/null \
   && ok "node: enrich.py remove restored every file byte for byte" || { bad "node: files differ after removal"; diff -r "$WORK/node-before" "$WORK/node" | head; }
+
+# ---------------------------------------------------------------- TypeScript
+# tests/enrich/ts-app: a NestJS-shaped service method and a Next.js-shaped route handler in .ts,
+# enriched, then built with the project's own tsc (strict) and run with the same golden tracing.js.
+mkdir -p "$WORK/ts"
+cp -R "$SRC/tests/enrich/ts-app/." "$WORK/ts/"
+cp "$SRC/tests/snapshots/instrument/nodejs/tracing.js" "$WORK/ts/tracing.js"
+cd "$WORK/ts"
+npm install --no-audit --no-fund --loglevel=error
+cp -R "$WORK/ts" "$WORK/ts-before"
+TOR=src/orders.ts
+enrich span --root . --file $TOR --function POST --span-name orders.post --tracer-name enrich-ts-orders >/dev/null
+enrich span --root . --file $TOR --function OrdersService.checkout --span-name orders.checkout --tracer-name enrich-ts-orders >/dev/null
+enrich span --root . --file $TOR --function loadLines --span-name orders.loadLines --tracer-name enrich-ts-orders >/dev/null
+metric --root . --file $TOR --function OrdersService.checkout --at "$(ln_of $TOR "return { cartId, lines, status: 'confirmed' };")" --where before \
+  --name com.example.checkout.order_placed --meter-name enrich-ts-orders >/dev/null
+npm run build --silent && ok "ts: the enriched project builds with its own tsc (strict)" || bad "ts: tsc failed on the enriched project"
+(set -a; . "$WORK/stack/otel-local.env"; set +a; export OTEL_SERVICE_NAME=enrich-ts-orders PORT=3901; exec node -r ./tracing.js server.js) \
+  > app.log 2>&1 & APP_PID=$!
+for _ in $(seq 1 30); do curl -fsS http://localhost:3901/health >/dev/null 2>&1 && break; sleep 1; done
+body=$(curl -fsS -X POST -H 'Content-Type: application/json' -d '{"cartId":"c1"}' http://localhost:3901/checkout)
+[ "$(printf '%s' "$body" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["status"], d["totalCents"])')" = "confirmed 1000" ] \
+  && ok "ts: the enriched route handler still returns the same values" || { bad "ts: response changed: $body"; cat app.log; }
+code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{"cartId":"c2","fail":true}' http://localhost:3901/checkout)
+[ "$code" = 500 ] && ok "ts: the route handler still turns a failed checkout into a 500" || bad "ts: expected 500 from the failing checkout, got $code"
+ts_ok() { curl -fsS -o /dev/null -X POST -H 'Content-Type: application/json' -d '{"cartId":"c1"}' http://localhost:3901/checkout; }
+ts_ok; sleep 7; ts_ok; ts_ok
+TS_JOB="storefront/enrich-ts-orders"
+panel_ok "ts: the golden counter panel's query returns data" \
+  "$(golden_expr com_example_checkout_order_placed_total "$TS_JOB")" "com_example_checkout.*" --positive
+out=$(python3 "$SRC/scripts/lgtm_check.py" query --grafana "http://localhost:$GRAFANA_PORT" --wait 30 \
+        --expr "sum(com_example_checkout_order_placed_total{job=\"$TS_JOB\"})")
+printf '%s' "$out" | grep -q "first value 4$" \
+  && ok "ts: the counter counted the 4 successful checkouts and not the failing one" || { bad "ts: expected the counter at 4"; echo "$out"; }
+stop
+span --service enrich-ts-orders --name orders.loadLines --parent orders.checkout \
+  && ok "ts: orders.loadLines (an arrow function) arrived, nested under orders.checkout" || bad "ts: orders.loadLines missing or not under orders.checkout"
+span --service enrich-ts-orders --name orders.checkout --parent orders.post \
+  && ok "ts: orders.checkout (a class method) arrived, nested under orders.post" || bad "ts: orders.checkout missing or not under orders.post"
+out=$(span --service enrich-ts-orders --name orders.post) && ! printf '%s' "$out" | grep -q "a root span" \
+  && ok "ts: orders.post (the route handler) arrived, inside the request's trace" || { bad "ts: orders.post missing or a root span"; echo "$out"; }
+span --service enrich-ts-orders --name orders.checkout --status error >/dev/null \
+  && ok "ts: the failing checkout's span recorded the error" || bad "ts: no orders.checkout span with an error"
+enrich remove --root . >/dev/null
+rm -rf app.log dist
+diff -r "$WORK/ts-before" "$WORK/ts" >/dev/null \
+  && ok "ts: enrich.py remove restored every file byte for byte" || { bad "ts: files differ after removal"; diff -r "$WORK/ts-before" "$WORK/ts" | head; }
 
 # ---------------------------------------------------------------- Python
 mkdir -p "$WORK/py"

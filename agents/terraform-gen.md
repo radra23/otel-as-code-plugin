@@ -372,8 +372,11 @@ number, `no_data_state = "OK"`).
 - **New Relic:** the `Logs` page and the `error_logs` alert condition from the skill's "Logs page
   and error-log alert" section, with `error_log_ratio_threshold`. **Dash0:** the `logVolume` panel
   from "Log volume panel" and NO alert; say why in the summary, as that section words it.
-  **Datadog:** neither, and `log panel: none for Datadog yet` in the summary. For New Relic and
-  Dash0 the summary says the log queries were not run against live data.
+  **Datadog:** the `Logs` log stream widget and the `error_logs` monitor from the skill's "Log
+  stream and error-log monitor" section, with `error_log_ratio_threshold`; for a Java service
+  that logs through `java.util.logging`, say in the summary that its `SEVERE` lines are not
+  counted, as that section explains. For New Relic, Dash0 and Datadog the summary says the log
+  queries were not run against live data.
 
 ## What every alert says
 
@@ -414,7 +417,7 @@ Include: provider block, grafana_folder, grafana_dashboard (request rate + error
 ## Datadog main.tf
 
 Generate using patterns from the `terraform-patterns` skill (datadog section).
-Include: provider block, datadog_dashboard (generic panels **plus one widget per confirmed `businessAttrs` entry** — see "Business-attribute panels" above), datadog_monitor (error rate + latency), datadog_service_level_objective (metric-based, 99.9% over 30d).
+Include: provider block, datadog_dashboard (generic panels **plus one widget per confirmed `businessAttrs` entry** — see "Business-attribute panels" above — **and the Logs widget last**), datadog_monitor (error rate + latency + error-log share), datadog_service_level_objective (metric-based, 99.9% over 30d).
 
 ## New Relic main.tf
 
