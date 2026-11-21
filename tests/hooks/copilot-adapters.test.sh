@@ -65,6 +65,15 @@ OUT=$(payload "$TMP" report_intent '{"intent":"Editing files"}' | python3 "$PRE"
 check "pre: ignores a tool that is not create/edit" allow "$OUT"
 OUT=$(echo 'not json' | python3 "$PRE")
 check "pre: ignores a payload that is not JSON" allow "$OUT"
+# Fail open on a payload neither adapter can read: no output AND a clean exit, since empty
+# stdout alone would also pass for an adapter that crashed.
+for hook in PRE POST; do
+  for bad in 'not json' '[1,2]' '{"toolName":"create","toolArgs":"{not json"}'; do
+    OUT=$(printf '%s' "$bad" | python3 "${!hook}" 2>/dev/null); rc=$?
+    if [ "$rc" -eq 0 ] && [ -z "$OUT" ]; then echo "PASS: $hook fails open on malformed payload: $bad"; PASS=$((PASS+1))
+    else echo "FAIL: $hook on malformed payload $bad (rc=$rc, out: $OUT)"; FAIL=$((FAIL+1)); fi
+  done
+done
 
 # 5. Business attributes in the context cache must be confirmed, for create and for edit.
 mkdir -p "$TMP/.claude"
