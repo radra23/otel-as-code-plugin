@@ -10,6 +10,8 @@ reports what is behind:
                               release still ships the golden project's TargetFramework — #229)
   - Rust OTel crates          (agents/instrumentation-gen.md pins vs crates.io)
   - PHP OTel packages         (agents/instrumentation-gen.md pins vs Packagist)
+  - OTel Java agent           (agents/instrumentation-gen.md pin vs Maven Central; it is the
+                              only source of the JVM's traces and runtime metrics, #277)
   - Terraform providers       (snapshot required_providers major vs the Terraform registry)
   - OTel Collector (contrib)  (tests/collector-validate.sh pin vs the collector-releases GitHub release)
   - Semconv GUIDANCE          (the OLD->NEW table vs the upstream attribute registry at the pin)
@@ -86,6 +88,14 @@ def latest_nuget(pkg):
     versions = fetch_json(f"https://api.nuget.org/v3-flatcontainer/{pkg.lower()}/index.json")["versions"]
     stable = [v for v in versions if "-" not in v]
     return stable[-1] if stable else versions[-1]
+
+
+def latest_java_agent():
+    """The agent JAR the generator downloads from the GitHub release is the same artifact
+    published to Maven Central, whose metadata names the latest release with no API rate limit."""
+    m = re.search(r"<release>([^<]+)</release>", fetch_text(
+        "https://repo1.maven.org/maven2/io/opentelemetry/javaagent/opentelemetry-javaagent/maven-metadata.xml"))
+    return m.group(1) if m else None
 
 
 def latest_tf(source):  # e.g. "grafana/grafana"
@@ -371,6 +381,25 @@ def rust_pins():
     return pins
 
 
+def java_agent_pins():
+    """Every place the OTel Java agent version is pinned, keyed by file. The agent is how a Java
+    service gets traces, logs and its `jvm.*` runtime metrics (#277), yet until this row it was
+    the one OTel pin no drift report watched. The generator's pin line is the one reported; the
+    test suite asserts the download URL in the generator and the e2e harness agree with it."""
+    doc = _read("agents/instrumentation-gen.md")
+    return {
+        "agents/instrumentation-gen.md": re.search(r"^OTEL_JAVA_AGENT_VERSION = ([0-9.]+)$", doc, re.M),
+        "agents/instrumentation-gen.md (download URL)": re.search(
+            r"opentelemetry-java-instrumentation/releases/download/v([0-9.]+)/opentelemetry-javaagent\.jar", doc),
+        "tests/e2e/run.sh": re.search(r"^OTEL_JAVA_AGENT_VERSION=([0-9.]+)$", _read("tests/e2e/run.sh"), re.M),
+    }
+
+
+def java_agent_pin():
+    m = java_agent_pins()["agents/instrumentation-gen.md"]
+    return m.group(1) if m else None
+
+
 def tf_pins():
     pins, snap_dir = [], os.path.join(ROOT, "tests", "snapshots")
     for vendor in sorted(os.listdir(snap_dir)):
@@ -474,6 +503,8 @@ def main():
     for pkg, pinned in php_pins():
         latest, err = safe(latest_packagist, pkg)
         add(f"packagist {pkg}", pinned, latest, err)
+    latest, err = safe(latest_java_agent)
+    add("maven opentelemetry-javaagent (Java agent)", java_agent_pin(), latest, err)
     for source, pinned in tf_pins():
         latest, err = safe(latest_tf, source)
         add(f"tf {source}", pinned, latest, err, cmp=behind_major)
