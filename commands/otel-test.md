@@ -43,6 +43,19 @@ the service.
 - It must already have its bootstrap (`service.existingOtel.bootstrapFiles`, else the
   `otel_bootstrap_globs` names under its `rootDir`). If not, stop and point at `/otel-instrument`:
   there is no telemetry to protect yet.
+- **Say what this stack cannot do before asking for a route.** For a Next.js service (a `next`
+  dependency in its `package.json`), tell the user, in one short message, before Step 2:
+  - the test starts the service with a plain `node <entry>` command, so it needs a built entry.
+    `next build` output (`.next/standalone/.../server.js`) can sit at a path that mirrors the
+    checkout's absolute path, and a `next dev` script is not what production runs. Put the build
+    command in the spec's `build` (`["npm", "run", "build"]`) and let `startSearch` find the entry
+    by name (`{"dir": ".next/standalone", "file": "server.js"}`, with `start` left empty). Never
+    write a path that holds on one machine into `start`.
+  - Next.js loads its bootstrap from the `instrumentation` hook, not from a start-command flag, so
+    never set `startScript` for it.
+  - a route behind `middleware.ts` or an auth gate will answer a redirect or 401 to a request with no
+    session. Pick a public route, or fix the values the service needs with the spec's `env` (below).
+  Then continue: Step 2 still applies, and Step 4 still refuses to hand over a test that has not passed.
 
 ## Step 2: Decide what the test expects
 
@@ -79,6 +92,15 @@ the route: `POST /checkout`, `GET /items/:id` (Express), `GET /items/{item_id}` 
 `GET /api/auth/[...nextauth]` (Next.js). If you are not sure, Step 4 tells you: the failure lists the
 spans that did arrive.
 
+**What the service needs before it answers.** A service that reads secrets or base URLs at start
+(an auth secret, a trusted-host flag, a public URL) answers nothing without them, and a test that
+leans on the developer's own shell passes on one machine and fails in CI. Put fixed, test-only
+values in the spec's `env` (`{"AUTH_SECRET": "test-only-secret"}`): the Node.js test gives them to
+the service it starts, and the Python test sets them before it imports the app. They are written
+into the test file in plain text, so they are dummy values and never a real secret. `OTEL_*`
+variables and the port variable are the test's own and are refused. Tell the user which variables
+the chosen route needed.
+
 **How the service starts.**
 - Node.js: `start` is the argument list node runs it with (`["-r", "./tracing.js", "index.js"]`).
   When `package.json` has a script that is exactly that command (`"start": "node -r ./tracing.js
@@ -86,6 +108,12 @@ spans that did arrive.
   a start command that loses its bootstrap flag fails the test. `portEnv` is the variable the
   service reads its port from (default `PORT`); if the port is hard-coded, say that the test
   cannot pick a free port and stop.
+  When the entry only exists after a build, or sits at a path that differs per machine, give the
+  spec `build` (the build command, as a list) and `startSearch` (`{"dir", "file"}`): the test runs
+  the build before every start, finds the one file with that name under `dir` (never under
+  `node_modules`), and starts it after the `start` arguments, which may then be empty. Two matches
+  or none is a failure that says so. The build can be slow; `OTEL_TEST_SKIP_BUILD=1` skips it when
+  the output is already fresh. Not together with `startScript`.
 - Python: `app` is the object the server runs, as `module:attribute` (`main:app`, what follows
   `uvicorn` or `gunicorn` in the start command), and `interface` is `asgi` (FastAPI, Starlette) or
   `wsgi` (Flask, Django's WSGI app). `bootstrap` is the generated bootstrap's module name
