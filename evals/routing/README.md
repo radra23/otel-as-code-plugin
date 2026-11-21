@@ -62,7 +62,7 @@ it as a clean git repo. Every case's `scaffold.sh` calls that one script.
   plugin, installed from a `git archive` of `HEAD` the way a user's install carries only tracked
   files. Commit what you want measured.
 
-**How condition (c) is scored by the same rules.** `copilot_trace.py` rewrites Copilot's
+**How condition (c) is scored by the same rules.** `copilot_transcript.py` rewrites Copilot's
 `--output-format json` events into the stream-json tool calls `score.py` reads, and `score.py`
 is unchanged. Copilot calls a plugin skill by its bare name (`otel-instrument`), so the
 translator gives it the `otel-as-code:` prefix only when the session listed that skill with
@@ -74,8 +74,11 @@ table; the title and `summary-c.json` say they are condition (c).
 
 **What differs from (a) and (b).** The model: Copilot runs `gpt-4.1` by default
 (`COPILOT_MODEL`), so a gap mixes the host and the model and this eval cannot separate them.
-Copilot has no turn cap, so only the case's timeout bounds a run; routing shows in the first
-calls either way. The plugin's Copilot hooks run during these sessions; they decide nothing the
+Copilot has no turn cap of its own, so `run-copilot.sh` stops a session once it starts a model
+turn past the case's `max_turns`, counting every `assistant.turn_start` (a subagent's included,
+so the cap is never looser than Claude Code's). A Copilot turn and a Claude Code turn are close
+but not proven identical. `meta.json` records `stoppedAtTurnCap`, the model and the Copilot
+version. The plugin's Copilot hooks run during these sessions; they decide nothing the
 scorer reads. Cost is in premium requests (`meta.json`), not dollars, so the cost column reads
 $0.00.
 
@@ -215,19 +218,61 @@ paths and `Grep` regexes against its own working directory, which sits inside th
 fix only counts absolute paths, which can only lower routed counts; `tests/routing-eval.test.sh`
 now pins it.
 
-### Copilot CLI, condition (c): first attempt, incomplete (2026-11-21)
+### All conditions, per case (Claude Code and Copilot CLI, 2026-11-21)
 
-Copilot CLI 1.0.56, `gpt-4.1`, otel-as-code 0.25.1, three runs per case, three in parallel, on
-an account on Copilot Free. **This is not a baseline.** Only the first four sessions got model
-answers. From then on every model call was refused with HTTP 429, "exceeded your rate limit for
-utility models" (`user_global_rate_limited:free`), and Copilot still exited 0, having done
-nothing. Scored as they came, those 38 runs read as "neither" and the pass as 1/10 routed. The
-limit had not cleared 35 minutes later.
+Each condition ran its own model, so read the Copilot column next to the others, not as a
+like-for-like comparison: a difference can come from the host or from the model, and this eval
+cannot tell which. Claude Code (a) and (b): `claude-opus-5-5` on Claude Code 2.1.311, latest
+recorded run per case, with the plugin version it ran (three runs each). Copilot CLI (c):
+`gpt-4.1` on Copilot CLI 1.0.56, otel-as-code 0.25.1, only otel-as-code installed, capped at
+each case's `max_turns` like the other two.
 
-What the four answered sessions show: `add OpenTelemetry to this service` routed 3/3 to
-`otel-instrument`, and `add tracing` routed in its first run, also to `otel-instrument`.
-Nothing is known yet about the other twelve cases under Copilot.
+| Case | Expect | (a) routed | (b) routed | (c) routed | Skill picked (a) / (c) |
+|---|---|---|---|---|---|
+| `add-opentelemetry` | route | 3/3 (0.10.0) | 3/3 (0.10.0) | **6/6** (two passes; one run hit the rate limit after routing) | otel-instrument / otel-instrument |
+| `add-tracing` | route | 3/3 (0.10.0) | 3/3 (0.10.0) | **2/2** (a smoke run and one pass run; two more were rate limited) | otel-instrument / otel-instrument |
+| `instrument-with-opentelemetry` | route | 3/3 (0.10.0) | 3/3 (0.10.0) | not measured | otel-instrument / - |
+| `monitoring-before-launch` | route | 3/3 (0.10.0) | 3/3 (0.10.0) | not measured | otel-init / - |
+| `set-up-observability` | route | 3/3 (0.10.0) | 3/3 (0.10.0) | not measured | otel-init / - |
+| `traces-to-grafana` | route | 3/3 (0.10.0) | 3/3 (0.10.0) | not measured | otel-instrument / - |
+| `see-traces-locally` | route | 3/3 (0.11.0) | 3/3 (0.11.0) | not measured | otel-local / - |
+| `telemetry-on-my-machine` | route | 3/3 (0.11.0) | 3/3 (0.11.0) | not measured | otel-local / - |
+| `span-around-my-function` | route | 3/3 (0.25.1) | not run | not measured | otel-enrich / - |
+| `test-that-telemetry-stays` | route | 3/3 (0.25.1) | not run | not measured | otel-test / - |
+| `checkout-is-slow` | not route | 0/3 (0.10.0) | 0/3 (0.10.0) | not measured | none / - |
+| `diagnose-slow-checkout-with-traces` | not route | 0/3 (0.10.0) | 0/3 (0.10.0) | not measured | none / - |
+| `explain-span` | not route | 0/3 (0.10.0) | 0/3 (0.10.0) | **0/1** (a smoke run; answered in text) | none / none |
+| `fix-failing-test` | not route | 0/3 (0.10.0) | 0/3 (0.10.0) | not measured | none / - |
 
-Since then `run-copilot.sh` records a rate-limited session as a failed run (exit 75 in
-`meta.json`, so `score.py` counts it as an error) and stops the pass, and condition (c) runs one
-session at a time. A full pass needs a Copilot plan whose limits cover about 42 agent sessions.
+The skill picked under (a) is the one the 0.9.7 to 0.11.0 baselines recorded, and today's run
+for the last two should-route cases.
+
+**Why most of (c) is not measured.** The account the runs used is on Copilot Free. In both
+passes, after three or four agent sessions every model call was refused with HTTP 429
+("exceeded your rate limit for utility models", `user_global_rate_limited:free`), and the limit
+had not cleared 35 minutes later. The first pass ran three sessions in parallel and, before
+`run-copilot.sh` detected the limit, scored 38 refused runs as "neither"; those are discarded,
+not counted above. The second pass ran one session at a time and stopped at the first refusal.
+A full pass needs a Copilot plan whose limits cover about 42 agent sessions: run
+`evals/routing/run.sh c <label>` with that account's `gh` login or `COPILOT_GITHUB_TOKEN`, or
+the workflow with `condition: c`.
+
+**What the measured runs show.** Every answered should-route run routed, each time with the
+plugin's `otel-instrument` as the session's first tool call, which is also what Claude Code
+picks for those two prompts. The one should-not-route run measured did not touch the plugin.
+Nothing here says how Copilot treats the other eleven prompts, including the debugging boundary
+(`diagnose-slow-checkout-with-traces`), which is where Claude Code misrouted before 0.10.0.
+
+**Signals with no exact equivalent in Copilot's output.** Two, and how they limit the result:
+
+- *Commands and skills are one signal.* Copilot lists `commands/*.md` as skills and calls both
+  by bare name with its `skill` tool, so "the session invoked the otel-init command" and "the
+  session invoked a plugin skill" cannot be told apart. Both count as routed under `score.py`, so
+  the verdict is unaffected; only the skill-picked column cannot say which kind it was.
+- *Agent dispatch is not observable on this account.* Copilot's built-in `task` subagent tried
+  `claude-haiku-4.5`, which the account refuses (`model_not_supported`), so it failed every
+  time. A route that starts by dispatching a plugin agent would fail rather than show up. No
+  measured run started that way; all started with a skill call.
+
+Captured transcripts of a routed and a non-routed run, scrubbed with `scrub_copilot.py`, are in
+`fixtures/`; `tests/routing-eval.test.sh` runs the adapter on both.

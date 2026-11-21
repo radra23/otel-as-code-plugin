@@ -43,7 +43,7 @@ check sibling-dir neither
 check relative neither
 check abs-glob routed
 
-# Condition (c): evals/routing/copilot_trace.py turns Copilot CLI's JSON events into the
+# Condition (c): evals/routing/copilot_transcript.py turns Copilot CLI's JSON events into the
 # stream-json above, so the same score.classify decides. Event shapes as Copilot CLI 1.0.56 sent
 # them (skills_loaded lists each skill's source and path; tool calls are tool.execution_start).
 CROOT=/opt/copilot-home/installed-plugins/otel-as-code/otel-as-code
@@ -52,7 +52,7 @@ cskills() { python3 -c 'import json,sys; r=sys.argv[1]; print(json.dumps({"type"
   {"name":"customize-cloud-agent","source":"builtin","path":"/opt/copilot/builtin-skills/customize-cloud-agent/SKILL.md"},
   {"name":"add-tracing","source":"personal-agents","path":"/home/u/.agents/skills/add-tracing/SKILL.md"}]}}))' "$CROOT"; }
 ctool() { python3 -c 'import json,sys; a=sys.argv[2]; print(json.dumps({"type":"tool.execution_start","data":{"toolName":sys.argv[1],"arguments":a if sys.argv[3:] else json.loads(a)}}))' "$@"; }
-ctrace() { python3 evals/routing/copilot_trace.py "$T/$1.copilot.jsonl" "$CROOT" > "$T/$1.jsonl"; }
+ctrace() { python3 evals/routing/copilot_transcript.py "$T/$1.copilot.jsonl" "$CROOT" > "$T/$1.jsonl"; }
 { cskills; ctool skill '{"skill":"otel-instrument"}'; } > "$T/c-skill.copilot.jsonl"
 { cskills; ctool skill '{"skill":"customize-cloud-agent"}'; ctool skill '{"skill":"add-tracing"}'; } > "$T/c-other-skill.copilot.jsonl"
 { cskills; ctool view "{\"path\":\"$CROOT/skills/semconv-discipline/SKILL.md\"}"; } > "$T/c-view-root.copilot.jsonl"
@@ -72,6 +72,18 @@ check c-patch hand-rolled
 check c-neither neither
 if grep -q '"x-unmapped", "name": "web_fetch"' "$T/c-neither.jsonl"; then echo "PASS c-neither keeps web_fetch as unmapped"; else echo "FAIL c-neither: web_fetch not recorded as unmapped"; fail=1; fi
 
+# The adapter on two real Copilot CLI 1.0.56 transcripts (gpt-4.1), scrubbed by
+# evals/routing/scrub_copilot.py: a routed run of "add OpenTelemetry to this service" (first call:
+# the plugin's otel-instrument skill) and a run of "explain what a span is" that answers in text.
+FROOT=/work/otel-routing-c/home/.copilot/installed-plugins/otel-as-code/otel-as-code
+for pair in "copilot-routed.add-opentelemetry:routed" "copilot-not-routed.explain-span:neither"; do
+  f=${pair%%:*}; want=${pair#*:}
+  python3 evals/routing/copilot_transcript.py "evals/routing/fixtures/$f.jsonl" "$FROOT" > "$T/$f.jsonl"
+  check "$f" "$want"
+done
+got=$(python3 -c 'import sys; sys.path.insert(0,"evals/routing"); import score; print(",".join(score.classify(sys.argv[1])[1]))' "$T/copilot-routed.add-opentelemetry.jsonl")
+if [ "$got" = otel-instrument ]; then echo "PASS the captured routed run picked otel-instrument"; else echo "FAIL captured routed run skills: $got"; fail=1; fi
+
 # run-copilot.sh end to end against a stub `copilot` (no model calls): a session whose model
 # calls were rate limited must be recorded as a failed run and stop the pass (exit 255), never
 # scored as a real "neither"; a clean session that calls the plugin's skill scores routed.
@@ -81,7 +93,10 @@ cat > "$STUB" <<'SH'
 [ "$1" = plugin ] && exit 0
 root="$COPILOT_HOME/installed-plugins/otel-as-code/otel-as-code"
 printf '{"type":"session.skills_loaded","data":{"skills":[{"name":"otel-instrument","source":"plugin","path":"%s/commands/otel-instrument.md"}]}}\n' "$root"
-if [ "$STUB_MODE" = limited ]; then
+if [ "$STUB_MODE" = endless ]; then
+  for i in $(seq 0 11); do printf '{"type":"assistant.turn_start","data":{"turnId":"%s"}}\n' "$i"; done
+  sleep 60; exit 0
+elif [ "$STUB_MODE" = limited ]; then
   printf '{"type":"model.call_failure","data":{"model":"gpt-4.1","statusCode":429,"errorMessage":"rate limit for utility models"}}\n'
 else
   printf '{"type":"tool.execution_start","data":{"toolName":"skill","arguments":{"skill":"otel-instrument"}}}\n'
@@ -89,7 +104,7 @@ fi
 printf '{"type":"result","exitCode":0,"usage":{"premiumRequests":0}}\n'
 SH
 chmod +x "$STUB"
-for mode in limited clean; do
+for mode in limited clean endless; do
   rc=0
   STUB_MODE=$mode COPILOT_BIN="$STUB" COPILOT_GITHUB_TOKEN=stub TMPDIR="$T" \
     bash evals/routing/run-copilot.sh evals/routing/cases/add-tracing 1 "$T/c-$mode" >/dev/null 2>&1 || rc=$?
@@ -101,6 +116,11 @@ else echo "FAIL run-copilot rate limit: runner exit $(cat "$T/c-limited.rc"), re
 got=$(python3 -c 'import sys; sys.path.insert(0,"evals/routing"); import score; print(score.load_b(sys.argv[1], score.case_expectations("evals/routing/cases"))[0]["verdict"])' "$T/c-clean" 2>/dev/null || echo none)
 if [ "$(cat "$T/c-clean.rc")" = 0 ] && [ "$got" = routed ]; then echo "PASS run-copilot scores a clean skill call as routed"
 else echo "FAIL run-copilot clean run: runner exit $(cat "$T/c-clean.rc"), verdict $got"; fail=1; fi
+# The case's max_turns (8 for add-tracing) stops a session that keeps going: well before the
+# stub's 60 s, recorded as capped, and not as a failed run.
+got=$(python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); print(m["stoppedAtTurnCap"], m["exitCode"], m["maxTurns"], m["durationSeconds"] < 30)' "$T/c-endless/add-tracing/run-1/meta.json" 2>/dev/null || echo none)
+if [ "$got" = "True 0 8 True" ]; then echo "PASS run-copilot stops a session at the case's turn cap"
+else echo "FAIL run-copilot turn cap: got $got"; fail=1; fi
 
 # Every case directory carries a prompt, a should-/should-not-route tag, a grader and a scaffold.
 python3 - <<'PY' || fail=1

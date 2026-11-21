@@ -70,8 +70,9 @@ here), so resolve these paths against otel-as-code's own checkout directory, not
 ### GitHub Copilot CLI
 Install: `copilot plugin marketplace add radra23/otel-as-code-plugin`, then
 `copilot plugin install otel-as-code@otel-as-code` (marketplace and plugin are both named
-`otel-as-code` in `.claude-plugin/marketplace.json`). The skills are expected to load with the
-plugin; no test here proves it. Its hooks come from the
+`otel-as-code` in `.claude-plugin/marketplace.json`). The skills load with the plugin; the
+routing eval's condition (c) has measured 3 of its 14 requests under Copilot so far
+(`evals/routing/README.md`). Its hooks come from the
 root-level `hooks.json` (Copilot's flat format, camelCase `preToolUse`/`postToolUse`), which
 Copilot reads in place of `hooks/hooks.json` and Claude Code does not read at all, so each host
 runs the guardrails once. The adapters in `hooks/copilot/` map Copilot's `create`/`edit` tools

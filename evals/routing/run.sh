@@ -15,7 +15,11 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; ROOT="$(cd "$HERE/../.." &
 COND=${1:-both}; LABEL=${2:-run}
 RUNS=${RUNS:-3}; JOBS=${JOBS:-3}; MODEL=${EVAL_MODEL:-claude-opus-5-5}; MAX_COST=${MAX_COST_USD:-40}; CASE=${CASE:-*}
 OUT="$ROOT/evals/results/routing/$LABEL-$(date -u +%Y%m%dT%H%M%SZ)"; mkdir -p "$OUT"
-echo "results: $OUT  (runs=$RUNS jobs=$JOBS model=$MODEL)"
+if [ "$COND" = c ]; then
+  echo "results: $OUT  (runs=$RUNS jobs=${COPILOT_JOBS:-1} model=${COPILOT_MODEL:-gpt-4.1}, Copilot CLI)"
+else
+  echo "results: $OUT  (runs=$RUNS jobs=$JOBS model=$MODEL)"
+fi
 
 run_a() {
   local A="$OUT/a"; mkdir -p "$A/traces"
