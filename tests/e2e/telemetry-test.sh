@@ -80,6 +80,38 @@ fails_with "node: without the env the same service answers 401 and the test fail
 mv index.js.orig index.js
 render --root . --spec "$SRC/tests/telemetry-test/node.spec.json" --force >/dev/null
 passes "node: restored, it passes again" "${NODE_TEST[@]}"
+# A service whose entry exists only after a build, at a path nothing can write down (#319): the
+# build writes dist/<nested>/server.js, the spec's startSearch finds it by name on every run.
+cat > build.js <<'BUILDJS'
+const fs = require('fs');
+fs.mkdirSync('dist/mirror/of/checkout', { recursive: true });
+fs.writeFileSync('dist/mirror/of/checkout/server.js', "require('../../../../index.js');\n");
+BUILDJS
+python3 - "$SRC/tests/telemetry-test/node.spec.json" "$WORK/node-build.json" <<'PYSPEC'
+import json, sys
+s = json.load(open(sys.argv[1]))
+del s["startScript"]
+s["start"] = ["-r", "./tracing.js"]
+s["build"] = ["node", "build.js"]
+s["startSearch"] = {"dir": "dist", "file": "server.js"}
+json.dump(s, open(sys.argv[2], "w"))
+PYSPEC
+rm -rf dist
+render --root . --spec "$WORK/node-build.json" --force >/dev/null
+passes "node: the build runs, the entry is found under dist by name, and the test passes" "${NODE_TEST[@]}"
+rm -rf dist
+fails_with "node: with the build skipped and nothing built it says to build first" "Build the service first" - env OTEL_TEST_SKIP_BUILD=1 "${NODE_TEST[@]}"
+mkdir -p dist/mirror/of/checkout dist/stale
+printf "require('../../../../index.js');\n" > dist/mirror/of/checkout/server.js
+printf "require('../../index.js');\n" > dist/stale/server.js
+fails_with "node: two entries with the same name are refused, naming both" "more than one server.js under dist" - env OTEL_TEST_SKIP_BUILD=1 "${NODE_TEST[@]}"
+rm -rf dist
+sed 's|"build.js"|"nope.js"|' "$WORK/node-build.json" > "$WORK/node-build-bad.json"
+render --root . --spec "$WORK/node-build-bad.json" --force >/dev/null
+fails_with "node: a build that fails stops the test with its output" "the build command failed (node nope.js)" - "${NODE_TEST[@]}"
+rm -rf dist build.js
+render --root . --spec "$SRC/tests/telemetry-test/node.spec.json" --force >/dev/null
+passes "node: restored, it passes again" "${NODE_TEST[@]}"
 sed -i.bak 's|"start": "node -r ./tracing.js index.js"|"start": "node index.js"|' package.json && rm package.json.bak
 fails_with "node: with the bootstrap flag dropped from the start script it fails and says so" \
   "no longer loads the OpenTelemetry bootstrap: node index.js" - "${NODE_TEST[@]}"
