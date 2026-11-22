@@ -2,7 +2,7 @@
 """Rewrite a Copilot CLI `--output-format json` transcript into the stream-json tool calls
 score.py reads, so condition (c) is scored by the same unchanged rules as (a) and (b).
 
-usage: copilot_trace.py <copilot.jsonl> <plugin-root>   (stream-json on stdout)
+usage: copilot_transcript.py <copilot.jsonl> <plugin-root>   (stream-json on stdout)
 
 Copilot emits one `tool.execution_start` per tool call (subagent calls included), in order.
 Each becomes an assistant `tool_use` with Claude Code's tool name and input keys:
