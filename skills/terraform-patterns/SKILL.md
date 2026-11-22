@@ -1,7 +1,9 @@
 ---
 name: terraform-patterns
 description: Per-backend Terraform provider patterns, resource names, auth variables, and gotchas for grafana / datadog / newrelic / dash0. Use when generating observability-backend Terraform.
-version: 0.1.0
+license: Apache-2.0
+metadata:
+  version: "0.1.0"
 ---
 
 # Terraform Patterns for Observability Backends

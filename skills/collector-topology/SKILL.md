@@ -1,7 +1,9 @@
 ---
 name: collector-topology
 description: OpenTelemetry Collector pipeline topology (agent / gateway modes), tail-sampling, and cardinality-guardrail patterns. Use when generating an otelcol-contrib config.
-version: 0.1.0
+license: Apache-2.0
+metadata:
+  version: "0.1.0"
 ---
 
 # OpenTelemetry Collector Topology

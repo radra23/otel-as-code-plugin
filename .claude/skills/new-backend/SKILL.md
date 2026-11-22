@@ -2,6 +2,8 @@
 name: new-backend
 description: Scaffold a new observability backend (vendor) for otel-as-code across the vendor list, the terraform-patterns skill, the terraform-gen subagent, and a terraform-validated golden snapshot. Use when adding a vendor such as honeycomb or dynatrace.
 disable-model-invocation: true
+metadata:
+  internal: "true"
 ---
 
 # Add a new observability backend to otel-as-code

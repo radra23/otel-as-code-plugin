@@ -2,6 +2,8 @@
 name: validate-plugin
 description: Run the local validation suite for the otel-as-code plugin before committing or opening a PR — hook tests, fixture integrity, plugin.json manifest checks, shell syntax, and terraform-validate on every committed snapshot. Covers the GitHub Actions CI checks plus extra local-only sanity.
 disable-model-invocation: true
+metadata:
+  internal: "true"
 ---
 
 # Validate the otel-as-code plugin

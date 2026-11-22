@@ -1,6 +1,8 @@
 ---
 name: otel-collector
 description: Generate an otelcol-contrib Collector config (agent or gateway mode) with cardinality guardrails. Use when setting up an OpenTelemetry Collector.
+metadata:
+  internal: "true"
 ---
 
 # otel-collector (Codex bridge)

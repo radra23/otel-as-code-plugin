@@ -1,6 +1,8 @@
 ---
 name: otel-uninstrument
 description: Remove the OTel SDK bootstrap files /otel-instrument generated for a service (marker-gated deletion). Use to roll back instrumentation.
+metadata:
+  internal: "true"
 ---
 
 # otel-uninstrument (Codex bridge)

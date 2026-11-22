@@ -167,6 +167,14 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
   data, and every derived panel says so. Datadog has no row (it renames runtime metrics on ingest,
   #121).
 
+- Four guidance skills (`semconv-discipline`, `language-maturity`, `collector-topology`,
+  `terraform-patterns`) are published in the Agent Skills format for `npx skills add
+  radra23/otel-as-code-plugin` (#268), which scans `skills/`, `.agents/skills/` and
+  `.claude/skills/`. Every other `SKILL.md` carries `metadata: internal: "true"` so the CLI hides
+  it: a new Codex wrapper, command-only skill or contributor skill needs it too, and
+  `tests/agent-skills.test.sh` fails without it. A published skill keeps to the spec's frontmatter
+  keys (`version` lives under `metadata`), never uses `${CLAUDE_PLUGIN_ROOT}`, and ships every data
+  file it names in its own folder.
 - `evals/routing/` measures whether a fresh session picks this plugin (`claude plugin eval` for
   only-this-plugin, `run-headless.sh` for a full personal plugin set, one scorer `score.py` for
   both). Run it before and after any command/skill `description` change; it is billed, so it is

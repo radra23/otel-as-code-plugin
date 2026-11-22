@@ -1,6 +1,8 @@
 ---
 name: otel-remediate
 description: Propose a deployment-config diff (env vars / manifest fields) for a service with no application source to bootstrap but real native OTel support — e.g. a Keycloak deployment. Use for generatorSupported:false, inScope:true services that /otel-instrument refuses.
+metadata:
+  internal: "true"
 ---
 
 # otel-remediate (Codex bridge)

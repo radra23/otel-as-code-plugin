@@ -1,6 +1,8 @@
 ---
 name: otel-enrich
 description: Add telemetry inside the user's own code, either a span around one function, the business metrics they confirmed, or coverage for the database and queue clients auto-instrumentation misses. An in-place edit, shown as a diff first, insert-only between markers, and removable exactly. Node.js and Python services that otel-instrument has already set up. Use when asked to trace or time a specific function, to emit the confirmed business metrics, or to find out why database or queue calls are missing from traces.
+metadata:
+  internal: "true"
 ---
 
 # otel-enrich (Codex bridge)

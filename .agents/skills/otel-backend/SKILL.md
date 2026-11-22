@@ -1,6 +1,8 @@
 ---
 name: otel-backend
 description: Generate a complete Terraform module (dashboards, alerts, SLOs) for one observability backend — grafana, datadog, newrelic, or dash0. Use to produce observability-as-code.
+metadata:
+  internal: "true"
 ---
 
 # otel-backend (Codex bridge)

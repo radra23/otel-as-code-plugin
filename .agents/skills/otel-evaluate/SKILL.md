@@ -1,6 +1,8 @@
 ---
 name: otel-evaluate
 description: Read-only brownfield audit of existing OTel coverage — missing signals, semconv conformance, and cardinality risks. Use to assess a codebase's current instrumentation.
+metadata:
+  internal: "true"
 ---
 
 # otel-evaluate (Codex bridge)
