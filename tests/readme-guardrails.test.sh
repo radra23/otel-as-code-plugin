@@ -139,12 +139,23 @@ for script in write-guard.sh semconv-lint.sh session-summary.sh; do
   codex_runs "$script" && RUNS="$RUNS|Codex:$script"
   copilot_runs "$script" && RUNS="$RUNS|GitHub Copilot CLI:$script"
 done
+table_done=0
 while IFS= read -r line; do
+  [ "$line" = "PASS: the agents table was read to the end" ] && { table_done=1; continue; }
   name=${line#*: }
   case "$line" in PASS:*) check "$name" true ;; *) check "$name" false ;; esac
 done < <(RUNS="$RUNS" python3 -c '
 import os, re, sys
-rows = [l for l in open(sys.argv[1], encoding="utf-8") if l.startswith("|") and not l.startswith("|---")]
+# Only the agents table: the one whose header starts "| Agent |", up to the line that ends it.
+# The section has other tables (the guidance skills), whose rows are not agents.
+lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
+start = next(i for i, l in enumerate(lines) if l.startswith("| Agent |"))
+rows = []
+for l in lines[start:]:
+    if not l.startswith("|"):
+        break
+    if not l.startswith("|---"):
+        rows.append(l)
 split = lambda r: [c.strip() for c in r.strip().strip("|").split("|")]
 head, body = split(rows[0]), {split(r)[0]: split(r) for r in rows[1:]}
 runs = set(os.environ["RUNS"].split("|"))
@@ -161,7 +172,11 @@ for name in ("Claude Code", "Codex", "GitHub Copilot CLI"):
 for name, row in body.items():
     for path in re.findall(r"`([\w./-]+/[\w./-]*)`", row[head.index("Proven by")]):
         print(("PASS" if os.path.exists(path) else "FAIL") + ": Proven by for " + name + " names " + path + ", which exists")
-' "$TMPD/agents.txt")
+print("PASS: the agents table was read to the end")
+' "$TMPD/agents.txt" 2>&1)
+# The reader's stderr comes through as lines, so a traceback counts as failed checks; and its last
+# line must have arrived, or the rows after a crash were never checked.
+check "the table checks ran to the end" '[ "$table_done" = 1 ]'
 check "the --dry-run bullet names exactly the commands that take --dry-run ($actual)" \
   '[ -n "$actual" ] && [ "$named" = "$actual" ]'
 check "the --dry-run bullet does not claim every writing command has it" \

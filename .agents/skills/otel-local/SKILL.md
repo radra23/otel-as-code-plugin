@@ -1,6 +1,8 @@
 ---
 name: otel-local
 description: See this service's traces, logs and metrics on your machine. Starts a free local Grafana stack (grafana/otel-lgtm) in Docker and points the service at it. Not for diagnosing one slow or failing request.
+metadata:
+  internal: "true"
 ---
 
 # otel-local (Codex bridge)

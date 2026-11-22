@@ -1,6 +1,8 @@
 ---
 name: otel-business-attrs
 description: Infer and confirm service identity, ownership, and business-metric candidates from the repo, then write them to the context cache. Use to establish business attributes for instrumentation.
+metadata:
+  internal: "true"
 ---
 
 # otel-business-attrs (Codex bridge)

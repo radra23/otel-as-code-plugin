@@ -1,6 +1,8 @@
 ---
 name: semconv-discipline
 description: OpenTelemetry semantic-convention rules — resource vs span attributes, HTTP/DB/messaging attribute names, deprecations, custom-namespace prefixing, and cardinality limits. Apply when writing, generating, or reviewing OTel instrumentation code.
+metadata:
+  internal: "true"
 ---
 
 # semconv-discipline (Codex bridge)

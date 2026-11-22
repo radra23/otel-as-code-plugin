@@ -62,6 +62,9 @@ jobs:
       - name: README guardrails match the hook configs and command flags (#252)
         run: bash tests/readme-guardrails.test.sh
 
+      - name: Run Agent Skills publishing tests (#268)
+        run: bash tests/agent-skills.test.sh
+
       - name: enrich.py database and queue client coverage, offline (/otel-enrich --clients, #276)
         run: bash tests/enrich-clients.test.sh
 

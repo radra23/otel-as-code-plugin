@@ -1,6 +1,8 @@
 ---
 name: otel-test
 description: Generate a test that fails when a service's telemetry goes missing. It sends one request through the service and asserts the request's span, the spans otel-enrich added and the confirmed business metrics all came out, with no backend. Node.js and Python services that otel-instrument has already set up. Use when asked to test instrumentation, protect telemetry from regressions, or check spans and metrics in CI.
+metadata:
+  internal: "true"
 ---
 
 # otel-test (Codex bridge)
