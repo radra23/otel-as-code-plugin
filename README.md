@@ -28,7 +28,9 @@ claude plugin install otel-as-code@otel-as-code
 `marketplace add` registers the source; `plugin install` enables the plugin. Using Codex? See
 [Using with Codex](#using-with-codex). Using GitHub Copilot CLI? See
 [Using with GitHub Copilot CLI](#using-with-github-copilot-cli). Which checks run in which agent
-is in [Which agents it works in](#which-agents-it-works-in). To work on the plugin itself, see
+is in [Which agents it works in](#which-agents-it-works-in). Another agent, such as Cursor or
+Gemini CLI, can use the guidance skills alone:
+[The guidance skills in any agent](#the-guidance-skills-in-any-agent). To work on the plugin itself, see
 [Development](#development).
 
 ## Your first trace
@@ -537,9 +539,35 @@ nothing here checks it. "Unknown" means nobody has tried.
 | Gemini CLI | unknown | unknown | unknown | unknown | nothing yet |
 
 The commands that generate files, the checks above and the CI-proven output are built for the
-agents in the first three rows. The guidance skills (semantic conventions, language maturity,
-Collector and Terraform patterns) are plain Markdown and could serve other agents too; that is
-tracked in [#268](https://github.com/radra23/otel-as-code-plugin/issues/268).
+agents in the first three rows.
+
+### The guidance skills in any agent
+
+Four skills are published in the open [Agent Skills](https://agentskills.io/specification)
+format, so any agent that reads that format can use them without the plugin:
+
+```bash
+npx skills add radra23/otel-as-code-plugin
+```
+
+| Skill | What it knows |
+|---|---|
+| `semconv-discipline` | which OpenTelemetry attribute names to use, which are deprecated, and how to keep cardinality down |
+| `language-maturity` | which signals (traces, metrics, logs) are stable in each language's SDK |
+| `collector-topology` | how to lay out an OpenTelemetry Collector (agent or gateway, sampling, limits) |
+| `terraform-patterns` | dashboards, alerts and SLOs as Terraform for Grafana, Datadog, New Relic and Dash0 |
+
+**This is guidance only.** It gives the agent the same rules the plugin follows, but nothing
+checks what the agent writes: no write guard, no semconv lint, no generated files proven in CI.
+For that, use one of the first three rows above.
+
+**What has been checked.** On 2026-11-22, `npx skills add` (skills CLI 1.9.0) installed exactly
+these four into a project for GitHub Copilot, and Copilot CLI 1.0.56 listed all four as loaded
+skills. That session answered without calling one, so loading is proven, not use. The CLI
+installs to the same place for Cursor, Codex and Gemini CLI; none of those has been tried.
+`tests/agent-skills.test.sh` keeps the published set to these four, holds them to the format,
+and keeps every other skill in this repo (the Codex wrappers, the command-only skills, the
+contributor tools) hidden from `npx skills`.
 
 ## Using with Codex
 

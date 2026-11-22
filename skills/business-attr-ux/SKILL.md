@@ -1,7 +1,9 @@
 ---
 name: business-attr-ux
 description: Tiered confidence-table UX, confidence thresholds, and conflict-resolution protocol for confirming inferred service identity and business attributes. Use from /otel-business-attrs.
-version: 0.1.0
+metadata:
+  version: "0.1.0"
+  internal: "true"
 ---
 
 # Business Attribute Inference UX

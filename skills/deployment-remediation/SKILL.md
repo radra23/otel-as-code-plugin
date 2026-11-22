@@ -1,7 +1,9 @@
 ---
 name: deployment-remediation
 description: Deployment-config remediation patterns for services /otel-instrument cannot bootstrap (generatorSupported:false, inScope:true — a third-party binary/image with no owned application source, but real native OTel support). Use when generating a deployment-config diff via /otel-remediate.
-version: 0.1.0
+metadata:
+  version: "0.1.0"
+  internal: "true"
 ---
 
 # Deployment-Config Remediation
