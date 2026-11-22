@@ -7,17 +7,23 @@
 #     c     run-copilot.sh: GitHub Copilot CLI, non-interactive, ONLY otel-as-code installed
 #   env:  RUNS (default 3)  JOBS (default 3)  EVAL_MODEL (default claude-opus-5-5)
 #         MAX_COST_USD (default 40, condition a ceiling)  CASE (glob, default all cases)
-#         COPILOT_MODEL (default gpt-4.1)  COPILOT_BIN (default copilot)  COPILOT_JOBS (default 1:
-#         parallel sessions hit Copilot's per-user rate limit)  condition c only
-# Results: evals/results/routing/<label>-<UTC timestamp>/{a,b,c}/ + summary-{a,b,c}.json
+#         COPILOT_MODEL (default gpt-4.1)  COPILOT_BIN (default copilot)  condition c only
+#         ROUTING_RESULTS (default evals/results/routing)
+# Results: <ROUTING_RESULTS>/<label>-<UTC timestamp>/{a,b}/ + summary-{a,b}.json
+#   Condition c instead keeps one directory per label, <ROUTING_RESULTS>/<label>/, and is
+#   resumable: running it again with the same label runs only the runs still missing, and merges
+#   every pass into one summary-c.json and one meta.json. It runs one session at a time and stops
+#   at the first rate-limit refusal, which is discarded, never scored.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; ROOT="$(cd "$HERE/../.." && pwd)"
 COND=${1:-both}; LABEL=${2:-run}
 RUNS=${RUNS:-3}; JOBS=${JOBS:-3}; MODEL=${EVAL_MODEL:-claude-opus-5-5}; MAX_COST=${MAX_COST_USD:-40}; CASE=${CASE:-*}
-OUT="$ROOT/evals/results/routing/$LABEL-$(date -u +%Y%m%dT%H%M%SZ)"; mkdir -p "$OUT"
+RESULTS=${ROUTING_RESULTS:-$ROOT/evals/results/routing}
 if [ "$COND" = c ]; then
-  echo "results: $OUT  (runs=$RUNS jobs=${COPILOT_JOBS:-1} model=${COPILOT_MODEL:-gpt-4.1}, Copilot CLI)"
+  OUT="$RESULTS/$LABEL"; mkdir -p "$OUT"
+  echo "results: $OUT  (runs=$RUNS, one session at a time, model=${COPILOT_MODEL:-gpt-4.1}, Copilot CLI)"
 else
+  OUT="$RESULTS/$LABEL-$(date -u +%Y%m%dT%H%M%SZ)"; mkdir -p "$OUT"
   echo "results: $OUT  (runs=$RUNS jobs=$JOBS model=$MODEL)"
 fi
 
@@ -85,15 +91,36 @@ run_b() {
 }
 
 run_c() {
-  local C="$OUT/c"; mkdir -p "$C"
-  local start=$(date +%s)
+  local C="$OUT/c" P="$HERE/copilot_pass.py"; mkdir -p "$C"
+  local model=${COPILOT_MODEL:-gpt-4.1} pv cv todo total remaining started stopped=finished
+  pv=$(git -C "$ROOT" show HEAD:.claude-plugin/plugin.json | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])')
+  cv=$("${COPILOT_BIN:-copilot}" --version 2>/dev/null | head -1)
+  # Stops here, starting nothing, if the label's kept runs used another version or model.
+  todo=$(python3 "$P" plan "$OUT" "$HERE/cases" "$CASE" "$RUNS" "$pv" "$cv" "$model") || return 3
+  total=$(python3 "$P" total "$HERE/cases" "$CASE" "$RUNS")
+  echo "condition c: $(( total - $(printf '%s' "$todo" | grep -c .) )) of $total runs already kept; plugin $pv, $cv, $model"
+  started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   local pass_tmp; pass_tmp=$(mktemp -d "${TMPDIR:-/tmp}/otel-routing-pass.XXXXXX")
-  for c in "$HERE"/cases/$CASE/; do
-    grep -q 'tags: \[routing' "$c/prompt.md" || continue
-    for n in $(seq 1 "$RUNS"); do printf '%s %s %s\n' "$c" "$n" "$C"; done
-  done | TMPDIR="$pass_tmp" xargs -P "${COPILOT_JOBS:-1}" -L 1 "$HERE/run-copilot.sh" || true
+  # One session at a time, read from fd 3 so a session can't swallow the rest of the list.
+  while read -r dir n <&3; do
+    [ -n "$dir" ] || continue
+    local rd rc=0; rd="$C/$(basename "$dir")/run-$n"; rm -rf "$rd"
+    TMPDIR="$pass_tmp" "$HERE/run-copilot.sh" "$dir" "$n" "$C" || rc=$?
+    if [ "$rc" = 255 ]; then   # refused by the rate limit: discard it and start nothing more
+      [ -f "$rd/refusal.json" ] && cp "$rd/refusal.json" "$OUT/last-refusal.json"
+      rm -rf "$rd"; stopped=rate-limited; break
+    fi
+  done 3<<< "$todo"
   rm -rf "${pass_tmp:?}"
-  echo "condition c wall time: $(( $(date +%s) - start ))s"
+  remaining=$(python3 "$P" plan "$OUT" "$HERE/cases" "$CASE" "$RUNS" "$pv" "$cv" "$model" | grep -c . || true)
+  python3 "$P" record "$OUT" "$started" "$stopped" "$(( total - remaining ))" "$total"
+  echo "condition c: $(( total - remaining )) of $total runs done, $remaining remain"
+  if [ "$stopped" = rate-limited ]; then
+    echo "stopped at Copilot's rate limit; run the same command again later to resume."
+    if [ -f "$OUT/last-refusal.json" ]; then echo "limit reset: $(python3 "$P" reset "$OUT/last-refusal.json")"
+    else echo "limit reset: the refused run left no refusal record"; fi
+  fi
+  ls "$C"/*/run-*/meta.json >/dev/null 2>&1 || { echo "no kept runs to score yet"; return 0; }
   # score.py labels every --headless run "b"; the title and summary-c.json say which it is.
   python3 "$HERE/score.py" --headless "$C" --per-run \
     --title "Condition (c): Copilot CLI, only otel-as-code installed ($LABEL)" --json "$OUT/summary-c.json"

@@ -122,6 +122,69 @@ got=$(python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); print(m["stop
 if [ "$got" = "True 0 8 True" ]; then echo "PASS run-copilot stops a session at the case's turn cap"
 else echo "FAIL run-copilot turn cap: got $got"; fail=1; fi
 
+# run.sh c is resumable (#337 follow-up): a pass that hits the rate limit midway and a resumed
+# pass add up to the same summary as one uninterrupted pass; a version change stops it. The stub
+# answers --version, routes the prompts that name tracing or OpenTelemetry, and refuses every
+# session after STUB_LIMIT_AFTER.
+RSTUB="$T/copilot-resume-stub"
+cat > "$RSTUB" <<'SH'
+#!/usr/bin/env bash
+case "$1" in --version) echo "${STUB_VERSION:-GitHub Copilot CLI 1.0.56}"; exit 0 ;; plugin) exit 0 ;; esac
+n=$(( $(cat "$STUB_COUNT" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$STUB_COUNT"
+root="$COPILOT_HOME/installed-plugins/otel-as-code/otel-as-code"
+printf '{"type":"session.skills_loaded","data":{"skills":[{"name":"otel-instrument","source":"plugin","path":"%s/commands/otel-instrument.md"}]}}\n' "$root"
+if [ -n "${STUB_LIMIT_AFTER:-}" ] && [ "$n" -gt "$STUB_LIMIT_AFTER" ]; then
+  printf '{"type":"model.call_failure","data":{"model":"gpt-4.1","statusCode":429,"errorMessage":"rate limit for utility models"}}\n'
+elif printf '%s' "$2" | grep -qiE 'opentelemetry|tracing'; then
+  printf '{"type":"tool.execution_start","data":{"toolName":"skill","arguments":{"skill":"otel-instrument"}}}\n'
+fi
+printf '{"type":"result","exitCode":0,"usage":{"premiumRequests":1}}\n'
+SH
+chmod +x "$RSTUB"
+rpass() {  # label, then env assignments; output in $T/rpass.out, exit code echoed
+  local label=$1; shift; local rc=0
+  env "$@" COPILOT_BIN="$RSTUB" COPILOT_GITHUB_TOKEN=stub TMPDIR="$T" ROUTING_RESULTS="$T/rr" \
+    RUNS=2 CASE='[acdef]*' STUB_COUNT="$T/stub-count-$label" \
+    bash evals/routing/run.sh c "$label" > "$T/rpass.out" 2>&1 || rc=$?
+  echo "$rc"
+}
+same_summary() {  # the two summaries, with run times left out
+  python3 - "$1" "$2" <<'PY2'
+import json, sys
+def norm(p):
+    d = json.load(open(p))
+    recs = sorted(({k: v for k, v in r.items() if k != "durationSeconds"} for r in d["records"]),
+                  key=lambda r: (r["case"], r["run"]))
+    s = {k: v for k, v in d["summary"].items() if k != "runSeconds"}
+    s["rows"] = [{k: v for k, v in r.items() if k != "meanSeconds"} for r in s["rows"]]
+    return recs, s
+sys.exit(0 if norm(sys.argv[1]) == norm(sys.argv[2]) else 1)
+PY2
+}
+rc=$(rpass full)
+full_ok=$([ "$rc" = 0 ] && grep -q '12 of 12 runs done, 0 remain' "$T/rpass.out" && echo yes || echo no)
+rc=$(rpass resumed STUB_LIMIT_AFTER=5)
+order=$(sed -n 's/^  c \([^ ]*\) run \([0-9]\).*/\1:\2/p' "$T/rpass.out" | tr '\n' ' ')
+want="diagnose-slow-checkout-with-traces:1 checkout-is-slow:1 fix-failing-test:1 explain-span:1 add-opentelemetry:1 add-tracing:1 "
+left=$(ls -d "$T"/rr/resumed/c/*/run-* | wc -l | tr -d ' ')
+if [ "$rc" = 0 ] && [ "$order" = "$want" ] && [ "$left" = 5 ] && grep -q '5 of 12 runs done, 7 remain' "$T/rpass.out" \
+   && grep -q 'limit reset: the refusal did not say when the limit resets' "$T/rpass.out"; then
+  echo "PASS run.sh c stops at the first refusal, keeps the finished runs and discards the refused one"
+else echo "FAIL run.sh c rate-limit stop: rc=$rc order=[$order] kept=$left"; sed 's/^/    /' "$T/rpass.out"; fail=1; fi
+rc=$(rpass resumed)
+order=$(sed -n 's/^  c \([^ ]*\) run \([0-9]\).*/\1:\2/p' "$T/rpass.out" | head -2 | tr '\n' ' ')
+passes=$(python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); print(len(m["passes"]), len(m["runs"]), sum(r["premiumRequests"] for r in m["runs"]))' "$T/rr/resumed/meta.json" 2>/dev/null || echo none)
+if [ "$full_ok" = yes ] && [ "$rc" = 0 ] && [ "$order" = "add-tracing:1 diagnose-slow-checkout-with-traces:2 " ] \
+   && [ "$passes" = "2 12 12" ] && same_summary "$T/rr/full/summary-c.json" "$T/rr/resumed/summary-c.json"; then
+  echo "PASS run.sh c resumes the missing runs and merges both passes into the same summary as one pass"
+else echo "FAIL run.sh c resume: full=$full_ok rc=$rc order=[$order] meta=$passes"; sed 's/^/    /' "$T/rpass.out"; fail=1; fi
+before=$(cat "$T/stub-count-resumed")
+rc=$(rpass resumed STUB_VERSION='GitHub Copilot CLI 1.0.57')
+if [ "$rc" = 3 ] && grep -q 'used Copilot version GitHub Copilot CLI 1.0.56' "$T/rpass.out" \
+   && [ "$(cat "$T/stub-count-resumed")" = "$before" ]; then
+  echo "PASS run.sh c stops, starting no session, when the Copilot version changed between passes"
+else echo "FAIL run.sh c version change: rc=$rc"; sed 's/^/    /' "$T/rpass.out"; fail=1; fi
+
 # Every case directory carries a prompt, a should-/should-not-route tag, a grader and a scaffold.
 python3 - <<'PY' || fail=1
 import glob, os, sys

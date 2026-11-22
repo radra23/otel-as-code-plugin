@@ -3,7 +3,8 @@
 # plugin installed, on the same scaffold, prompt and timeout as conditions (a) and (b).
 #
 # usage: run-copilot.sh <case-dir> <run-index> <out-dir>
-# writes <out-dir>/<case>/run-<n>/{copilot.jsonl,trace.jsonl,stderr.log,meta.json}
+# writes <out-dir>/<case>/run-<n>/{copilot.jsonl,trace.jsonl,stderr.log,meta.json}, plus
+# refusal.json (the first refused model call's data) when Copilot's rate limit refused the run
 #
 # Isolation: HOME and COPILOT_HOME are a fresh temp dir per run, so no personal skill
 # (~/.agents/skills), custom agent, plugin, MCP config or memory loads; only Copilot's built-ins
@@ -38,6 +39,9 @@ ALLOW=(--allow-tool=write)
 for cmd in node npm npx curl git ls cat head tail grep find sed wc jq python3 kill pkill lsof ps \
            sleep echo printf date mkdir test sort; do ALLOW+=("--allow-tool=shell($cmd:*)"); done
 
+PLUGIN_VERSION=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' \
+  "$TMP/market/.claude-plugin/plugin.json")
+DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 START=$(date +%s)
 ( cd "$WS" && exec env HOME="$TMP/home" COPILOT_HOME="$TMP/home/.copilot" COPILOT_GITHUB_TOKEN="$TOKEN" \
     "$COPILOT" -p "$PROMPT" --model "$MODEL" --output-format json --no-auto-update --no-ask-user \
@@ -66,9 +70,10 @@ END=$(date +%s)
 PLUGIN_ROOT="$TMP/home/.copilot/installed-plugins/otel-as-code/otel-as-code"
 python3 "$HERE/copilot_transcript.py" "$OUT/copilot.jsonl" "$PLUGIN_ROOT" > "$OUT/trace.jsonl"
 VERSION=$("$COPILOT" --version 2>/dev/null | head -1)
-python3 - "$OUT" "$CASE" "$RUN" "$RC" "$((END-START))" "$MODEL" "$VERSION" "$MAX_TURNS" <<'PY'
+python3 - "$OUT" "$CASE" "$RUN" "$RC" "$((END-START))" "$MODEL" "$VERSION" "$MAX_TURNS" \
+  "$PLUGIN_VERSION" "$DATE" <<'PY'
 import json, sys
-out, case, run, rc, secs, model, version, max_turns = sys.argv[1:]
+out, case, run, rc, secs, model, version, max_turns, plugin_version, date = sys.argv[1:]
 prem, limited = None, []
 for line in open(f"{out}/copilot.jsonl", errors="replace"):
     try: e = json.loads(line)
@@ -76,6 +81,8 @@ for line in open(f"{out}/copilot.jsonl", errors="replace"):
     if e.get("type") == "result": prem = (e.get("usage") or {}).get("premiumRequests")
     d = e.get("data") or {}
     if e.get("type") == "model.call_failure" and d.get("statusCode") == 429:
+        if not limited:   # kept whole: run.sh reads a reset time from it, if it carries one
+            json.dump(d, open(f"{out}/refusal.json", "w"), indent=2)
         limited.append(str(d.get("errorMessage", ""))[:200])
 # Copilot exits 0 after its model calls are rate limited, having done nothing; scored as is, that
 # reads as a real "neither". Record it as a failed run so score.py counts it as an error.
@@ -84,9 +91,9 @@ if limited and int(rc) == 0:
     open(f"{out}/stderr.log", "a").write("rate limited (HTTP 429): " + limited[0] + "\n")
 # costUsd stays null: Copilot bills premium requests, not dollars, so it is recorded on its own.
 capped = "stopped at the turn cap" in open(f"{out}/stderr.log").read()
-json.dump({"condition": "c", "case": case, "run": int(run), "exitCode": int(rc),
+json.dump({"condition": "c", "case": case, "run": int(run), "date": date, "exitCode": int(rc),
            "durationSeconds": int(secs), "costUsd": None, "premiumRequests": prem, "model": model,
-           "copilotVersion": version, "maxTurns": int(max_turns), "stoppedAtTurnCap": capped},
+           "pluginVersion": plugin_version, "copilotVersion": version, "maxTurns": int(max_turns), "stoppedAtTurnCap": capped},
           open(f"{out}/meta.json", "w"))
 print(f"  c {case} run {run}: {prem} premium requests {secs}s exit {rc}"
       + (" RATE LIMITED" if limited else ""))
