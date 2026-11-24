@@ -219,6 +219,14 @@ if [ "$rc" = 3 ] && grep -q 'used Copilot version GitHub Copilot CLI 1.0.56' "$T
   echo "PASS run.sh c stops, starting no session, when the Copilot version changed between passes"
 else echo "FAIL run.sh c version change: rc=$rc"; sed 's/^/    /' "$T/rpass.out"; fail=1; fi
 
+# A session that timed out after real model turns is a scored result (an error, as in (a) and
+# (b)), not a run to redo; one discarded as no measurement is redone.
+K="$T/kept-label/c"; for x in "explain-span 1 null" "explain-span 2 \"network\""; do set -- $x
+  mkdir -p "$K/$1/run-$2"; printf '{"case":"%s","run":%s,"exitCode":143,"discardReason":%s,"pluginVersion":"p","copilotVersion":"v","model":"m"}' "$1" "$2" "$3" > "$K/$1/run-$2/meta.json"; done
+got=$(python3 evals/routing/copilot_pass.py plan "$T/kept-label" evals/routing/cases 'explain-span' 2 p v m | tr '\n' ' ')
+if [ "$got" = "evals/routing/cases/explain-span 2 " ]; then echo "PASS a timed-out run with model turns is kept; a discarded one is redone"
+else echo "FAIL kept rule: plan gave [$got]"; fail=1; fi
+
 # Every case directory carries a prompt, a should-/should-not-route tag, a grader and a scaffold.
 python3 - <<'PY' || fail=1
 import glob, os, sys

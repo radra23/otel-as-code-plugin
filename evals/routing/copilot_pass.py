@@ -14,7 +14,9 @@
   reset   <refusal.json>
           prints when the rate limit resets, if the refused call said so
 
-A kept run is one with a scored result: exit 0. A refused run is deleted by run.sh before this
+A kept run is one with a scored result: any run run-copilot.sh did not discard as no measurement
+(discardReason null), including one that hit the case's timeout after real model turns, which
+conditions (a) and (b) also score, as an error. A discarded run is deleted by run.sh before this
 reads the directory, so it can never be scored, and is run again by the next pass.
 """
 import fnmatch, glob, json, os, re, sys
@@ -26,11 +28,16 @@ FIRST = ["diagnose-slow-checkout-with-traces", "checkout-is-slow", "fix-failing-
 KEYS = (("pluginVersion", "plugin version"), ("copilotVersion", "Copilot version"), ("model", "model"))
 
 
+def is_kept(m):
+    # Runs written before discardReason existed count only on exit 0.
+    return m.get("exitCode") == 0 or ("discardReason" in m and m["discardReason"] is None)
+
+
 def kept(label_dir):
     out = {}
     for meta in sorted(glob.glob(os.path.join(label_dir, "c", "*", "run-*", "meta.json"))):
         m = json.load(open(meta))
-        if m.get("exitCode") == 0:
+        if is_kept(m):
             out[(m["case"], m["run"])] = m
     return out
 
@@ -64,7 +71,7 @@ def clear(label_dir):
     import shutil
     for d in glob.glob(os.path.join(label_dir, "c", "*", "run-*", "")):
         meta = os.path.join(d, "meta.json")
-        if not (os.path.exists(meta) and json.load(open(meta)).get("exitCode") == 0):
+        if not (os.path.exists(meta) and is_kept(json.load(open(meta)))):
             shutil.rmtree(d)
 
 
@@ -78,7 +85,7 @@ def record(label_dir, started, stopped, done, total):
     runs = sorted(kept(label_dir).values(), key=lambda m: (m["case"], m["run"]))
     meta["passes"].append({"started": started, "stopped": stopped, "runsDone": int(done), "runsTotal": int(total)})
     meta["runs"] = [{k: m.get(k) for k in ("case", "run", "date", "pluginVersion", "copilotVersion", "model",
-                                           "premiumRequests", "stoppedAtTurnCap", "durationSeconds")}
+                                           "exitCode", "premiumRequests", "stoppedAtTurnCap", "durationSeconds")}
                     for m in runs]
     json.dump(meta, open(path, "w"), indent=2)
 

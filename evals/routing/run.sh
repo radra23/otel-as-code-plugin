@@ -101,8 +101,9 @@ run_c() {
   todo=$(python3 "$P" plan "$OUT" "$HERE/cases" "$CASE" "$RUNS" "$pv" "$cv" "$model") || return 3
   total=$(python3 "$P" total "$HERE/cases" "$CASE" "$RUNS")
   echo "condition c: $(( total - $(printf '%s' "$todo" | grep -c .) )) of $total runs already kept; plugin $pv, $cv, $model"
-  # A run that is not kept (a timeout, a failure) is not a result: it is cleared and run again,
-  # so the merged summary scores kept runs only.
+  # A run that is not kept (discarded, or left by an older runner after a failure) is not a
+  # result: it is cleared and run again, so the merged summary scores kept runs only. A timeout
+  # after real model turns is kept and scored as an error, as in conditions (a) and (b).
   python3 "$P" clear "$OUT"
   started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   # A pass the machine slept through failed every session after the sleep (network, keychain).
