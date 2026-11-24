@@ -200,6 +200,11 @@ if [ "$rc" = 0 ] && [ "$order" = "$want" ] && [ "$left" = 5 ] && grep -q '5 of 1
    && grep -q 'limit reset: the refusal did not say when the limit resets' "$T/rpass.out"; then
   echo "PASS run.sh c stops at the first refusal, keeps the finished runs and discards the refused one"
 else echo "FAIL run.sh c rate-limit stop: rc=$rc order=[$order] kept=$left"; sed 's/^/    /' "$T/rpass.out"; fail=1; fi
+# A run that was not kept (here a timed-out run-3 the plan would never redo) must not reach the
+# merged summary: the next pass clears it.
+mkdir -p "$T/rr/resumed/c/explain-span/run-3"
+printf '{"case":"explain-span","run":3,"exitCode":143}' > "$T/rr/resumed/c/explain-span/run-3/meta.json"
+: > "$T/rr/resumed/c/explain-span/run-3/trace.jsonl"
 rc=$(rpass resumed)
 order=$(sed -n 's/^  c \([^ ]*\) run \([0-9]\).*/\1:\2/p' "$T/rpass.out" | head -2 | tr '\n' ' ')
 passes=$(python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); print(len(m["passes"]), len(m["runs"]), sum(r["premiumRequests"] for r in m["runs"]))' "$T/rr/resumed/meta.json" 2>/dev/null || echo none)

@@ -9,6 +9,8 @@
           prints how many runs a full pass of these cases has
   record  <label-dir> <started> <stopped> <done> <total>
           appends this pass to <label-dir>/meta.json and rebuilds its list of runs
+  clear   <label-dir>
+          removes every run that is not kept, so the summary scores kept runs only
   reset   <refusal.json>
           prints when the rate limit resets, if the refused call said so
 
@@ -58,6 +60,14 @@ def plan(label_dir, cases_dir, case_glob, runs, plugin, copilot, model):
                 print(os.path.join(cases_dir, name), n)
 
 
+def clear(label_dir):
+    import shutil
+    for d in glob.glob(os.path.join(label_dir, "c", "*", "run-*", "")):
+        meta = os.path.join(d, "meta.json")
+        if not (os.path.exists(meta) and json.load(open(meta)).get("exitCode") == 0):
+            shutil.rmtree(d)
+
+
 def total(cases_dir, case_glob, runs):
     print(len(routing_cases(cases_dir, case_glob)) * int(runs))
 
@@ -88,4 +98,4 @@ def reset(refusal):
 
 if __name__ == "__main__":
     cmd, args = sys.argv[1], sys.argv[2:]
-    {"plan": plan, "total": total, "record": record, "reset": reset}[cmd](*args)
+    {"plan": plan, "clear": clear, "total": total, "record": record, "reset": reset}[cmd](*args)

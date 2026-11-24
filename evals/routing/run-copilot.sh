@@ -105,7 +105,7 @@ for line in open(f"{out}/copilot.jsonl", errors="replace"):
     if e.get("type") == "model.call_failure" and d.get("statusCode") == 429:
         if not limited:   # kept whole: run.sh reads a reset time from it, if it carries one
             json.dump(d, open(f"{out}/refusal.json", "w"), indent=2)
-        limited.append(str(d.get("errorMessage", ""))[:200])
+        limited.append(str(d.get("errorMessage", ""))[:400])
 # Copilot exits 0 after its model calls are rate limited, having done nothing; scored as is, that
 # reads as a real "neither". Record it as a failed run so score.py counts it as an error.
 if limited and int(rc) == 0:
