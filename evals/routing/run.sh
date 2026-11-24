@@ -13,7 +13,9 @@
 #   Condition c instead keeps one directory per label, <ROUTING_RESULTS>/<label>/, and is
 #   resumable: running it again with the same label runs only the runs still missing, and merges
 #   every pass into one summary-c.json and one meta.json. It runs one session at a time and stops
-#   at the first rate-limit refusal, which is discarded, never scored.
+#   at the first run that is no measurement (a rate-limit refusal, a failed setup step, or a
+#   session that never got a fair model call), which is discarded, never scored. On macOS it
+#   keeps the machine from idle-sleeping while it runs (caffeinate); a closed lid still sleeps.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; ROOT="$(cd "$HERE/../.." && pwd)"
 COND=${1:-both}; LABEL=${2:-run}
@@ -100,25 +102,31 @@ run_c() {
   total=$(python3 "$P" total "$HERE/cases" "$CASE" "$RUNS")
   echo "condition c: $(( total - $(printf '%s' "$todo" | grep -c .) )) of $total runs already kept; plugin $pv, $cv, $model"
   started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  # A pass the machine slept through failed every session after the sleep (network, keychain).
+  command -v caffeinate >/dev/null && { caffeinate -i -w $$ & }
   local pass_tmp; pass_tmp=$(mktemp -d "${TMPDIR:-/tmp}/otel-routing-pass.XXXXXX")
   # One session at a time, read from fd 3 so a session can't swallow the rest of the list.
   while read -r dir n <&3; do
     [ -n "$dir" ] || continue
     local rd rc=0; rd="$C/$(basename "$dir")/run-$n"; rm -rf "$rd"
     TMPDIR="$pass_tmp" "$HERE/run-copilot.sh" "$dir" "$n" "$C" || rc=$?
-    if [ "$rc" = 255 ]; then   # refused by the rate limit: discard it and start nothing more
+    if [ "$rc" = 255 ]; then   # no measurement: discard it and start nothing more
+      stopped=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("discardReason") or "")' \
+        "$rd/meta.json" 2>/dev/null); stopped=${stopped:-a setup step failed (see the output above)}
       [ -f "$rd/refusal.json" ] && cp "$rd/refusal.json" "$OUT/last-refusal.json"
-      rm -rf "$rd"; stopped=rate-limited; break
+      rm -rf "$rd"; break
     fi
   done 3<<< "$todo"
   rm -rf "${pass_tmp:?}"
   remaining=$(python3 "$P" plan "$OUT" "$HERE/cases" "$CASE" "$RUNS" "$pv" "$cv" "$model" | grep -c . || true)
   python3 "$P" record "$OUT" "$started" "$stopped" "$(( total - remaining ))" "$total"
   echo "condition c: $(( total - remaining )) of $total runs done, $remaining remain"
-  if [ "$stopped" = rate-limited ]; then
-    echo "stopped at Copilot's rate limit; run the same command again later to resume."
-    if [ -f "$OUT/last-refusal.json" ]; then echo "limit reset: $(python3 "$P" reset "$OUT/last-refusal.json")"
-    else echo "limit reset: the refused run left no refusal record"; fi
+  if [ "$stopped" != finished ]; then
+    echo "stopped: $stopped. Run the same command again later to resume."
+    case "$stopped" in "rate limited"*)
+      if [ -f "$OUT/last-refusal.json" ]; then echo "limit reset: $(python3 "$P" reset "$OUT/last-refusal.json")"
+      else echo "limit reset: the refused run left no refusal record"; fi ;;
+    esac
   fi
   ls "$C"/*/run-*/meta.json >/dev/null 2>&1 || { echo "no kept runs to score yet"; return 0; }
   # score.py labels every --headless run "b"; the title and summary-c.json say which it is.

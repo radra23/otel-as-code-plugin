@@ -86,27 +86,39 @@ if [ "$got" = otel-instrument ]; then echo "PASS the captured routed run picked 
 
 # run-copilot.sh end to end against a stub `copilot` (no model calls): a session whose model
 # calls were rate limited must be recorded as a failed run and stop the pass (exit 255), never
-# scored as a real "neither"; a clean session that calls the plugin's skill scores routed.
+# scored as a real "neither"; a clean session that calls the plugin's skill scores routed. So must
+# the runs that measure the machine instead (#339): a hung install, a session that never reached
+# the model, network failures; and stopping a session stops a wrapper's child too.
 STUB="$T/copilot-stub"
 cat > "$STUB" <<'SH'
 #!/usr/bin/env bash
-[ "$1" = plugin ] && exit 0
+if [ "$1" = plugin ]; then [ "$STUB_MODE" = hang-install ] && sleep 3017; exit 0; fi
 root="$COPILOT_HOME/installed-plugins/otel-as-code/otel-as-code"
 printf '{"type":"session.skills_loaded","data":{"skills":[{"name":"otel-instrument","source":"plugin","path":"%s/commands/otel-instrument.md"}]}}\n' "$root"
 if [ "$STUB_MODE" = endless ]; then
   for i in $(seq 0 11); do printf '{"type":"assistant.turn_start","data":{"turnId":"%s"}}\n' "$i"; done
   sleep 60; exit 0
+elif [ "$STUB_MODE" = wrapper ]; then   # like VS Code's copilot: the session is a child process
+  bash -c 'for i in $(seq 0 11); do printf "{\"type\":\"assistant.turn_start\",\"data\":{}}\n"; done; sleep 3019'
+  exit 0
+elif [ "$STUB_MODE" = nomodel ]; then
+  echo "Error executing prompt: Error: Directory does not exist or cannot be accessed: /gone" >&2; exit 1
+elif [ "$STUB_MODE" = network ]; then
+  printf '{"type":"assistant.turn_start","data":{}}\n'
+  printf '{"type":"model.call_failure","data":{"model":"gpt-4.1","statusCode":503,"errorMessage":"HTTP/2 GOAWAY connection terminated"}}\n'
+  exit 1
 elif [ "$STUB_MODE" = limited ]; then
   printf '{"type":"model.call_failure","data":{"model":"gpt-4.1","statusCode":429,"errorMessage":"rate limit for utility models"}}\n'
 else
+  printf '{"type":"assistant.turn_start","data":{}}\n'
   printf '{"type":"tool.execution_start","data":{"toolName":"skill","arguments":{"skill":"otel-instrument"}}}\n'
 fi
 printf '{"type":"result","exitCode":0,"usage":{"premiumRequests":0}}\n'
 SH
 chmod +x "$STUB"
-for mode in limited clean endless; do
+for mode in limited clean endless wrapper nomodel network hang-install; do
   rc=0
-  STUB_MODE=$mode COPILOT_BIN="$STUB" COPILOT_GITHUB_TOKEN=stub TMPDIR="$T" \
+  STUB_MODE=$mode COPILOT_BIN="$STUB" COPILOT_GITHUB_TOKEN=stub TMPDIR="$T" COPILOT_INSTALL_TIMEOUT=3 \
     bash evals/routing/run-copilot.sh evals/routing/cases/add-tracing 1 "$T/c-$mode" >/dev/null 2>&1 || rc=$?
   echo "$rc" > "$T/c-$mode.rc"
 done
@@ -121,6 +133,21 @@ else echo "FAIL run-copilot clean run: runner exit $(cat "$T/c-clean.rc"), verdi
 got=$(python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); print(m["stoppedAtTurnCap"], m["exitCode"], m["maxTurns"], m["durationSeconds"] < 30)' "$T/c-endless/add-tracing/run-1/meta.json" 2>/dev/null || echo none)
 if [ "$got" = "True 0 8 True" ]; then echo "PASS run-copilot stops a session at the case's turn cap"
 else echo "FAIL run-copilot turn cap: got $got"; fail=1; fi
+left=$( { pgrep -f 'sleep 3019' || true; } | wc -l | tr -d ' ')
+got=$(python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); print(m["stoppedAtTurnCap"], m["exitCode"])' "$T/c-wrapper/add-tracing/run-1/meta.json" 2>/dev/null || echo none)
+if [ "$got" = "True 0" ] && [ "$left" = 0 ]; then echo "PASS run-copilot stops a wrapper's child session at the turn cap"
+else echo "FAIL run-copilot wrapper: got $got, $left child session(s) left running"; pkill -f 'sleep 3019'; fail=1; fi
+for want in "nomodel:the session never reached the model" "network:network failures before the session ended"; do
+  mode=${want%%:*}; reason=${want#*:}
+  got=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["discardReason"] or "")' "$T/c-$mode/add-tracing/run-1/meta.json" 2>/dev/null || echo none)
+  case "$(cat "$T/c-$mode.rc") $got" in
+    "255 $reason"*) echo "PASS run-copilot discards a run where $reason and stops the pass" ;;
+    *) echo "FAIL run-copilot $mode: runner exit $(cat "$T/c-$mode.rc"), discardReason '$got'"; fail=1 ;;
+  esac
+done
+left=$( { pgrep -f 'sleep 3017' || true; } | wc -l | tr -d ' ')
+if [ "$(cat "$T/c-hang-install.rc")" = 255 ] && [ "$left" = 0 ]; then echo "PASS run-copilot gives up on a hung plugin install and stops the pass"
+else echo "FAIL run-copilot hung install: runner exit $(cat "$T/c-hang-install.rc"), $left install(s) left running"; pkill -f 'sleep 3017'; fail=1; fi
 
 # run.sh c is resumable (#337 follow-up): a pass that hits the rate limit midway and a resumed
 # pass add up to the same summary as one uninterrupted pass; a version change stops it. The stub
@@ -135,7 +162,9 @@ root="$COPILOT_HOME/installed-plugins/otel-as-code/otel-as-code"
 printf '{"type":"session.skills_loaded","data":{"skills":[{"name":"otel-instrument","source":"plugin","path":"%s/commands/otel-instrument.md"}]}}\n' "$root"
 if [ -n "${STUB_LIMIT_AFTER:-}" ] && [ "$n" -gt "$STUB_LIMIT_AFTER" ]; then
   printf '{"type":"model.call_failure","data":{"model":"gpt-4.1","statusCode":429,"errorMessage":"rate limit for utility models"}}\n'
-elif printf '%s' "$2" | grep -qiE 'opentelemetry|tracing'; then
+else printf '{"type":"assistant.turn_start","data":{}}\n'; fi
+if [ -z "${STUB_LIMIT_AFTER:-}" ] || [ "$n" -le "$STUB_LIMIT_AFTER" ]; then
+  printf '%s' "$2" | grep -qiE 'opentelemetry|tracing' && \
   printf '{"type":"tool.execution_start","data":{"toolName":"skill","arguments":{"skill":"otel-instrument"}}}\n'
 fi
 printf '{"type":"result","exitCode":0,"usage":{"premiumRequests":1}}\n'

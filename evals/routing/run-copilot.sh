@@ -4,7 +4,11 @@
 #
 # usage: run-copilot.sh <case-dir> <run-index> <out-dir>
 # writes <out-dir>/<case>/run-<n>/{copilot.jsonl,trace.jsonl,stderr.log,meta.json}, plus
-# refusal.json (the first refused model call's data) when Copilot's rate limit refused the run
+# refusal.json (the first refused model call's data) when Copilot's rate limit refused the run.
+# Exit 255 (run.sh discards the run and starts no more) when the run is no measurement at all:
+# refused by the rate limit, a setup step failed, or the session never got a fair model call
+# (no model turn, or network failures in a session that did not end cleanly). meta.json's
+# discardReason says which.
 #
 # Isolation: HOME and COPILOT_HOME are a fresh temp dir per run, so no personal skill
 # (~/.agents/skills), custom agent, plugin, MCP config or memory loads; only Copilot's built-ins
@@ -24,16 +28,31 @@ OUT="$OUT_ROOT/$CASE/run-$RUN"; mkdir -p "$OUT"; OUT=$(cd "$OUT" && pwd)
 PROMPT=$(awk 'f==2{print} /^---$/{f++}' "$CASE_DIR/prompt.md" | sed '/./,$!d')
 TIMEOUT=$(sed -n 's/^timeout_seconds: *//p' "$CASE_DIR/prompt.md"); TIMEOUT=${TIMEOUT:-300}
 MAX_TURNS=$(sed -n 's/^max_turns: *//p' "$CASE_DIR/prompt.md"); MAX_TURNS=${MAX_TURNS:-10}
+INSTALL_TIMEOUT=${COPILOT_INSTALL_TIMEOUT:-180}
 TOKEN=${COPILOT_GITHUB_TOKEN:-$(gh auth token 2>/dev/null)}
-[ -n "$TOKEN" ] || { echo "no COPILOT_GITHUB_TOKEN and no gh login" >&2; exit 1; }
+[ -n "$TOKEN" ] || { echo "no COPILOT_GITHUB_TOKEN and no gh login (a locked keychain reads as none)" >&2; exit 255; }
+
+# The copilot on PATH can be a wrapper that starts the real CLI as a child (VS Code's is), so
+# stopping a session means stopping its whole tree: killing only the wrapper left the session
+# running, orphaned, in a workspace this script then deleted.
+kill_tree() { local p; for p in $(pgrep -P "$1" 2>/dev/null); do kill_tree "$p"; done; kill "$1" 2>/dev/null; }
+with_timeout() {  # seconds, command...: the command's exit code, or 124 once it ran too long
+  local secs=$1; shift; "$@" & local p=$!
+  ( sleep "$secs"; kill_tree "$p" ) & local w=$!
+  wait "$p"; local rc=$?
+  if kill -0 "$w" 2>/dev/null; then kill_tree "$w"; wait "$w" 2>/dev/null; else rc=124; fi
+  return $rc
+}
 
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/otel-routing-c.XXXXXX"); TMP=$(cd "$TMP" && pwd -P)
 WS="$TMP/work/checkout-api"; mkdir -p "$WS" "$TMP/home" "$TMP/market"
-(cd "$WS" && bash "$HERE/scaffold.sh") || { echo "scaffold failed" >&2; exit 1; }
+(cd "$WS" && bash "$HERE/scaffold.sh") || { echo "scaffold failed" >&2; exit 255; }
 git -C "$ROOT" archive HEAD | tar -x -C "$TMP/market"
 c() { HOME="$TMP/home" COPILOT_HOME="$TMP/home/.copilot" COPILOT_GITHUB_TOKEN="$TOKEN" "$COPILOT" "$@"; }
-{ c plugin marketplace add "$TMP/market" && c plugin install otel-as-code@otel-as-code; } \
-  > "$OUT/install.log" 2>&1 || { echo "plugin install failed, see $OUT/install.log" >&2; exit 1; }
+install() { c plugin marketplace add "$TMP/market" && c plugin install otel-as-code@otel-as-code; }
+with_timeout "$INSTALL_TIMEOUT" install > "$OUT/install.log" 2>&1 || {
+  echo "plugin install failed or ran past ${INSTALL_TIMEOUT}s, see $OUT/install.log" >&2
+  rm -rf "$TMP"; exit 255; }
 
 ALLOW=(--allow-tool=write)
 for cmd in node npm npx curl git ls cat head tail grep find sed wc jq python3 kill pkill lsof ps \
@@ -54,10 +73,10 @@ PID=$!
   while kill -0 "$PID" 2>/dev/null; do
     turns=$(grep -c '"type": *"assistant.turn_start"' "$OUT/copilot.jsonl" 2>/dev/null)
     if [ "${turns:-0}" -gt "$MAX_TURNS" ]; then
-      kill "$PID" 2>/dev/null && echo "stopped at the turn cap (${MAX_TURNS})" >> "$OUT/stderr.log"; break
+      kill_tree "$PID"; echo "stopped at the turn cap (${MAX_TURNS})" >> "$OUT/stderr.log"; break
     fi
     if [ "$(date +%s)" -ge "$deadline" ]; then
-      kill "$PID" 2>/dev/null && echo "timed out after ${TIMEOUT}s" >> "$OUT/stderr.log"; break
+      kill_tree "$PID"; echo "timed out after ${TIMEOUT}s" >> "$OUT/stderr.log"; break
     fi
     sleep 1
   done ) &
@@ -74,12 +93,15 @@ python3 - "$OUT" "$CASE" "$RUN" "$RC" "$((END-START))" "$MODEL" "$VERSION" "$MAX
   "$PLUGIN_VERSION" "$DATE" <<'PY'
 import json, sys
 out, case, run, rc, secs, model, version, max_turns, plugin_version, date = sys.argv[1:]
-prem, limited = None, []
+prem, limited, turns, net = None, [], 0, []
 for line in open(f"{out}/copilot.jsonl", errors="replace"):
     try: e = json.loads(line)
     except ValueError: continue
     if e.get("type") == "result": prem = (e.get("usage") or {}).get("premiumRequests")
+    if e.get("type") == "assistant.turn_start": turns += 1
     d = e.get("data") or {}
+    if e.get("type") == "model.call_failure" and (d.get("statusCode") is None or d.get("statusCode") >= 500):
+        net.append(str(d.get("errorMessage", ""))[:200])
     if e.get("type") == "model.call_failure" and d.get("statusCode") == 429:
         if not limited:   # kept whole: run.sh reads a reset time from it, if it carries one
             json.dump(d, open(f"{out}/refusal.json", "w"), indent=2)
@@ -90,19 +112,28 @@ if limited and int(rc) == 0:
     rc = "75"
     open(f"{out}/stderr.log", "a").write("rate limited (HTTP 429): " + limited[0] + "\n")
 # costUsd stays null: Copilot bills premium requests, not dollars, so it is recorded on its own.
-capped = "stopped at the turn cap" in open(f"{out}/stderr.log").read()
+stderr = open(f"{out}/stderr.log", errors="replace").read()
+capped = "stopped at the turn cap" in stderr
+# A run that never got a fair model call measures the machine, not the routing: discarded too.
+reason = None
+if limited:
+    reason = "rate limited (HTTP 429): " + limited[0]
+elif turns == 0:
+    reason = "the session never reached the model: " + (stderr.strip().splitlines() or ["no output"])[-1][:200]
+elif net and int(rc) != 0:
+    reason = "network failures before the session ended: " + net[0]
 json.dump({"condition": "c", "case": case, "run": int(run), "date": date, "exitCode": int(rc),
            "durationSeconds": int(secs), "costUsd": None, "premiumRequests": prem, "model": model,
-           "pluginVersion": plugin_version, "copilotVersion": version, "maxTurns": int(max_turns), "stoppedAtTurnCap": capped},
+           "pluginVersion": plugin_version, "copilotVersion": version, "maxTurns": int(max_turns), "stoppedAtTurnCap": capped, "discardReason": reason},
           open(f"{out}/meta.json", "w"))
 print(f"  c {case} run {run}: {prem} premium requests {secs}s exit {rc}"
-      + (" RATE LIMITED" if limited else ""))
-sys.exit(75 if limited else 0)
+      + (" RATE LIMITED" if limited else f" DISCARDED ({reason})" if reason else ""))
+sys.exit(75 if reason else 0)
 PY
 LIMITED=$?
 # A stopped session can leave Copilot's helpers writing into the temp home for a moment.
 pkill -f "$TMP" 2>/dev/null || true
 for _ in 1 2 3 4 5; do rm -rf "$TMP" 2>/dev/null && break; sleep 1; done
 # 255 makes run.sh's xargs stop starting runs: every later run would hit the same limit.
-[ "$LIMITED" -eq 75 ] && { echo "Copilot rate limit reached; stopping the pass" >&2; exit 255; }
+[ "$LIMITED" -eq 75 ] && { echo "no measurement from this run; stopping the pass" >&2; exit 255; }
 exit 0
