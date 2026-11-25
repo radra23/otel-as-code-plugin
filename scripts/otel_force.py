@@ -30,6 +30,7 @@ import tempfile
 import time
 
 SENTINEL = os.path.join(".claude", ".otel-force")
+BACKSLASH = chr(92)  # as in hooks/otel-force-match.py: no backslash escape in the source
 DEFAULT_TTL = 600
 
 
@@ -48,6 +49,13 @@ def set_sentinel(paths, ttl):
         # on) would otherwise turn into a second entry and authorise a path nobody listed.
         if entry != entry.strip() or entry.splitlines() != [entry]:
             return refuse(f"refusing a path that is not one clean line: {entry!r}")
+        # The matcher also turns every backslash into a separator and then collapses `..`
+        # (hooks/otel-force-match.py, canon). Where `/` is the separator a backslash is an
+        # ordinary file-name character, so `infra<bs>..<bs>..<bs>etc<bs>x` (<bs> a backslash)
+        # would be listed as one name and matched as /etc/x. abspath has already collapsed
+        # every real `..` here.
+        if os.sep == "/" and BACKSLASH in entry:
+            return refuse(f"refusing a path with a backslash, which the matcher reads as a separator: {entry!r}")
     directory = os.path.dirname(SENTINEL)
     if os.path.islink(directory):
         return refuse(f"{directory} is a symlink; the sentinel is only written to a real directory")

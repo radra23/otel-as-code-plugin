@@ -64,6 +64,17 @@ for bad in "$(printf 'infra/a.tf\n/etc/passwd')" "$(printf 'infra/a.tf\r/etc/pas
     '[ "$rc" = 1 ] && grep -q "not one clean line" <<<"$out" && [ "$(cat .claude/.otel-force)" = "$before" ]'
 done
 
+# The matcher turns a backslash into a separator and collapses `..`, so on a POSIX host a
+# backslash in a name would be matched as a different, wider path: refused. A real `..` is fine,
+# because abspath collapses it before the entry is written.
+out=$(python3 "$FORCE" set 'infra\..\..\etc\x' 2>&1); rc=$?
+check "set refuses a path with a backslash on a POSIX host (the matcher would read it as /etc/x)" \
+  '[ "$rc" = 1 ] && grep -q "backslash" <<<"$out" && [ "$(cat .claude/.otel-force)" = "$before" ]'
+mkdir -p infra/sub
+python3 "$FORCE" set infra/sub/../main.tf >/dev/null
+check "a real .. is collapsed before the entry is written" \
+  '[ "$(sed -n 2p .claude/.otel-force)" = "$HERE/infra/main.tf" ]'
+
 M="$ROOT/hooks/otel-force-match.py"
 touch infra/main.tf
 python3 "$FORCE" set infra/main.tf >/dev/null
