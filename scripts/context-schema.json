@@ -1,0 +1,28 @@
+{
+  "_comment": "Who owns each field of .claude/otel-context.json (#257). scripts/write_context.py reads the user-owned fields from here, and tests/context-schema.test.sh holds this file and the 'Cache ownership contract' in agents/repo-context-scanner.md to the same fields. Owners only for now; field types are a follow-up. A '.*' name is the whole object.",
+  "topLevel": {
+    "scanner": ["scannedAt", "pluginVersion", "freshness.*", "namespaceHint", "namespaceSource"],
+    "user": ["businessAttrs", "confirmedAt", "namespace", "deploymentEnvironment"]
+  },
+  "services": {
+    "matchBy": ["id", "rootDir"],
+    "scanner": [
+      "name", "nameSource", "nameConfidence", "rootDir", "language", "languageVersion",
+      "runtime", "runtimeSource", "runtimeConfidence", "generatorSupported", "inScope",
+      "instrumentableReason", "host", "hostSource", "hostConfidence", "framework",
+      "runnableEntry", "hasDockerfile", "deployment.*", "existingOtel.*", "derived.*"
+    ],
+    "user": ["scopeOverride"],
+    "userWhenConfirmed": {
+      "namespace": {"sourceField": "namespaceSource", "with": ["namespaceSource", "namespaceConfidence"]},
+      "team": {"sourceField": "teamSource", "with": ["teamSource", "teamConfidence"]}
+    },
+    "confirmedValue": "user-confirmed",
+    "userAdded": {"field": "nameSource", "value": "user-added"}
+  },
+  "conflicts": {
+    "matchBy": ["serviceId", "attribute"],
+    "scanner": ["serviceId", "attribute", "sources"],
+    "user": ["resolvedValue", "resolvedSource", "resolvedAt", "conflict_resolved"]
+  }
+}
