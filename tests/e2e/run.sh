@@ -60,7 +60,7 @@ cp ../snapshots/instrument/nextjs/package.json "$WORK/nextjs/package.json"   # i
 # agent JAR (downloaded here over HTTPS, like the pinned otelcol binary in collector-validate.sh).
 cp ../../fixtures/java-greenfield/App.java "$WORK/java/App.java"
 cp ../snapshots/instrument/java/otel-java.env "$WORK/java/otel-java.env"
-OTEL_JAVA_AGENT_VERSION=2.31.1
+OTEL_JAVA_AGENT_VERSION=2.34.0
 curl -fsSLo "$WORK/java/opentelemetry-javaagent.jar" \
   "https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v${OTEL_JAVA_AGENT_VERSION}/opentelemetry-javaagent.jar"
 

@@ -276,7 +276,7 @@ None of the hooks makes a network call (checked: no `curl`, `wget` or HTTP libra
   (`agents/instrumentation-gen.md`, "Exporter configuration (all languages)", rule 2: "Default to
   `none`, not `otlp`, when no endpoint is configured."). The README says the same under "Why it
   exists".
-- `/otel-local`: pulls `grafana/otel-lgtm:0.41.0` from Docker Hub on first run ("about 1 GB"), then
+- `/otel-local`: pulls `grafana/otel-lgtm:0.41.1` from Docker Hub on first run ("about 1 GB"), then
   polls `http://localhost:<port>/api/health`. The compose file binds every port to `127.0.0.1`
   (4317, 4318 and the Grafana port), so nothing is reachable from other machines.
   `scripts/lgtm_check.py` talks only to localhost.

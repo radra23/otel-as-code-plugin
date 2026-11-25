@@ -1369,7 +1369,7 @@ Pin the agent version (bump on release; never the floating `latest/` URL in anyt
 This is an agent pin, not a semconv version — keep it here, not in `semconv-discipline`:
 
 ```
-OTEL_JAVA_AGENT_VERSION = 2.31.1
+OTEL_JAVA_AGENT_VERSION = 2.34.0
 ```
 
 ### Maturity / experimental
@@ -1393,7 +1393,7 @@ Generated:
 Next steps:
   1. Download the pinned agent (JDK 8+):
      curl -fsSLo opentelemetry-javaagent.jar \
-       https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v2.31.1/opentelemetry-javaagent.jar
+       https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v2.34.0/opentelemetry-javaagent.jar
   2. Apply the env and run (‑javaagent BEFORE ‑jar):
      set -a; . ./otel-java.env; set +a
      java -javaagent:./opentelemetry-javaagent.jar -jar <app>.jar
@@ -2498,7 +2498,7 @@ register_shutdown_function(static function () use ($tracerProvider, $meterProvid
 
 **This file is NOT independently runtime-verified** — unlike Rust's `telemetry.rs` and Ruby's
 `tracing.rb`, there is no PHP toolchain available to execute this and confirm the wiring compiles
-and exports correctly. It is written against `open-telemetry/sdk` 1.16.1 / `open-telemetry/sem-conv`
+and exports correctly. It is written against `open-telemetry/sdk` 1.17.0 / `open-telemetry/sem-conv`
 1.45.0's documented public API and the verified source behavior cited above, not against a live
 run — verify with `composer validate` + `php -l` (syntax only) plus a real `php artisan serve` /
 request cycle before trusting this in production, and flag that gap in the summary.
@@ -2528,11 +2528,11 @@ $logger->pushHandler(new \OpenTelemetry\Contrib\Logs\Monolog\Handler($loggerProv
 ```json
 {
   "require": {
-    "open-telemetry/api": "^1.11.0",
+    "open-telemetry/api": "^1.12.0",
     "open-telemetry/context": "^1.6.0",
-    "open-telemetry/sdk": "^1.16.1",
+    "open-telemetry/sdk": "^1.17.0",
     "open-telemetry/sem-conv": "^1.45.0",
-    "open-telemetry/exporter-otlp": "^1.5.0"
+    "open-telemetry/exporter-otlp": "^1.6.0"
   }
 }
 ```
