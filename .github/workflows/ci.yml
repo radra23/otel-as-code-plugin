@@ -477,7 +477,11 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Trace IDs in Python, Node.js, Java and .NET log lines, end to end
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: Trace IDs in Python, Node.js, Java, .NET and Go log lines, end to end
         run: bash tests/e2e/log-trace-ids.sh
 
   # /otel-test: the generated telemetry tests, run on real apps. Each must pass on the instrumented

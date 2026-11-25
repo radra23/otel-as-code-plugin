@@ -19,6 +19,10 @@
 #     IDs in every ILogger scope; the printed appsettings.json fragment makes the console logger
 #     show them (simple formatter, and the app's own json formatter kept). Exported to a local
 #     OTLP/gRPC sink, since the golden has no console exporter (tests/log-trace-ids/dotnet).
+#   - Go: log/slog sees a span only through the record's context. The golden tracing.go's
+#     WithTraceIDs, installed by the line /otel-instrument prints, wraps the app's own text or JSON
+#     handler; a record logged with the request's context carries the exported span's trace ID,
+#     one logged without it is untouched (tests/log-trace-ids/go). Needs Go 1.26.
 # The span's trace ID is read from the exporter's output, the log line from the app's output, and
 # the two must be equal: a trace ID that is merely present would not prove the link. No Docker.
 # Needs Node 18+, Python 3.9+ with venv, JDK 17+ and Maven, the .NET 10 SDK, and network for npm,
@@ -342,6 +346,71 @@ ntid=$(scope_tid noendpoint.log)
 [[ "$ntid" =~ ^[0-9a-f]{32}$ ]] && [ -z "$(ls sink-noendpoint)" ] \
   && ok ".NET: with no endpoint nothing is exported, yet the line still has an ID (documented)" \
   || { bad ".NET (no endpoint): id '$ntid', sink got [$(ls sink-noendpoint | tr '\n' ' ')]"; }
+
+# ---------------------------------------------------------------- Go
+# log/slog has no MDC: a record sees the span only through the context it is logged with. The
+# golden tracing.go's WithTraceIDs wraps the app's own handler; the line that installs it is read
+# out of the generator and put where the app sets up its logger. Spans go to the OTLP/gRPC sink.
+GO_LINE=$(grep -x 'slog.SetDefault(slog.New(WithTraceIDs(slog.NewTextHandler(os.Stderr, nil))))' "$GEN" | sort -u)
+[ "$(grep -cx 'slog.SetDefault(slog.New(WithTraceIDs(slog.NewTextHandler(os.Stderr, nil))))' "$GEN")" = 1 ] \
+  || bad "go: the generator does not print exactly one WithTraceIDs line"
+go_build() {   # go_build <dir> <log setup line>: the test app with that logging setup
+  mkdir -p "$1"
+  cp "$SRC/tests/snapshots/instrument/go/tracing.go" "$SRC/tests/snapshots/instrument/go/go.mod" \
+     "$SRC/tests/snapshots/instrument/go/go.sum" "$1/"
+  python3 - "$SRC/tests/log-trace-ids/go/main.go" "$1/main.go" "$2" <<'PY'
+import sys
+src, dst, line = sys.argv[1:4]
+lines = open(src, encoding="utf-8").read().split("\n")
+i = lines.index("\t// log setup")
+lines[i + 1] = "\t" + line
+open(dst, "w", encoding="utf-8").write("\n".join(lines))
+PY
+  (cd "$1" && go build -o app .) || bad "go: the app did not build with: $2"
+}
+go_request() {   # go_request <dir> [VAR=value ...]
+  local d="$1"; shift
+  rm -rf "$d/sink"; mkdir "$d/sink"
+  "$WORK/venv/bin/python" "$SRC/tests/e2e/otlp-grpc-sink.py" "$d/sink" 48418 > "$d/sink.log" 2>&1 & SINK=$!
+  sleep 1
+  env PORT=8960 OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:48418 "$@" "$d/app" > "$d/out.log" 2>&1 & APP_PID=$!
+  wait_up http://127.0.0.1:8960/health || { bad "go ($d): the service did not start"; tail -20 "$d/out.log"; }
+  curl -fsS -o /dev/null -X POST http://127.0.0.1:8960/pay
+  stop; sleep 1; kill "$SINK" 2>/dev/null || true; wait "$SINK" 2>/dev/null || true
+}
+gline() { { grep -F "$2" "$1/out.log" || true; } | head -1; }
+cd "$WORK"
+go_build go-own 'slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))'
+go_build go-ids "$GO_LINE"
+go_build go-json "${GO_LINE/NewTextHandler/NewJSONHandler}"
+
+go_request go-own
+line=$(gline go-own 'msg="go pay line"')
+[[ "$line" == *'msg="go pay line" orderId=o1' ]] \
+  && ok "go: the app's own handler, unwrapped, writes its line as before (no ID)" || bad "go (own): '$line'"
+
+go_request go-ids
+line=$(gline go-ids 'msg="go pay line"')
+gtid=$(sed -n 's/.* trace_id=\([0-9a-f]\{32\}\) span_id=[0-9a-f]\{16\}$/\1/p' <<<"$line")
+[[ "$line" == *'msg="go pay line" orderId=o1 trace_id='* ]] && exported go-ids/sink "$gtid" \
+  && ok "go: with the printed WithTraceIDs line the line carries the exported span's trace ID" \
+  || { bad "go (WithTraceIDs): unexpected line"; echo "  line: $line"; }
+line=$(gline go-ids 'msg="go pay line without context"')
+[[ -n "$line" && "$line" != *trace_id=* ]] \
+  && ok "go: a record logged without the request's context gets no ID (documented)" || bad "go (no context): '$line'"
+
+go_request go-json
+jline=$(gline go-json '"msg":"go pay line"')
+gjtid=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get("trace_id", ""))' "$jline" 2>/dev/null || true)
+exported go-json/sink "$gjtid" \
+  && ok "go: wrapped around the app's JSON handler, the record has the exported span's trace ID as a field" \
+  || { bad "go (json): unexpected record"; echo "  record: $jline"; }
+
+go_request go-ids OTEL_EXPORTER_OTLP_ENDPOINT=
+line=$(gline go-ids 'msg="go pay line"')
+[[ "$line" == *'msg="go pay line" orderId=o1' ]] \
+  && ok "go: with no endpoint there is no tracer provider, so no span and no ID (documented)" \
+  || bad "go (no endpoint): '$line'"
 
 [ "$failed" -eq 0 ] && echo "LOG TRACE IDS E2E PASS: log lines carry their request's trace ID, and the app's logging setup is untouched" \
   || { echo "LOG TRACE IDS E2E FAIL"; exit 1; }
