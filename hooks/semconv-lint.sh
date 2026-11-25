@@ -157,7 +157,28 @@ fi
 
 # Rule 6: (Simple, not Batch) span processor in non-test file. SimpleSpanProcessor is the spelling
 # in nodejs/python/java/go/ruby; .NET's equivalent class is SimpleActivityExportProcessor.
-if echo "$CONTENT" | grep -qE "SimpleSpanProcessor|SimpleActivityExportProcessor" && ! echo "$FILE_PATH" | grep -qE "test|spec|fixture"; then
+# Test code is a file under a test directory, or one whose name is a test file's. Matching
+# test|spec|fixture anywhere in the path also skipped /latest/ and /attestation/ (#260).
+is_test_path() {
+  local p dir base orig
+  p=$(printf '%s' "$1" | tr '\\' '/')
+  orig=${p##*/}
+  p=$(printf '%s' "$p" | tr '[:upper:]' '[:lower:]')
+  base=${p##*/}
+  dir=${p%/*}; [ "$dir" = "$p" ] && dir=""
+  case "/$dir/" in
+    */test/*|*/tests/*|*/__tests__/*|*/spec/*|*/specs/*|*/fixture/*|*/fixtures/*|*/testdata/*) return 0 ;;
+  esac
+  case "$base" in
+    test_*|*_test.*|*.test.*|*.spec.*|*_spec.*|conftest.py) return 0 ;;
+  esac
+  # Java/Kotlin/C# name tests by a capitalised suffix; case matters, or latest.java would match.
+  case "$orig" in
+    *Test.java|*Tests.java|*Test.kt|*Tests.kt|*Test.cs|*Tests.cs) return 0 ;;
+  esac
+  return 1
+}
+if echo "$CONTENT" | grep -qE "SimpleSpanProcessor|SimpleActivityExportProcessor" && ! is_test_path "$FILE_PATH"; then
   echo "⚠ otel-lint [$FILE_PATH]: a per-span (Simple) export processor is not recommended for production."
   echo "  → Replace with the batched processor (BatchSpanProcessor / BatchActivityExportProcessor)."
   WARNINGS=$((WARNINGS+1))
