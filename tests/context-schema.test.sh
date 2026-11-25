@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # tests/context-schema.test.sh
 # #257: scripts/context-schema.json is the machine-readable form of the cache ownership contract.
-#   - It names the same scanner-owned and user-owned fields as the "Cache ownership contract" in
-#     agents/repo-context-scanner.md, read out of that prose, so the two cannot drift.
+#   - The scanner reads it (contextSchemaPath, passed by every command that dispatches it), and
+#     the "Cache ownership contract" prose in agents/repo-context-scanner.md keeps only the
+#     reasoning and exceptions; every field that prose names under an owner has that owner here.
 #   - scripts/write_context.py reads the user-owned fields from it, not from a list of its own:
 #     a field added to the schema is enforced without touching the script.
 #   - The slim directory build ships it, since write_context.py fails without it.
@@ -13,58 +14,42 @@ check() { if eval "$2"; then echo "PASS: $1"; pass=$((pass+1)); else echo "FAIL:
 SCHEMA=scripts/context-schema.json
 SCANNER=agents/repo-context-scanner.md
 
-# parity <schema>: compares the schema's fields with the scanner prose; prints the differences.
+# parity <schema>: every field the scanner prose names under an owner is in that owner's list in
+# the schema (the lists themselves live only in the schema now); prints the differences.
 parity() {
   python3 - "$1" "$SCANNER" <<'PY'
 import json, re, sys
 schema = json.load(open(sys.argv[1]))
 text = open(sys.argv[2], encoding="utf-8").read()
 section = text.split("## Cache ownership contract", 1)[1].split("\nMatch services between", 1)[0]
-scanner_block = section.split("**Scanner-owned", 1)[1].split("**User-owned", 1)[0]
-user_block = section.split("**User-owned", 1)[1]
+blocks = {"scanner": section.split("**Scanner-owned", 1)[1].split("**User-owned", 1)[0],
+          "user": section.split("**User-owned", 1)[1]}
 
-def prose_fields(block):
-    """The fields each bullet is about: the backticked names before its first explanation
-    (' (', ' when ', ' — '), qualified by the scope (services[]., conflicts[].) of the first."""
-    out = set()
-    for bullet in re.split(r"\n- ", "\n" + block)[1:]:
-        # A bullet runs on over its indented lines; the paragraph after a blank line is not part of it.
-        lines = bullet.split("\n")
-        head = lines[0]
-        for more in lines[1:]:
-            if not more.startswith("  "):
-                break
-            head += " " + more.strip()
-        for cut in (" (", " when ", " — "):
-            head = head.split(cut)[0]
-        names = re.findall(r"`([^`]+)`", head)
-        if not names:
-            continue
-        scope = next((p for p in ("services[].", "conflicts[].") if names[0].startswith(p)), "")
-        for n in names:
-            out.add(n if n.startswith(("services[].", "conflicts[].")) else scope + n)
-    return out
-
-def schema_fields(owner):
-    out = {f for f in schema["topLevel"][owner]}
+def owned(owner):
+    out = set(schema["topLevel"][owner])
     out |= {"services[]." + f for f in schema["services"][owner]}
     out |= {"conflicts[]." + f for f in schema["conflicts"][owner]}
     if owner == "user":
-        for field, rule in schema["services"]["userWhenConfirmed"].items():
-            out |= {"services[]." + f for f in [field] + rule["with"]}
+        out |= {"services[]." + f for f in schema["services"]["userWhenConfirmed"]}
     return out
 
+every = owned("scanner") | owned("user")
 problems = []
-for owner, block in (("scanner", scanner_block), ("user", user_block)):
-    prose, sch = prose_fields(block), schema_fields(owner)
-    if prose - sch: problems.append(f"{owner}-owned in the prose, not in the schema: {sorted(prose - sch)}")
-    if sch - prose: problems.append(f"{owner}-owned in the schema, not in the prose: {sorted(sch - prose)}")
+for owner, block in blocks.items():
+    names = set(re.findall(r"`((?:services\[\]\.|conflicts\[\]\.)?[A-Za-z_]+(?:\.\*)?)`", block))
+    for n in sorted(names & every):          # names that are fields; other backticked words are not
+        if n not in owned(owner):
+            problems.append(f"the prose puts {n} under {owner}-owned; the schema does not")
+    for n in sorted(n for n in names if n.startswith(("services[].", "conflicts[].")) and n not in every):
+        problems.append(f"the prose names {n} under {owner}-owned; the schema has no such field")
 ua = schema["services"]["userAdded"]
-if f'`{ua["field"]}: "{ua["value"]}"`' not in user_block:
+if f'`{ua["field"]}: "{ua["value"]}"`' not in blocks["user"]:
     problems.append("the prose's user-added marker is not the schema's")
-for field, rule in schema["services"]["userWhenConfirmed"].items():
-    if f'`{rule["sourceField"]}` is `{schema["services"]["confirmedValue"]}`' not in user_block:
-        problems.append(f"the prose does not make services[].{field} user-owned on {rule['sourceField']}")
+if f'`{schema["services"]["confirmedValue"]}`' not in blocks["user"]:
+    problems.append("the prose does not name the schema's confirmed value")
+for key in ("topLevel", "services", "conflicts", "contextSchemaPath"):
+    if f"`{key}`" not in section:
+        problems.append(f"the contract does not point at the schema's `{key}`")
 print("\n".join(problems))
 PY
 }
@@ -72,15 +57,26 @@ PY
 check "the schema is valid JSON with every owner list non-empty" \
   'python3 -c "import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if all(d[k][o] for k in (\"topLevel\",\"services\",\"conflicts\") for o in (\"scanner\",\"user\")) else 1)" $SCHEMA'
 diff=$(parity "$SCHEMA")
-check "the schema and the scanner's ownership contract name the same fields, owner for owner" '[ -z "$diff" ]'
+check "every field the scanner contract names under an owner has that owner in the schema" '[ -z "$diff" ]'
 [ -n "$diff" ] && echo "$diff" | sed 's/^/    /'
 
-# Teeth: a schema that moves one field to the wrong owner, or drops one, must be caught.
+# Teeth: a schema that gives a field the prose names the other owner must be caught.
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
-python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); d["topLevel"]["user"].remove("namespace"); d["topLevel"]["scanner"].append("namespace"); json.dump(d,open(sys.argv[2],"w"))' $SCHEMA "$T/moved.json"
-check "parity catches a field moved to the wrong owner (teeth)" '[ -n "$(parity "$T/moved.json")" ]'
-python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); d["conflicts"]["user"].remove("resolvedAt"); json.dump(d,open(sys.argv[2],"w"))' $SCHEMA "$T/dropped.json"
-check "parity catches a dropped field (teeth)" '[ -n "$(parity "$T/dropped.json")" ]'
+python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); d["services"]["user"].remove("scopeOverride"); d["services"]["scanner"].append("scopeOverride"); json.dump(d,open(sys.argv[2],"w"))' $SCHEMA "$T/moved.json"
+check "parity catches a field the prose names moved to the wrong owner (teeth)" '[ -n "$(parity "$T/moved.json")" ]'
+python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); d["services"]["scanner"].remove("existingOtel.*"); json.dump(d,open(sys.argv[2],"w"))' $SCHEMA "$T/dropped.json"
+check "parity catches a field the prose names that the schema dropped (teeth)" '[ -n "$(parity "$T/dropped.json")" ]'
+
+# The scanner reads the file, and every command that dispatches it passes the path.
+check "the scanner declares contextSchemaPath, and what it does when the file cannot be read" \
+  'grep -qF -- "- \`contextSchemaPath\` — the absolute path to \`scripts/context-schema.json\`" $SCANNER && grep -qF "Never drop a field because you could not tell who owns it." $SCANNER'
+check "the contract no longer restates the owner lists (no field-list bullets under Scanner-owned)" \
+  '! awk "/^\*\*Scanner-owned/{on=1;next} /^\*\*User-owned/{on=0} on" $SCANNER | grep -q "^- "'
+for c in $(grep -l "otel-as-code:repo-context-scanner" commands/*.md); do
+  check "$c passes contextSchemaPath to the scanner" 'grep -qF "contextSchemaPath" $c'
+done
+check "every dispatching command points at the same file" \
+  '[ "$(grep -ho "\${CLAUDE_PLUGIN_ROOT}/scripts/context-schema.json" $(grep -l "otel-as-code:repo-context-scanner" commands/*.md) | sort -u | wc -l | tr -d " ")" = 1 ]'
 
 check "write_context.py has no hand-kept user-owned list any more" \
   '! grep -qE "TOP_LEVEL_USER_OWNED = \[|for field in \(\"namespace\", \"team\"\)" scripts/write_context.py'

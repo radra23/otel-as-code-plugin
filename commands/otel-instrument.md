@@ -50,7 +50,7 @@ Check `.claude/otel-context.json`. Apply the freshness rule from `/otel-init` St
   `scripts/write_context.py` exactly as `/otel-init` Step 4 does (#211) — never by transcribing
   the JSON into a `Write` call. A refresh is a merge, never a replace (see
   `agents/repo-context-scanner.md`). Pass the same `scanTime` + `pluginVersion` + `semconvVersion`
-  + `semconvGuidancePath` inputs `/otel-init` Step 2 does — the scanner has no clock, no way to
+  + `semconvGuidancePath` + `contextSchemaPath` inputs `/otel-init` Step 2 does — the scanner has no clock, no way to
   read `plugin.json`, and no `Skill` tool, and cannot read the guidance, the time, or its own
   installed version itself.
 - Do NOT print the /otel-init success message; just run the scan silently.

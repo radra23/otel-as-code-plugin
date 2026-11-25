@@ -131,7 +131,8 @@ check "#94 test fixture has NO host builder (the disqualifying fact)" \
 # --- #207: a user-owned scopeOverride survives re-scan; IsTestProject/tests-perf-tools is a
 # suggestion to the user, never an automatic inScope:false ---
 check "#207 scopeOverride is registered as a user-owned field in the cache ownership contract" \
-  'grep -qF "services[].scopeOverride" "$SCANNER" && grep -qF "NEVER reset to null or \`[]\`" "$SCANNER"'
+  'grep -qF "services[].scopeOverride" "$SCANNER" && grep -qF "NEVER reset to null or \`[]\`" "$SCANNER" \
+   && python3 -c "import json,sys; sys.exit(0 if \"scopeOverride\" in json.load(open(\"scripts/context-schema.json\"))[\"services\"][\"user\"] else 1)"'
 check "#207 scanner applies scopeOverride:out to force inScope:false regardless of detection" \
   'grep -qiF "set \`inScope: false\` here regardless of the above" "$SCANNER"'
 check "#207 scanner treats IsTestProject/tests-perf-tools evidence as a suggestion, never automatic" \
