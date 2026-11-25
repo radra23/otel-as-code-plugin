@@ -236,7 +236,7 @@ attempts to patch with an unverified hand-written `RootSpanBuilder`.
 
 | Signal  | Maturity | Package                                                       |
 |---------|----------|----------------------------------------------------------------|
-| Traces  | Stable | `open-telemetry/sdk` (1.16.1) + `open-telemetry/exporter-otlp` (1.5.0) |
+| Traces  | Stable | `open-telemetry/sdk` (1.17.0) + `open-telemetry/exporter-otlp` (1.6.0) |
 | Metrics | Stable | same SDK/exporter packages                                     |
 | Logs    | Stable | `open-telemetry/sdk` + `open-telemetry/opentelemetry-logger-monolog` (1.3.1) bridge |
 | Auto    | Stable (mechanism); per-package maturity varies | PECL `opentelemetry` extension (1.4.2) + `open-telemetry/opentelemetry-auto-<framework>` |
