@@ -23,6 +23,10 @@
 #     WithTraceIDs, installed by the line /otel-instrument prints, wraps the app's own text or JSON
 #     handler; a record logged with the request's context carries the exported span's trace ID,
 #     one logged without it is untouched (tests/log-trace-ids/go). Needs Go 1.26.
+#   - Ruby: the golden tracing.rb's OtelAsCode module, used by the two lines /otel-instrument
+#     prints: add_trace_ids around a Sinatra app's own stdlib Logger (plain and default formats
+#     get the IDs, JSON is left alone), and a config.log_tags lambda for Rails' tagged logger.
+#     Exported over OTLP/HTTP to otlp-http-sink.py (tests/log-trace-ids/ruby). Needs Ruby 3.4+.
 # The span's trace ID is read from the exporter's output, the log line from the app's output, and
 # the two must be equal: a trace ID that is merely present would not prove the link. No Docker.
 # Needs Node 18+, Python 3.9+ with venv, JDK 17+ and Maven, the .NET 10 SDK, and network for npm,
@@ -411,6 +415,90 @@ line=$(gline go-ids 'msg="go pay line"')
 [[ "$line" == *'msg="go pay line" orderId=o1' ]] \
   && ok "go: with no endpoint there is no tracer provider, so no span and no ID (documented)" \
   || bad "go (no endpoint): '$line'"
+
+# ---------------------------------------------------------------- Ruby
+# The golden tracing.rb's OtelAsCode module does the work; the two lines that use it are read out
+# of the generator and put where each test app sets up its logging. The Ruby exporter speaks
+# OTLP/HTTP, so spans go to otlp-http-sink.py; the trace-ID bytes must be in what it received.
+rb_line() { [ "$(grep -cxF "  $1" "$GEN")" = 1 ] && printf '%s' "$1"; }
+RB_LOGGER=$(rb_line 'OtelAsCode.add_trace_ids(logger)') || bad "ruby: the generator does not print the Logger line exactly once"
+RB_TAGS=$(rb_line 'config.log_tags = [:request_id, ->(_req) { OtelAsCode.trace_log_tag }]') \
+  || bad "ruby: the generator does not print the Rails log_tags line exactly once"
+mkdir -p "$WORK/ruby/config/initializers"
+cd "$WORK/ruby"
+cp "$SRC/tests/log-trace-ids/ruby/Gemfile" .
+cp "$SRC/tests/snapshots/instrument/ruby/tracing.rb" tracing.rb
+cp "$SRC/tests/snapshots/instrument/ruby/tracing.rb" config/initializers/opentelemetry.rb
+export BUNDLE_GEMFILE="$WORK/ruby/Gemfile" BUNDLE_PATH="$WORK/ruby/vendor"
+bundle install --quiet || bad "ruby: bundle install failed"
+rb_place() {   # rb_place <fixture> <out> <marker> <line or empty>: the app with the printed line in place
+  python3 - "$SRC/tests/log-trace-ids/ruby/$1" "$2" "$3" "$4" <<'PY'
+import sys
+src, dst, marker, line = sys.argv[1:5]
+lines = open(src, encoding="utf-8").read().split("\n")
+i = [n for n, l in enumerate(lines) if l.strip() == marker][0]
+indent = lines[i][: len(lines[i]) - len(lines[i].lstrip())]
+if line:
+    lines[i + 1] = indent + line
+open(dst, "w", encoding="utf-8").write("\n".join(lines))
+PY
+}
+rb_place app.rb app-own.rb "# log setup" ""
+rb_place app.rb app-ids.rb "# log setup" "$RB_LOGGER"
+rb_place rails_app.rb rails-own.rb "# log tags" ""
+rb_place rails_app.rb rails-ids.rb "# log tags" "$RB_TAGS"
+rb_request() {   # rb_request <name> <script> <port> <method> <path> [VAR=value ...]
+  local n="$1" script="$2" port="$3" method="$4" path="$5"; shift 5
+  rm -rf "sink-$n"; mkdir "sink-$n"
+  python3 "$SRC/tests/e2e/otlp-http-sink.py" "sink-$n" 48419 > "sink-$n.log" 2>&1 & SINK=$!
+  sleep 0.5
+  env PORT="$port" OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:48419 OTEL_BSP_SCHEDULE_DELAY=200 "$@" \
+    bundle exec ruby "$script" > "$n.log" 2>&1 & APP_PID=$!
+  wait_up "http://127.0.0.1:$port/health" || { bad "ruby ($n): the service did not start"; tail -20 "$n.log"; }
+  curl -fsS -o /dev/null -X "$method" "http://127.0.0.1:$port$path"
+  sleep 1.5; stop; sleep 0.5; kill "$SINK" 2>/dev/null || true; wait "$SINK" 2>/dev/null || true
+}
+rline() { { grep -F "$2" "$1.log" || true; } | head -1; }
+rtid() { sed -n 's/.*trace_id=\([0-9a-f]\{32\}\) span_id=[0-9a-f]\{16\}.*/\1/p' <<<"$1"; }
+
+rb_request plain-own app-own.rb 8970 POST /pay LOG_MODE=plain
+line=$(rline plain-own "ruby pay line")
+[ "$line" = "APP INFO | ruby pay line orderId=o1" ] \
+  && ok "ruby: the app's own Logger format, without the printed line, is left as it was" || bad "ruby (own): '$line'"
+rb_request plain-ids app-ids.rb 8970 POST /pay LOG_MODE=plain
+line=$(rline plain-ids "ruby pay line")
+[[ "$line" =~ ^"APP INFO | ruby pay line orderId=o1 trace_id="[0-9a-f]{32}" span_id="[0-9a-f]{16}$ ]] && exported sink-plain-ids "$(rtid "$line")" \
+  && ok "ruby: with OtelAsCode.add_trace_ids the app's own line ends with the exported span's trace ID" \
+  || { bad "ruby (add_trace_ids): unexpected line"; echo "  line: $line"; }
+rb_request default-ids app-ids.rb 8970 POST /pay
+line=$(rline default-ids "ruby pay line")
+[[ "$line" == *"INFO -- : ruby pay line orderId=o1 trace_id="* ]] && exported sink-default-ids "$(rtid "$line")" \
+  && ok "ruby: Logger's default format gets the same IDs at the end of the line" \
+  || { bad "ruby (default format): unexpected line"; echo "  line: $line"; }
+rb_request json-ids app-ids.rb 8970 POST /pay LOG_MODE=json
+line=$(rline json-ids "ruby pay line")
+[ "$line" = '{"level":"INFO","msg":"ruby pay line orderId=o1"}' ] \
+  && ok "ruby: a JSON line is left as it was, nothing appended after the brace (documented)" || bad "ruby (json): '$line'"
+rb_request noendpoint-ids app-ids.rb 8970 POST /pay LOG_MODE=plain OTEL_EXPORTER_OTLP_ENDPOINT=
+line=$(rline noendpoint-ids "ruby pay line")
+[ "$line" = "APP INFO | ruby pay line orderId=o1" ] \
+  && ok "ruby: with no endpoint there are no spans, so the line is unchanged (documented)" || bad "ruby (no endpoint): '$line'"
+
+rb_request rails-ids rails-ids.rb 8971 GET /orders/7
+line=$(rline rails-ids "rails order line id=7")
+[[ "$line" =~ ^"["[0-9a-f-]{36}"] [trace_id="[0-9a-f]{32}" span_id="[0-9a-f]{16}"] rails order line id=7"$ ]] && exported sink-rails-ids "$(rtid "$line")" \
+  && ok "ruby (rails): the printed log_tags line tags the request's lines with the exported span's trace ID" \
+  || { bad "ruby (rails): unexpected line"; echo "  line: $line"; }
+rb_request rails-own rails-own.rb 8971 GET /orders/7
+line=$(rline rails-own "rails order line id=7")
+[ "$line" = "rails order line id=7" ] \
+  && ok "ruby (rails): without the line Rails' own output is unchanged" || bad "ruby (rails, own): '$line'"
+rb_request rails-noendpoint rails-ids.rb 8971 GET /orders/7 OTEL_EXPORTER_OTLP_ENDPOINT=
+line=$(rline rails-noendpoint "rails order line id=7")
+[[ "$line" =~ ^"["[0-9a-f-]{36}"] rails order line id=7"$ ]] \
+  && ok "ruby (rails): with no endpoint the tag is dropped, never printed as zeros (documented)" \
+  || bad "ruby (rails, no endpoint): '$line'"
+unset BUNDLE_GEMFILE BUNDLE_PATH
 
 [ "$failed" -eq 0 ] && echo "LOG TRACE IDS E2E PASS: log lines carry their request's trace ID, and the app's logging setup is untouched" \
   || { echo "LOG TRACE IDS E2E FAIL"; exit 1; }

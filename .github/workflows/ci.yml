@@ -481,7 +481,11 @@ jobs:
         with:
           go-version: '1.26'
 
-      - name: Trace IDs in Python, Node.js, Java, .NET and Go log lines, end to end
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.4'
+
+      - name: Trace IDs in Python, Node.js, Java, .NET, Go and Ruby log lines, end to end
         run: bash tests/e2e/log-trace-ids.sh
 
   # /otel-test: the generated telemetry tests, run on real apps. Each must pass on the instrumented

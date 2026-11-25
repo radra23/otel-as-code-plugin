@@ -332,7 +332,7 @@ is not a claim that it works or that it does not.
 | Go      | `WithTraceIDs` in the bootstrap wraps the app's own `log/slog` handler and adds `trace_id` / `span_id` to each record logged with a span's context (`slog.InfoContext(r.Context(), ...)`); `/otel-instrument` prints the line that installs it, around the handler the app already uses. Exported records are separate: with the printed logs wiring they carry the trace context too (asserted in `tests/e2e/run.sh`) | records logged without a context, loggers other than `log/slog` (`log`, zap, logrus), and every record while no endpoint is set (no tracer provider, so no span) | yes |
 | Rust    | nothing generated; `tracing` events are exported with the active span's IDs | | not checked |
 | PHP     | nothing generated; the Monolog bridge, when it is on | | not checked |
-| Ruby    | nothing generated | everything | not checked |
+| Ruby    | the bootstrap's `OtelAsCode` module, used by the line `/otel-instrument` prints: `OtelAsCode.add_trace_ids(logger)` wraps a stdlib `Logger`'s own formatter (` trace_id=... span_id=...` at the end of a line written inside a span); for Rails, a `config.log_tags` lambda tags each request's lines | JSON lines from a `Logger` formatter (left as they were), `puts`, other loggers (semantic_logger, lograge), and every line while no endpoint is set (no spans) | yes |
 
 Rules:
 - **Never replace the user's logger, handlers or format.** The Python block adds fields and
