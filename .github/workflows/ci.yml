@@ -106,6 +106,8 @@ jobs:
         run: bash tests/hooks/collector-exporter-auth.test.sh
       - name: Run force-scope contract (--force overwrites only marker-carrying files; #169)
         run: bash tests/hooks/force-scope.test.sh
+      - name: Run force-sentinel contract (scripts/otel_force.py is the one writer; expiry enforced; #255)
+        run: bash tests/hooks/force-sentinel.test.sh
       - name: Run Rust instrument-wiring contract (scanner gate, command, generator ↔ golden crate)
         run: bash tests/hooks/rust-instrument-wiring.test.sh
       - name: Run Node.js logs gating test (Development-level logs stay off by default)
