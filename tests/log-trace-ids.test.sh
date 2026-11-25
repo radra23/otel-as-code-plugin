@@ -37,8 +37,8 @@ for lang in "Node.js" "Python" "Java" ".NET" "Go" "Rust" "PHP" "Ruby"; do
   check "the maturity matrix has a log-line row for $lang" \
     'awk "/^## Trace IDs in log lines/{on=1;next} on&&/^## /{exit} on" $M | grep -q "^| $lang  *|"'
 done
-check "only the four languages the e2e runs are marked as checked" \
-  '[ "$(awk "/^## Trace IDs in log lines/{on=1;next} on&&/^## /{exit} on" $M | grep -c "| yes |$")" = 4 ] && [ "$(awk "/^## Trace IDs in log lines/{on=1;next} on&&/^## /{exit} on" $M | grep -c "| not checked |$")" = 4 ]'
+check "only the five languages the e2e runs are marked as checked" \
+  '[ "$(awk "/^## Trace IDs in log lines/{on=1;next} on&&/^## /{exit} on" $M | grep -c "| yes |$")" = 5 ] && [ "$(awk "/^## Trace IDs in log lines/{on=1;next} on&&/^## /{exit} on" $M | grep -c "| not checked |$")" = 3 ]'
 
 # Java: the generator prints, never writes. The e2e reads these two lines out of the generator, so
 # each must appear exactly once, and the agent pin the e2e downloads must be the generator's.
@@ -65,6 +65,18 @@ check ".NET: the generator says never to edit appsettings.json" \
   'grep -q "appsettings.json\` belongs to the app: never edit it" $GEN'
 check ".NET: the e2e reads the fragment from the generator" \
   'grep -qF "gen_line '"'"'.NET appsettings.json, inside the top-level object: '"'"'" tests/e2e/log-trace-ids.sh'
+GO=tests/snapshots/instrument/go/tracing.go
+GOLINE='slog.SetDefault(slog.New(WithTraceIDs(slog.NewTextHandler(os.Stderr, nil))))'
+check "go: the golden defines WithTraceIDs and its handler forwards WithAttrs and WithGroup" \
+  'grep -qF "func WithTraceIDs(h slog.Handler) slog.Handler" $GO && grep -qF "func (t traceIDHandler) WithAttrs(" $GO && grep -qF "func (t traceIDHandler) WithGroup(" $GO'
+check "go: it adds attributes on a clone, only for a valid span context" \
+  'grep -A4 "func (t traceIDHandler) Handle(" $GO | grep -qF "sc.IsValid()" && grep -A4 "func (t traceIDHandler) Handle(" $GO | grep -qF "r = r.Clone()"'
+check "go: the generator's template carries the same WithTraceIDs code as the golden" \
+  'blk() { awk "/^\/\/ WithTraceIDs wraps/{on=1} on{print} on&&/^func \(t traceIDHandler\) WithGroup/{getline; print; getline; print; exit}" "$1"; }; [ -n "$(blk $GO)" ] && [ "$(blk $GO)" = "$(blk $GEN)" ]'
+check "go: the generator prints exactly one WithTraceIDs line, and the e2e reads that line" \
+  '[ "$(grep -cxF "$GOLINE" $GEN)" = 1 ] && grep -qF "$GOLINE" tests/e2e/log-trace-ids.sh'
+check "go: the bootstrap still never sets the default logger itself" '! grep -q "slog.SetDefault" $GO'
+
 check ".NET: OpenTelemetry.cs and the csproj are still the only .NET goldens (no appsettings)" \
   '[ "$(git ls-files tests/snapshots/instrument/dotnet | grep -v /.gitignore$ | xargs -n1 basename | tr "\n" " ")" = "OpenTelemetry.cs checkout-api.csproj " ]'
 check "the generator points at that section" 'grep -q "Trace IDs in log lines" agents/instrumentation-gen.md'

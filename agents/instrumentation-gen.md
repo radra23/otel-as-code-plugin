@@ -1668,6 +1668,7 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	sdkresource "go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func envOrDefault(key, fallback string) string {
@@ -1810,6 +1811,33 @@ func OtelSlogHandler() slog.Handler {
 	return otelslog.NewHandler(envOrDefault("OTEL_SERVICE_NAME", "<SERVICE_NAME>"))
 }
 
+// WithTraceIDs wraps the handler the application already logs through, so a
+// record logged with a span's context, as in slog.InfoContext(r.Context(), ...),
+// gains trace_id and span_id attributes in the application's own output. The
+// handler keeps its own format, level and destination; a record logged without
+// a context, or outside a span, passes through unchanged. It adds two
+// attributes and nothing else: it does not send records to OpenTelemetry
+// (that is OtelSlogHandler).
+func WithTraceIDs(h slog.Handler) slog.Handler { return traceIDHandler{h} }
+
+type traceIDHandler struct{ slog.Handler }
+
+func (t traceIDHandler) Handle(ctx context.Context, r slog.Record) error {
+	if sc := trace.SpanContextFromContext(ctx); sc.IsValid() {
+		r = r.Clone()
+		r.AddAttrs(slog.String("trace_id", sc.TraceID().String()), slog.String("span_id", sc.SpanID().String()))
+	}
+	return t.Handler.Handle(ctx, r)
+}
+
+func (t traceIDHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return traceIDHandler{t.Handler.WithAttrs(attrs)}
+}
+
+func (t traceIDHandler) WithGroup(name string) slog.Handler {
+	return traceIDHandler{t.Handler.WithGroup(name)}
+}
+
 // InitOtelLogsBeta is the name this function had while Go logs were Beta.
 //
 // Deprecated: call InitOtelLogs. Kept so that regenerating this file does not
@@ -1839,6 +1867,7 @@ go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.47.0
 go.opentelemetry.io/otel/sdk v1.47.0
 go.opentelemetry.io/otel/sdk/log v1.47.0
 go.opentelemetry.io/otel/sdk/metric v1.47.0
+go.opentelemetry.io/otel/trace v1.47.0
 ```
 Do not hand-author indirect `// indirect` requires or `go.sum` — that is exactly what the printed
 `go mod tidy` follow-up resolves.
@@ -1863,6 +1892,7 @@ go.opentelemetry.io/otel/log v0.22.0
 go.opentelemetry.io/otel/sdk v1.46.0
 go.opentelemetry.io/otel/sdk/log v0.22.0
 go.opentelemetry.io/otel/sdk/metric v1.46.0
+go.opentelemetry.io/otel/trace v1.46.0
 ```
 
 1. Add the import `logglobal "go.opentelemetry.io/otel/log/global"` on the line after the
@@ -1916,6 +1946,23 @@ redirects back to it: a deadlock). Only `log/slog` is bridged: for the old `log`
 or `logrus`, say that no bridge is generated. A record carries the request's trace ID only when
 it is logged with the request's context (`slog.InfoContext(r.Context(), ...)`).
 
+**Trace IDs in the app's own log lines (#279), a separate optional line.** `WithTraceIDs` in
+`tracing.go` wraps the handler the app already logs through and adds `trace_id` and `span_id`
+to each record logged with a span's context; the handler keeps its own format, level and
+destination. Print it as its own line, with the app's existing handler in place of
+`slog.NewTextHandler(os.Stderr, nil)` (`tests/e2e/log-trace-ids.sh` reads this line from here):
+
+```go
+slog.SetDefault(slog.New(WithTraceIDs(slog.NewTextHandler(os.Stderr, nil))))
+```
+
+With the logs lines above, wrap the console handler inside the multi-handler instead
+(`WithTraceIDs(slog.NewTextHandler(os.Stderr, nil)),`), never `OtelSlogHandler()`, whose records
+carry the IDs already. Same rules: never write it into the user's source, never wrap
+`slog.Default().Handler()`. Say what it does not cover: a record logged without a context
+(`slog.Info`), the old `log` package, `zap` and `logrus`, and every record while
+`OTEL_EXPORTER_OTLP_ENDPOINT` is unset (no tracer provider is installed then, so there is no span).
+
 ### After writing (Go) — return this summary
 
 ```
@@ -1943,6 +1990,9 @@ Still required:
   - Optional: paste the InitOtelLogs lines above too if you want logs exported. Both parts are
     needed: InitOtelLogs builds the pipeline, the slog line sends your log/slog records to it
     and keeps your console output. Log with the request's context to get its trace ID.
+  - Optional: trace IDs in your own log lines. Wrap the handler you already log through:
+      slog.SetDefault(slog.New(WithTraceIDs(<your handler>)))
+    Records logged with the request's context gain trace_id and span_id; nothing else changes.
     <On a regeneration of a file that had InitOtelLogsBeta: say that name still works as a
     deprecated wrapper, so existing callers keep compiling.>
 ```
