@@ -1,0 +1,13 @@
+# tests/e2e/log-trace-ids.sh (#279): one bundle for the Sinatra and the Rails test apps. The
+# OpenTelemetry gems are the golden Gemfile's three, unpinned as the generator writes them.
+source 'https://rubygems.org'
+
+gem 'sinatra'
+gem 'rackup'
+gem 'puma'
+gem 'railties', '~> 8.1'
+gem 'actionpack', '~> 8.1'
+
+gem 'opentelemetry-sdk'
+gem 'opentelemetry-instrumentation-all'
+gem 'opentelemetry-exporter-otlp'

@@ -1384,6 +1384,34 @@ signal is gated. `--experimental` still governs whether pre-Stable semconv attri
 backends historically keyed their "environment" facet off the older `deployment.environment` — if
 the environment tag doesn't appear in a specific backend, add a backend-specific override there.
 
+### Trace IDs in log lines (Java, printed, never written)
+
+The agent already puts `trace_id`, `span_id` and `trace_flags` into the Logback and Log4j MDC of
+every record logged during a span (its `logback-mdc` / `log4j-context-data` instrumentations, on by
+default). A line shows them only once its pattern names them, and the pattern belongs to the app:
+never edit `logback.xml`, `log4j2.xml`, `logback-spring.xml` or `application.properties`. Print
+the line that fits, from the build file's dependencies:
+
+- Logback or Log4j 2 named in `pom.xml` / `build.gradle(.kts)` with a config file of its own:
+  print the pattern token.
+- Spring Boot (`spring-boot-starter*`) with no `logback-spring.xml` / `logback.xml` of its own:
+  print the property line. If `logging.pattern.level` is already set, say to put the IDs in front
+  of its value instead of replacing it.
+- Neither (java.util.logging, `System.out`): print nothing to add and say these are not covered.
+
+The two lines, exactly (`tests/e2e/log-trace-ids.sh` reads them from here and runs them):
+
+```
+Logback or Log4j 2 pattern, before %n: trace_id=%X{trace_id} span_id=%X{span_id}
+Spring Boot application.properties: logging.pattern.level=trace_id=%mdc{trace_id} span_id=%mdc{span_id} trace_flags=%mdc{trace_flags} %5p
+```
+
+Outside a span the token prints `trace_id= span_id=` (Logback and Log4j 2 render a missing key as
+empty). `OTEL_TRACES_EXPORTER=none` does not empty it: the agent still makes and samples the span
+and only skips the export, so the line then names a trace no backend has (measured; say so if the
+summary mentions turning traces off). `trace_flags` prints `03` today, the sampled bit plus W3C
+Level 2's random-trace-ID bit. Per-language status: `skills/language-maturity`, "Trace IDs in log lines".
+
 ### After writing (Java) — return this summary
 
 ```
@@ -1401,6 +1429,10 @@ Next steps:
      # per target by exporting DEPLOYMENT_ENV before sourcing, e.g. DEPLOYMENT_ENV=production.
   3. See it locally: /otel-local starts a free Grafana stack on this machine and prints where
      your traces, logs and metrics appear (it sources otel-local.env after otel-java.env).
+  4. Trace IDs in your own log lines: the agent already adds trace_id and span_id to every
+     Logback / Log4j record logged during a request. Your logging setup was not changed; to show
+     them in the line, add <the line from "Trace IDs in log lines (Java)" that fits, or say that
+     java.util.logging and System.out are not covered>.
 ```
 
 Per the "Deployment-environment provisioning check" section: if `deploymentEnvConfigured` is not
@@ -1526,6 +1558,32 @@ if (!string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOIN
     builder.Logging.AddOpenTelemetry(o => o.AddOtlpExporter());
 ```
 
+### Trace IDs in log lines (.NET, printed, never written)
+
+The host already attaches `SpanId`, `TraceId` and `ParentId` to the logging scope of everything
+logged during a request (`ActivityTrackingOptions`, set by `WebApplication.CreateBuilder` and the
+Generic Host), and with the ASP.NET Core instrumentation that request `Activity` is the exported
+server span, so the IDs are the span's. The console logger prints scopes only when told to, and
+`appsettings.json` belongs to the app: never edit it. Print this line, for an app logging through
+`ILogger` to the console:
+
+```
+.NET appsettings.json, inside the top-level object: "Logging": { "Console": { "FormatterName": "simple", "FormatterOptions": { "IncludeScopes": true } } }
+```
+
+- Keep the app's own `FormatterName` (`json`, `systemd`) if it sets one; only add
+  `FormatterOptions.IncludeScopes`. Name the formatter when it is not set: without a
+  `FormatterName` the console logger reads the legacy `Logging:Console:IncludeScopes` instead and
+  ignores `FormatterOptions` (measured on .NET 10). The same keys work as environment variables
+  (`Logging__Console__FormatterName=simple`, `Logging__Console__FormatterOptions__IncludeScopes=true`).
+- With the simple formatter the IDs print on a `=> SpanId:..., TraceId:...` line just above the
+  message; with `json` they are fields of the record's `Scopes` array.
+- They are there even when no exporter is attached (no endpoint set): ASP.NET Core makes the
+  request `Activity` either way, so the line then names a trace no backend has.
+- Not covered: Serilog, NLog and other providers (each has its own enricher), and `Console.Write`.
+
+Per-language status: `skills/language-maturity`, "Trace IDs in log lines".
+
 ### After writing (.NET) — return this summary
 
 ```
@@ -1541,6 +1599,10 @@ Wire it up:
   2. Add ONE line to Program.cs, before builder.Build():
        builder.Services.AddOtelObservability(builder.Configuration);
   3. dotnet build   (verifies the wiring compiles)
+  4. Trace IDs in your own log lines (optional): every ILogger line written during a request
+     already has the request's TraceId and SpanId in its scope. Your appsettings.json was not
+     changed; to print them on the console, add
+       <the line from "Trace IDs in log lines (.NET)", keeping your own FormatterName if you set one>
 
 Still required:
   - Deployment: the generated code attaches the OTLP exporter only when an endpoint is configured,
@@ -1606,6 +1668,7 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	sdkresource "go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func envOrDefault(key, fallback string) string {
@@ -1748,6 +1811,33 @@ func OtelSlogHandler() slog.Handler {
 	return otelslog.NewHandler(envOrDefault("OTEL_SERVICE_NAME", "<SERVICE_NAME>"))
 }
 
+// WithTraceIDs wraps the handler the application already logs through, so a
+// record logged with a span's context, as in slog.InfoContext(r.Context(), ...),
+// gains trace_id and span_id attributes in the application's own output. The
+// handler keeps its own format, level and destination; a record logged without
+// a context, or outside a span, passes through unchanged. It adds two
+// attributes and nothing else: it does not send records to OpenTelemetry
+// (that is OtelSlogHandler).
+func WithTraceIDs(h slog.Handler) slog.Handler { return traceIDHandler{h} }
+
+type traceIDHandler struct{ slog.Handler }
+
+func (t traceIDHandler) Handle(ctx context.Context, r slog.Record) error {
+	if sc := trace.SpanContextFromContext(ctx); sc.IsValid() {
+		r = r.Clone()
+		r.AddAttrs(slog.String("trace_id", sc.TraceID().String()), slog.String("span_id", sc.SpanID().String()))
+	}
+	return t.Handler.Handle(ctx, r)
+}
+
+func (t traceIDHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return traceIDHandler{t.Handler.WithAttrs(attrs)}
+}
+
+func (t traceIDHandler) WithGroup(name string) slog.Handler {
+	return traceIDHandler{t.Handler.WithGroup(name)}
+}
+
 // InitOtelLogsBeta is the name this function had while Go logs were Beta.
 //
 // Deprecated: call InitOtelLogs. Kept so that regenerating this file does not
@@ -1777,6 +1867,7 @@ go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.47.0
 go.opentelemetry.io/otel/sdk v1.47.0
 go.opentelemetry.io/otel/sdk/log v1.47.0
 go.opentelemetry.io/otel/sdk/metric v1.47.0
+go.opentelemetry.io/otel/trace v1.47.0
 ```
 Do not hand-author indirect `// indirect` requires or `go.sum` — that is exactly what the printed
 `go mod tidy` follow-up resolves.
@@ -1801,6 +1892,7 @@ go.opentelemetry.io/otel/log v0.22.0
 go.opentelemetry.io/otel/sdk v1.46.0
 go.opentelemetry.io/otel/sdk/log v0.22.0
 go.opentelemetry.io/otel/sdk/metric v1.46.0
+go.opentelemetry.io/otel/trace v1.46.0
 ```
 
 1. Add the import `logglobal "go.opentelemetry.io/otel/log/global"` on the line after the
@@ -1854,6 +1946,23 @@ redirects back to it: a deadlock). Only `log/slog` is bridged: for the old `log`
 or `logrus`, say that no bridge is generated. A record carries the request's trace ID only when
 it is logged with the request's context (`slog.InfoContext(r.Context(), ...)`).
 
+**Trace IDs in the app's own log lines (#279), a separate optional line.** `WithTraceIDs` in
+`tracing.go` wraps the handler the app already logs through and adds `trace_id` and `span_id`
+to each record logged with a span's context; the handler keeps its own format, level and
+destination. Print it as its own line, with the app's existing handler in place of
+`slog.NewTextHandler(os.Stderr, nil)` (`tests/e2e/log-trace-ids.sh` reads this line from here):
+
+```go
+slog.SetDefault(slog.New(WithTraceIDs(slog.NewTextHandler(os.Stderr, nil))))
+```
+
+With the logs lines above, wrap the console handler inside the multi-handler instead
+(`WithTraceIDs(slog.NewTextHandler(os.Stderr, nil)),`), never `OtelSlogHandler()`, whose records
+carry the IDs already. Same rules: never write it into the user's source, never wrap
+`slog.Default().Handler()`. Say what it does not cover: a record logged without a context
+(`slog.Info`), the old `log` package, `zap` and `logrus`, and every record while
+`OTEL_EXPORTER_OTLP_ENDPOINT` is unset (no tracer provider is installed then, so there is no span).
+
 ### After writing (Go) — return this summary
 
 ```
@@ -1881,6 +1990,9 @@ Still required:
   - Optional: paste the InitOtelLogs lines above too if you want logs exported. Both parts are
     needed: InitOtelLogs builds the pipeline, the slog line sends your log/slog records to it
     and keeps your console output. Log with the request's context to get its trace ID.
+  - Optional: trace IDs in your own log lines. Wrap the handler you already log through:
+      slog.SetDefault(slog.New(WithTraceIDs(<your handler>)))
+    Records logged with the request's context gain trace_id and span_id; nothing else changes.
     <On a regeneration of a file that had InitOtelLogsBeta: say that name still works as a
     deprecated wrapper, so existing callers keep compiling.>
 ```
@@ -1941,6 +2053,32 @@ OpenTelemetry::SDK.configure do |c|
   })
   c.use_all
 end
+
+# Trace IDs in the application's own log lines (#279). Nothing here runs unless the application
+# calls it; /otel-instrument prints the one line that does. Both read the current span, so a line
+# written outside a span (or while no endpoint is set, when no spans are made) is left as it was.
+module OtelAsCode
+  # A plain Ruby Logger (Sinatra, Rack, scripts): wraps the logger's own formatter so a line
+  # written inside a span ends with " trace_id=... span_id=...". The format, level and output
+  # stay the logger's; a JSON line is left untouched, since appended text would break it.
+  def self.add_trace_ids(logger)
+    inner = logger.formatter || ::Logger::Formatter.new
+    logger.formatter = proc do |severity, time, progname, msg|
+      line = inner.call(severity, time, progname, msg)
+      ids = trace_log_tag
+      next line if ids.nil? || line.lstrip.start_with?('{', '[')
+
+      line.end_with?("\n") ? "#{line.chomp} #{ids}\n" : "#{line} #{ids}"
+    end
+    logger
+  end
+
+  # Rails: the tag config.log_tags asks for once per request; nil outside a span, which Rails drops.
+  def self.trace_log_tag
+    span = OpenTelemetry::Trace.current_span.context
+    "trace_id=#{span.hex_trace_id} span_id=#{span.hex_span_id}" if span.valid?
+  end
+end
 ```
 For the Rails path, write the IDENTICAL content above (only the header comment's first line
 changes to `# config/initializers/opentelemetry.rb — ...`) to `config/initializers/opentelemetry.rb`
@@ -1974,6 +2112,34 @@ require_relative 'tracing'   # AFTER require 'sinatra' (or your framework) — i
                               # patches already-loaded classes, so this must load LAST, not first
 ```
 
+### Trace IDs in log lines (Ruby, printed, never written)
+
+The bootstrap's `OtelAsCode` module does the work, for both paths, and does nothing until the
+app calls it; print the line for the path, and never write it into the user's code
+(`tests/e2e/log-trace-ids.sh` reads both lines from here and runs them):
+
+- **Non-Rails** (Sinatra, Rack, scripts) logging through a stdlib `Logger`: after the app builds
+  its logger, with the app's own variable in place of `logger`:
+  ```ruby
+  OtelAsCode.add_trace_ids(logger)
+  ```
+  It wraps that logger's formatter: a line written inside a span ends with
+  ` trace_id=... span_id=...`; its format, level and output stay the app's; a JSON line is left
+  as it was (appended text would break it).
+- **Rails**, in `config/application.rb` (or an environment file). If `config.log_tags` is
+  already set, add the lambda to the app's own list instead of replacing it:
+  ```ruby
+  config.log_tags = [:request_id, ->(_req) { OtelAsCode.trace_log_tag }]
+  ```
+  The tag is computed once per request, inside the Rack server span, and prints as
+  `[trace_id=... span_id=...]` before every line of that request. The lambda is what makes
+  this work from `config/application.rb`, which loads before the initializer that defines
+  `OtelAsCode`: it is only called at request time.
+
+Not covered: `puts`/`warn`, loggers other than the stdlib `Logger` and Rails' (semantic_logger,
+lograge), and every line while `OTEL_EXPORTER_OTLP_ENDPOINT` is unset (the bootstrap then makes
+no spans, so the line is unchanged and the Rails tag is dropped).
+
 ### After writing (Ruby) — return this summary
 
 ```
@@ -1988,6 +2154,9 @@ Wire it up:
      `require 'sinatra'`), not before:
        require_relative 'tracing'
   3. bundle exec ruby -e "require_relative './tracing'"   (verifies the wiring loads cleanly)
+  4. Optional: trace IDs in your own log lines. Your logging setup was not changed; add
+       <the line from "Trace IDs in log lines (Ruby)" for this path: OtelAsCode.add_trace_ids
+       around the app's Logger, or the config.log_tags lambda for Rails>
 
 Still required:
   - Deployment: OTEL_EXPORTER_OTLP_ENDPOINT is unset by default, so the deployed service exports
