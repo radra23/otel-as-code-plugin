@@ -92,6 +92,10 @@ if [ "$got" = otel-instrument ]; then echo "PASS the captured routed run picked 
 STUB="$T/copilot-stub"
 cat > "$STUB" <<'SH'
 #!/usr/bin/env bash
+# run-copilot.sh asks `copilot --version | head -1` after the session. Answered by the session
+# body, the wrapper mode's `sleep 3019` held that pipe open whenever head read every line before
+# exiting (no SIGPIPE): on Linux CI that hung the job until it was cancelled.
+if [ "$1" = --version ]; then echo "GitHub Copilot CLI 1.0.56"; exit 0; fi
 if [ "$1" = plugin ]; then [ "$STUB_MODE" = hang-install ] && sleep 3017; exit 0; fi
 root="$COPILOT_HOME/installed-plugins/otel-as-code/otel-as-code"
 printf '{"type":"session.skills_loaded","data":{"skills":[{"name":"otel-instrument","source":"plugin","path":"%s/commands/otel-instrument.md"}]}}\n' "$root"
