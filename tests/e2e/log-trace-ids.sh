@@ -15,9 +15,14 @@
 #     (read out of the generator) carry the request's trace ID; the same patterns without it, and
 #     java.util.logging, are untouched. Spring Boot on its default logging gets the IDs from the
 #     printed logging.pattern.level property (tests/log-trace-ids/java, java-spring).
-# The span's trace ID is read from the console exporter, the log line from the app's output, and
+#   - .NET: ASP.NET Core behind the golden OpenTelemetry.cs. The host already puts the request's
+#     IDs in every ILogger scope; the printed appsettings.json fragment makes the console logger
+#     show them (simple formatter, and the app's own json formatter kept). Exported to a local
+#     OTLP/gRPC sink, since the golden has no console exporter (tests/log-trace-ids/dotnet).
+# The span's trace ID is read from the exporter's output, the log line from the app's output, and
 # the two must be equal: a trace ID that is merely present would not prove the link. No Docker.
-# Needs Node 18+, Python 3.9+ with venv, JDK 17+ and Maven, and network for npm, pip and Maven.
+# Needs Node 18+, Python 3.9+ with venv, JDK 17+ and Maven, the .NET 10 SDK, and network for npm,
+# pip, Maven and NuGet.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 SRC=$PWD
@@ -277,6 +282,66 @@ line=$(jline spring-own.log "spring order line id=7")
 [[ -n "$line" && "$line" != *"trace_id="* ]] \
   && ok "java (spring boot): without the property Boot's line is unchanged (documented)" \
   || { bad "java (spring boot, default): '$line'"; }
+
+# ---------------------------------------------------------------- .NET
+# The host puts the request Activity's IDs in every ILogger scope; the console logger prints
+# scopes once the printed appsettings.json fragment turns them on. The fragment is read out of the
+# generator. The span is the one the golden OpenTelemetry.cs exports to a local OTLP/gRPC sink,
+# and its 16 raw trace-ID bytes must be in what the sink received.
+FRAGMENT=$(gen_line '.NET appsettings.json, inside the top-level object: ') || bad ".NET: the generator has no single appsettings line"
+mkdir -p "$WORK/dotnet"
+cp "$SRC/tests/log-trace-ids/dotnet/Program.cs" "$SRC/tests/snapshots/instrument/dotnet/OpenTelemetry.cs" \
+   "$SRC/tests/snapshots/instrument/dotnet/checkout-api.csproj" "$WORK/dotnet/"
+cd "$WORK/dotnet"
+dotnet build -nologo -v q > build.log 2>&1 || { bad ".NET: the app did not build"; tail -20 build.log; }
+SINK=0
+dotnet_request() {   # dotnet_request <name> <appsettings.json content> [VAR=value ...]
+  local n="$1"; printf '%s\n' "$2" > bin/Debug/net10.0/appsettings.json; shift 2
+  rm -rf "sink-$n"; mkdir "sink-$n"
+  "$WORK/venv/bin/python" "$SRC/tests/e2e/otlp-grpc-sink.py" "sink-$n" 48417 > "sink-$n.log" 2>&1 & SINK=$!
+  sleep 1
+  (cd bin/Debug/net10.0 && exec env ASPNETCORE_URLS=http://127.0.0.1:8950 \
+    OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:48417 "$@" dotnet checkout-api.dll) > "$n.log" 2>&1 & APP_PID=$!
+  wait_up http://127.0.0.1:8950/health || { bad ".NET ($n): the service did not start"; tail -30 "$n.log"; }
+  curl -fsS -o /dev/null -X POST http://127.0.0.1:8950/pay
+  sleep 2; stop; sleep 1; kill "$SINK" 2>/dev/null || true; wait "$SINK" 2>/dev/null || true
+}
+# exported <sink dir> <trace id>: the sink received a trace export carrying that trace ID.
+exported() {
+  [[ "$2" =~ ^[0-9a-f]{32}$ ]] && python3 - "$1" "$2" <<'PY'
+import glob, sys
+tid = bytes.fromhex(sys.argv[2])
+sys.exit(0 if any(tid in open(f, "rb").read() for f in glob.glob(sys.argv[1] + "/trace-*.bin")) else 1)
+PY
+}
+scope_tid() { { grep -B1 -F "dotnet pay line" "$1" || true; } | sed -n 's/.*=> SpanId:[0-9a-f]\{16\}, TraceId:\([0-9a-f]\{32\}\),.*/\1/p' | head -1; }
+
+dotnet_request own '{ }'
+[ -n "$(grep -F 'dotnet pay line' own.log)" ] && [ -z "$(scope_tid own.log)" ] \
+  && ok ".NET: the default console line carries no ID and is left as it was (documented)" \
+  || { bad ".NET (default): unexpected output"; grep -B2 -F 'dotnet pay line' own.log; }
+
+dotnet_request simple "{ $FRAGMENT }"
+dtid=$(scope_tid simple.log)
+exported sink-simple "$dtid" \
+  && ok ".NET (simple formatter): with the printed fragment the line's scope carries the exported span's trace ID" \
+  || { bad ".NET (simple): scope trace ID '$dtid' is not in any export"; grep -B2 -F 'dotnet pay line' simple.log; }
+
+dotnet_request json "{ ${FRAGMENT/\"simple\"/\"json\"} }"
+jtid=$({ grep -F '"Message":"dotnet pay line' json.log || true; } | head -1 | python3 -c '
+import json, sys
+try: rec = json.loads(sys.stdin.read())
+except ValueError: sys.exit("not json")
+print(next((s["TraceId"] for s in rec.get("Scopes", []) if isinstance(s, dict) and "TraceId" in s), ""))' 2>&1)
+exported sink-json "$jtid" \
+  && ok ".NET (json formatter, kept): the record's Scopes carry the exported span's trace ID" \
+  || { bad ".NET (json): scope trace ID '$jtid' is not in any export"; grep -F 'dotnet pay line' json.log; }
+
+dotnet_request noendpoint "{ $FRAGMENT }" OTEL_EXPORTER_OTLP_ENDPOINT=
+ntid=$(scope_tid noendpoint.log)
+[[ "$ntid" =~ ^[0-9a-f]{32}$ ]] && [ -z "$(ls sink-noendpoint)" ] \
+  && ok ".NET: with no endpoint nothing is exported, yet the line still has an ID (documented)" \
+  || { bad ".NET (no endpoint): id '$ntid', sink got [$(ls sink-noendpoint | tr '\n' ' ')]"; }
 
 [ "$failed" -eq 0 ] && echo "LOG TRACE IDS E2E PASS: log lines carry their request's trace ID, and the app's logging setup is untouched" \
   || { echo "LOG TRACE IDS E2E FAIL"; exit 1; }

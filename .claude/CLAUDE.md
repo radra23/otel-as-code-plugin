@@ -115,7 +115,10 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
   winston and bunyan instrumentations do it); Java needs nothing generated either (the agent fills
   the Logback/Log4j MDC), but a line shows the IDs only if its pattern names them, so the Java
   summary PRINTS the pattern token or Spring Boot's `logging.pattern.level` line and never edits
-  the app's logging config. The e2e reads those two lines out of `instrumentation-gen.md`. Never replace the user's logger or format: the
+  the app's logging config. .NET is the same: the host already scopes every `ILogger` record with
+  the request's IDs, and the summary prints one `appsettings.json` fragment that turns console
+  scopes on (it must name the formatter: without `FormatterName` the console logger ignores
+  `FormatterOptions`). The e2e reads those printed lines out of `instrumentation-gen.md`. Never replace the user's logger or format: the
   upstream `set_logging_format` was measured to make the app's later `basicConfig(format=...)` a
   no-op, so it is not used. Text is never appended to a custom formatter class or to a line that
   is already JSON (it was caught breaking a structlog-style formatter in a probe). The block is

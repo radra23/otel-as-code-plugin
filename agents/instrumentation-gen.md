@@ -1558,6 +1558,32 @@ if (!string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOIN
     builder.Logging.AddOpenTelemetry(o => o.AddOtlpExporter());
 ```
 
+### Trace IDs in log lines (.NET, printed, never written)
+
+The host already attaches `SpanId`, `TraceId` and `ParentId` to the logging scope of everything
+logged during a request (`ActivityTrackingOptions`, set by `WebApplication.CreateBuilder` and the
+Generic Host), and with the ASP.NET Core instrumentation that request `Activity` is the exported
+server span, so the IDs are the span's. The console logger prints scopes only when told to, and
+`appsettings.json` belongs to the app: never edit it. Print this line, for an app logging through
+`ILogger` to the console:
+
+```
+.NET appsettings.json, inside the top-level object: "Logging": { "Console": { "FormatterName": "simple", "FormatterOptions": { "IncludeScopes": true } } }
+```
+
+- Keep the app's own `FormatterName` (`json`, `systemd`) if it sets one; only add
+  `FormatterOptions.IncludeScopes`. Name the formatter when it is not set: without a
+  `FormatterName` the console logger reads the legacy `Logging:Console:IncludeScopes` instead and
+  ignores `FormatterOptions` (measured on .NET 10). The same keys work as environment variables
+  (`Logging__Console__FormatterName=simple`, `Logging__Console__FormatterOptions__IncludeScopes=true`).
+- With the simple formatter the IDs print on a `=> SpanId:..., TraceId:...` line just above the
+  message; with `json` they are fields of the record's `Scopes` array.
+- They are there even when no exporter is attached (no endpoint set): ASP.NET Core makes the
+  request `Activity` either way, so the line then names a trace no backend has.
+- Not covered: Serilog, NLog and other providers (each has its own enricher), and `Console.Write`.
+
+Per-language status: `skills/language-maturity`, "Trace IDs in log lines".
+
 ### After writing (.NET) — return this summary
 
 ```
@@ -1573,6 +1599,10 @@ Wire it up:
   2. Add ONE line to Program.cs, before builder.Build():
        builder.Services.AddOtelObservability(builder.Configuration);
   3. dotnet build   (verifies the wiring compiles)
+  4. Trace IDs in your own log lines (optional): every ILogger line written during a request
+     already has the request's TraceId and SpanId in its scope. Your appsettings.json was not
+     changed; to print them on the console, add
+       <the line from "Trace IDs in log lines (.NET)", keeping your own FormatterName if you set one>
 
 Still required:
   - Deployment: the generated code attaches the OTLP exporter only when an endpoint is configured,
