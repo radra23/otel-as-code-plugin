@@ -127,6 +127,8 @@ jobs:
 
       - name: Run write-context-helper contract (scripts/write_context.py takes over the cache write; #211)
         run: bash tests/hooks/write-context-helper.test.sh
+      - name: Run context-schema contract (the ownership JSON matches the scanner's contract; write_context.py reads it; #257)
+        run: bash tests/context-schema.test.sh
 
       - name: Run read-only-eval contract (--local-ignore / --no-cache-write; #212)
         run: bash tests/hooks/read-only-eval-contract.test.sh

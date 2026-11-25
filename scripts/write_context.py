@@ -54,9 +54,23 @@ from datetime import datetime, timezone, timedelta
 # (a copied placeholder, or a clock on a very different machine) rather than "just scanned."
 MAX_SCANNEDAT_SKEW = timedelta(hours=6)
 
-# User-owned fields per the cache ownership contract (repo-context-scanner.md) -- carried over
-# from priorContext verbatim, and the one thing a refresh must never silently empty.
-TOP_LEVEL_USER_OWNED = ["businessAttrs", "confirmedAt", "namespace", "deploymentEnvironment"]
+# Who owns each field (#257): scripts/context-schema.json, beside this script, the machine-readable
+# form of the cache ownership contract in repo-context-scanner.md (tests/context-schema.test.sh
+# holds the two to the same fields). The user-owned fields are carried over from priorContext
+# verbatim, and are the one thing a refresh must never silently empty.
+SCHEMA_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "context-schema.json")
+try:
+    with open(SCHEMA_PATH, encoding="utf-8") as _f:
+        SCHEMA = json.load(_f)
+except (OSError, ValueError) as _e:
+    print(f"REFUSED: cannot read the ownership schema {SCHEMA_PATH}: {_e}", file=sys.stderr)
+    sys.exit(1)
+TOP_LEVEL_USER_OWNED = SCHEMA["topLevel"]["user"]
+SERVICE_USER_OWNED = SCHEMA["services"]["user"]
+SERVICE_USER_WHEN_CONFIRMED = SCHEMA["services"]["userWhenConfirmed"]
+CONFIRMED = SCHEMA["services"]["confirmedValue"]
+USER_ADDED = SCHEMA["services"]["userAdded"]
+CONFLICT_KEY = SCHEMA["conflicts"]["matchBy"]
 
 
 def fail(msg):
@@ -130,28 +144,24 @@ def check_per_service_user_owned(old, new):
         if sid is None or sid not in old_by_id:
             continue
         old_svc = old_by_id[sid]
-        for field in ("namespace", "team"):
-            if old_svc.get(f"{field}Source") == "user-confirmed" and not is_empty(old_svc.get(field)) \
+        for field, rule in SERVICE_USER_WHEN_CONFIRMED.items():
+            if old_svc.get(rule["sourceField"]) == CONFIRMED and not is_empty(old_svc.get(field)) \
                     and is_empty(svc.get(field)):
                 fail(
                     f"services[id={sid}].{field} was user-confirmed ({old_svc.get(field)!r}) "
                     f"and would be emptied by this refresh."
                 )
-        if not is_empty(old_svc.get("scopeOverride")) and is_empty(svc.get("scopeOverride")):
-            fail(
-                f"services[id={sid}].scopeOverride ({old_svc.get('scopeOverride')!r}) would be "
-                f"dropped by this refresh -- #207's override exists specifically to survive a "
-                f"re-scan; losing it here defeats the point."
-            )
+        for field in SERVICE_USER_OWNED:
+            if not is_empty(old_svc.get(field)) and is_empty(svc.get(field)):
+                why = (" -- #207's override exists specifically to survive a re-scan; losing it "
+                       "here defeats the point.") if field == "scopeOverride" else "."
+                fail(f"services[id={sid}].{field} ({old_svc.get(field)!r}) would be dropped by "
+                     f"this refresh{why}")
 
 
 def check_conflicts_resolution(old, new):
-    old_conflicts = {
-        (c.get("serviceId"), c.get("attribute")): c for c in old.get("conflicts", [])
-    }
-    new_conflicts = {
-        (c.get("serviceId"), c.get("attribute")): c for c in new.get("conflicts", [])
-    }
+    old_conflicts = {tuple(c.get(k) for k in CONFLICT_KEY): c for c in old.get("conflicts", [])}
+    new_conflicts = {tuple(c.get(k) for k in CONFLICT_KEY): c for c in new.get("conflicts", [])}
     for key, old_c in old_conflicts.items():
         was_resolved = not is_empty(old_c.get("resolvedValue")) or bool(old_c.get("conflict_resolved"))
         if not was_resolved:
@@ -176,7 +186,7 @@ def check_conflicts_resolution(old, new):
 def check_user_added_services(old, new):
     new_ids = {s.get("id") for s in new.get("services", [])}
     for svc in old.get("services", []):
-        if svc.get("nameSource") == "user-added" and svc.get("id") not in new_ids:
+        if svc.get(USER_ADDED["field"]) == USER_ADDED["value"] and svc.get("id") not in new_ids:
             fail(
                 f"services[id={svc.get('id')!r}] was added manually by the user "
                 f"(nameSource: \"user-added\") and is absent from this refresh -- a user-added "
