@@ -86,27 +86,43 @@ if [ "$got" = otel-instrument ]; then echo "PASS the captured routed run picked 
 
 # run-copilot.sh end to end against a stub `copilot` (no model calls): a session whose model
 # calls were rate limited must be recorded as a failed run and stop the pass (exit 255), never
-# scored as a real "neither"; a clean session that calls the plugin's skill scores routed.
+# scored as a real "neither"; a clean session that calls the plugin's skill scores routed. So must
+# the runs that measure the machine instead (#339): a hung install, a session that never reached
+# the model, network failures; and stopping a session stops a wrapper's child too.
 STUB="$T/copilot-stub"
 cat > "$STUB" <<'SH'
 #!/usr/bin/env bash
-[ "$1" = plugin ] && exit 0
+# run-copilot.sh asks `copilot --version | head -1` after the session. Answered by the session
+# body, the wrapper mode's `sleep 3019` held that pipe open whenever head read every line before
+# exiting (no SIGPIPE): on Linux CI that hung the job until it was cancelled.
+if [ "$1" = --version ]; then echo "GitHub Copilot CLI 1.0.56"; exit 0; fi
+if [ "$1" = plugin ]; then [ "$STUB_MODE" = hang-install ] && sleep 3017; exit 0; fi
 root="$COPILOT_HOME/installed-plugins/otel-as-code/otel-as-code"
 printf '{"type":"session.skills_loaded","data":{"skills":[{"name":"otel-instrument","source":"plugin","path":"%s/commands/otel-instrument.md"}]}}\n' "$root"
 if [ "$STUB_MODE" = endless ]; then
   for i in $(seq 0 11); do printf '{"type":"assistant.turn_start","data":{"turnId":"%s"}}\n' "$i"; done
   sleep 60; exit 0
+elif [ "$STUB_MODE" = wrapper ]; then   # like VS Code's copilot: the session is a child process
+  bash -c 'for i in $(seq 0 11); do printf "{\"type\":\"assistant.turn_start\",\"data\":{}}\n"; done; sleep 3019'
+  exit 0
+elif [ "$STUB_MODE" = nomodel ]; then
+  echo "Error executing prompt: Error: Directory does not exist or cannot be accessed: /gone" >&2; exit 1
+elif [ "$STUB_MODE" = network ]; then
+  printf '{"type":"assistant.turn_start","data":{}}\n'
+  printf '{"type":"model.call_failure","data":{"model":"gpt-4.1","statusCode":503,"errorMessage":"HTTP/2 GOAWAY connection terminated"}}\n'
+  exit 1
 elif [ "$STUB_MODE" = limited ]; then
   printf '{"type":"model.call_failure","data":{"model":"gpt-4.1","statusCode":429,"errorMessage":"rate limit for utility models"}}\n'
 else
+  printf '{"type":"assistant.turn_start","data":{}}\n'
   printf '{"type":"tool.execution_start","data":{"toolName":"skill","arguments":{"skill":"otel-instrument"}}}\n'
 fi
 printf '{"type":"result","exitCode":0,"usage":{"premiumRequests":0}}\n'
 SH
 chmod +x "$STUB"
-for mode in limited clean endless; do
+for mode in limited clean endless wrapper nomodel network hang-install; do
   rc=0
-  STUB_MODE=$mode COPILOT_BIN="$STUB" COPILOT_GITHUB_TOKEN=stub TMPDIR="$T" \
+  STUB_MODE=$mode COPILOT_BIN="$STUB" COPILOT_GITHUB_TOKEN=stub TMPDIR="$T" COPILOT_INSTALL_TIMEOUT=3 \
     bash evals/routing/run-copilot.sh evals/routing/cases/add-tracing 1 "$T/c-$mode" >/dev/null 2>&1 || rc=$?
   echo "$rc" > "$T/c-$mode.rc"
 done
@@ -121,6 +137,99 @@ else echo "FAIL run-copilot clean run: runner exit $(cat "$T/c-clean.rc"), verdi
 got=$(python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); print(m["stoppedAtTurnCap"], m["exitCode"], m["maxTurns"], m["durationSeconds"] < 30)' "$T/c-endless/add-tracing/run-1/meta.json" 2>/dev/null || echo none)
 if [ "$got" = "True 0 8 True" ]; then echo "PASS run-copilot stops a session at the case's turn cap"
 else echo "FAIL run-copilot turn cap: got $got"; fail=1; fi
+left=$( { pgrep -f 'sleep 3019' || true; } | wc -l | tr -d ' ')
+got=$(python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); print(m["stoppedAtTurnCap"], m["exitCode"])' "$T/c-wrapper/add-tracing/run-1/meta.json" 2>/dev/null || echo none)
+if [ "$got" = "True 0" ] && [ "$left" = 0 ]; then echo "PASS run-copilot stops a wrapper's child session at the turn cap"
+else echo "FAIL run-copilot wrapper: got $got, $left child session(s) left running"; pkill -f 'sleep 3019'; fail=1; fi
+for want in "nomodel:the session never reached the model" "network:network failures before the session ended"; do
+  mode=${want%%:*}; reason=${want#*:}
+  got=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["discardReason"] or "")' "$T/c-$mode/add-tracing/run-1/meta.json" 2>/dev/null || echo none)
+  case "$(cat "$T/c-$mode.rc") $got" in
+    "255 $reason"*) echo "PASS run-copilot discards a run where $reason and stops the pass" ;;
+    *) echo "FAIL run-copilot $mode: runner exit $(cat "$T/c-$mode.rc"), discardReason '$got'"; fail=1 ;;
+  esac
+done
+left=$( { pgrep -f 'sleep 3017' || true; } | wc -l | tr -d ' ')
+if [ "$(cat "$T/c-hang-install.rc")" = 255 ] && [ "$left" = 0 ]; then echo "PASS run-copilot gives up on a hung plugin install and stops the pass"
+else echo "FAIL run-copilot hung install: runner exit $(cat "$T/c-hang-install.rc"), $left install(s) left running"; pkill -f 'sleep 3017'; fail=1; fi
+
+# run.sh c is resumable (#337 follow-up): a pass that hits the rate limit midway and a resumed
+# pass add up to the same summary as one uninterrupted pass; a version change stops it. The stub
+# answers --version, routes the prompts that name tracing or OpenTelemetry, and refuses every
+# session after STUB_LIMIT_AFTER.
+RSTUB="$T/copilot-resume-stub"
+cat > "$RSTUB" <<'SH'
+#!/usr/bin/env bash
+case "$1" in --version) echo "${STUB_VERSION:-GitHub Copilot CLI 1.0.56}"; exit 0 ;; plugin) exit 0 ;; esac
+n=$(( $(cat "$STUB_COUNT" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$STUB_COUNT"
+root="$COPILOT_HOME/installed-plugins/otel-as-code/otel-as-code"
+printf '{"type":"session.skills_loaded","data":{"skills":[{"name":"otel-instrument","source":"plugin","path":"%s/commands/otel-instrument.md"}]}}\n' "$root"
+if [ -n "${STUB_LIMIT_AFTER:-}" ] && [ "$n" -gt "$STUB_LIMIT_AFTER" ]; then
+  printf '{"type":"model.call_failure","data":{"model":"gpt-4.1","statusCode":429,"errorMessage":"rate limit for utility models"}}\n'
+else printf '{"type":"assistant.turn_start","data":{}}\n'; fi
+if [ -z "${STUB_LIMIT_AFTER:-}" ] || [ "$n" -le "$STUB_LIMIT_AFTER" ]; then
+  printf '%s' "$2" | grep -qiE 'opentelemetry|tracing' && \
+  printf '{"type":"tool.execution_start","data":{"toolName":"skill","arguments":{"skill":"otel-instrument"}}}\n'
+fi
+printf '{"type":"result","exitCode":0,"usage":{"premiumRequests":1}}\n'
+SH
+chmod +x "$RSTUB"
+rpass() {  # label, then env assignments; output in $T/rpass.out, exit code echoed
+  local label=$1; shift; local rc=0
+  env "$@" COPILOT_BIN="$RSTUB" COPILOT_GITHUB_TOKEN=stub TMPDIR="$T" ROUTING_RESULTS="$T/rr" \
+    RUNS=2 CASE='[acdef]*' STUB_COUNT="$T/stub-count-$label" \
+    bash evals/routing/run.sh c "$label" > "$T/rpass.out" 2>&1 || rc=$?
+  echo "$rc"
+}
+same_summary() {  # the two summaries, with run times left out
+  python3 - "$1" "$2" <<'PY2'
+import json, sys
+def norm(p):
+    d = json.load(open(p))
+    recs = sorted(({k: v for k, v in r.items() if k != "durationSeconds"} for r in d["records"]),
+                  key=lambda r: (r["case"], r["run"]))
+    s = {k: v for k, v in d["summary"].items() if k != "runSeconds"}
+    s["rows"] = [{k: v for k, v in r.items() if k != "meanSeconds"} for r in s["rows"]]
+    return recs, s
+sys.exit(0 if norm(sys.argv[1]) == norm(sys.argv[2]) else 1)
+PY2
+}
+rc=$(rpass full)
+full_ok=$([ "$rc" = 0 ] && grep -q '12 of 12 runs done, 0 remain' "$T/rpass.out" && echo yes || echo no)
+rc=$(rpass resumed STUB_LIMIT_AFTER=5)
+order=$(sed -n 's/^  c \([^ ]*\) run \([0-9]\).*/\1:\2/p' "$T/rpass.out" | tr '\n' ' ')
+want="diagnose-slow-checkout-with-traces:1 checkout-is-slow:1 fix-failing-test:1 explain-span:1 add-opentelemetry:1 add-tracing:1 "
+left=$(ls -d "$T"/rr/resumed/c/*/run-* | wc -l | tr -d ' ')
+if [ "$rc" = 0 ] && [ "$order" = "$want" ] && [ "$left" = 5 ] && grep -q '5 of 12 runs done, 7 remain' "$T/rpass.out" \
+   && grep -q 'limit reset: the refusal did not say when the limit resets' "$T/rpass.out"; then
+  echo "PASS run.sh c stops at the first refusal, keeps the finished runs and discards the refused one"
+else echo "FAIL run.sh c rate-limit stop: rc=$rc order=[$order] kept=$left"; sed 's/^/    /' "$T/rpass.out"; fail=1; fi
+# A run that was not kept (here a timed-out run-3 the plan would never redo) must not reach the
+# merged summary: the next pass clears it.
+mkdir -p "$T/rr/resumed/c/explain-span/run-3"
+printf '{"case":"explain-span","run":3,"exitCode":143}' > "$T/rr/resumed/c/explain-span/run-3/meta.json"
+: > "$T/rr/resumed/c/explain-span/run-3/trace.jsonl"
+rc=$(rpass resumed)
+order=$(sed -n 's/^  c \([^ ]*\) run \([0-9]\).*/\1:\2/p' "$T/rpass.out" | head -2 | tr '\n' ' ')
+passes=$(python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); print(len(m["passes"]), len(m["runs"]), sum(r["premiumRequests"] for r in m["runs"]))' "$T/rr/resumed/meta.json" 2>/dev/null || echo none)
+if [ "$full_ok" = yes ] && [ "$rc" = 0 ] && [ "$order" = "add-tracing:1 diagnose-slow-checkout-with-traces:2 " ] \
+   && [ "$passes" = "2 12 12" ] && same_summary "$T/rr/full/summary-c.json" "$T/rr/resumed/summary-c.json"; then
+  echo "PASS run.sh c resumes the missing runs and merges both passes into the same summary as one pass"
+else echo "FAIL run.sh c resume: full=$full_ok rc=$rc order=[$order] meta=$passes"; sed 's/^/    /' "$T/rpass.out"; fail=1; fi
+before=$(cat "$T/stub-count-resumed")
+rc=$(rpass resumed STUB_VERSION='GitHub Copilot CLI 1.0.57')
+if [ "$rc" = 3 ] && grep -q 'used Copilot version GitHub Copilot CLI 1.0.56' "$T/rpass.out" \
+   && [ "$(cat "$T/stub-count-resumed")" = "$before" ]; then
+  echo "PASS run.sh c stops, starting no session, when the Copilot version changed between passes"
+else echo "FAIL run.sh c version change: rc=$rc"; sed 's/^/    /' "$T/rpass.out"; fail=1; fi
+
+# A session that timed out after real model turns is a scored result (an error, as in (a) and
+# (b)), not a run to redo; one discarded as no measurement is redone.
+K="$T/kept-label/c"; for x in "explain-span 1 null" "explain-span 2 \"network\""; do set -- $x
+  mkdir -p "$K/$1/run-$2"; printf '{"case":"%s","run":%s,"exitCode":143,"discardReason":%s,"pluginVersion":"p","copilotVersion":"v","model":"m"}' "$1" "$2" "$3" > "$K/$1/run-$2/meta.json"; done
+got=$(python3 evals/routing/copilot_pass.py plan "$T/kept-label" evals/routing/cases 'explain-span' 2 p v m | tr '\n' ' ')
+if [ "$got" = "evals/routing/cases/explain-span 2 " ]; then echo "PASS a timed-out run with model turns is kept; a discarded one is redone"
+else echo "FAIL kept rule: plan gave [$got]"; fail=1; fi
 
 # Every case directory carries a prompt, a should-/should-not-route tag, a grader and a scaffold.
 python3 - <<'PY' || fail=1
