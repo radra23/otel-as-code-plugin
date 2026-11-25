@@ -53,7 +53,7 @@ every push/PR. #4 stays local-only.
    pipeline on top of traces + metrics.
    For Java it copies the pristine `fixtures/java-greenfield/App.java` + the golden
    `tests/snapshots/instrument/java/otel-java.env`, and downloads the pinned OTel
-   Java agent JAR (v2.31.1) — no source instrumentation; the agent auto-instruments
+   Java agent JAR (v2.34.0) — no source instrumentation; the agent auto-instruments
    the JDK `com.sun.net.httpserver` app at runtime.
    For Next.js it copies the pristine `fixtures/nextjs-greenfield/` App Router app +
    the golden `tests/snapshots/instrument/nextjs/{instrumentation.js,package.json}`
@@ -139,7 +139,7 @@ exporter defaults to TLS regardless of an `http://` endpoint scheme, so
 | `node` (base image) | `20-bookworm-slim` |
 | `python` (base image) | `3.12-slim-bookworm` |
 | `eclipse-temurin` (base image) | `21-jdk-jammy` |
-| OTel Java agent | `2.31.1` |
+| OTel Java agent | `2.34.0` |
 | `next` / `react` (Next.js fixture) | `15.1.12` / `19.0.0` |
 | `@vercel/otel` (Next.js instrument snapshot) | `1.14.2` |
 

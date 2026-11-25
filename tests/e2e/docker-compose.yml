@@ -21,7 +21,7 @@ services:
   # collector forwards metrics to it (collector-logs-overlay.yaml); run.sh queries it through
   # Grafana on host port 3002. Traces still go to jaeger, which the trace assertions read.
   lgtm:
-    image: grafana/otel-lgtm:0.41.0
+    image: grafana/otel-lgtm:0.41.1
     ports:
       - "127.0.0.1:3002:3000"   # Grafana (datasource proxy to Prometheus); 3000/3001 are the apps'
 
