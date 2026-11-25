@@ -112,7 +112,10 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
 - Trace IDs in log lines (#279): the Python bootstrap's `_add_trace_ids_to_logs()` block adds
   `otelTraceID`/`otelSpanID` to every `logging` record and appends ` trace_id=... span_id=...` to
   lines the plain `logging.Formatter` renders; Node.js needs nothing generated (the bundle's pino,
-  winston and bunyan instrumentations do it). Never replace the user's logger or format: the
+  winston and bunyan instrumentations do it); Java needs nothing generated either (the agent fills
+  the Logback/Log4j MDC), but a line shows the IDs only if its pattern names them, so the Java
+  summary PRINTS the pattern token or Spring Boot's `logging.pattern.level` line and never edits
+  the app's logging config. The e2e reads those two lines out of `instrumentation-gen.md`. Never replace the user's logger or format: the
   upstream `set_logging_format` was measured to make the app's later `basicConfig(format=...)` a
   no-op, so it is not used. Text is never appended to a custom formatter class or to a line that
   is already JSON (it was caught breaking a structlog-style formatter in a probe). The block is

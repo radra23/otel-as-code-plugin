@@ -1384,6 +1384,34 @@ signal is gated. `--experimental` still governs whether pre-Stable semconv attri
 backends historically keyed their "environment" facet off the older `deployment.environment` — if
 the environment tag doesn't appear in a specific backend, add a backend-specific override there.
 
+### Trace IDs in log lines (Java, printed, never written)
+
+The agent already puts `trace_id`, `span_id` and `trace_flags` into the Logback and Log4j MDC of
+every record logged during a span (its `logback-mdc` / `log4j-context-data` instrumentations, on by
+default). A line shows them only once its pattern names them, and the pattern belongs to the app:
+never edit `logback.xml`, `log4j2.xml`, `logback-spring.xml` or `application.properties`. Print
+the line that fits, from the build file's dependencies:
+
+- Logback or Log4j 2 named in `pom.xml` / `build.gradle(.kts)` with a config file of its own:
+  print the pattern token.
+- Spring Boot (`spring-boot-starter*`) with no `logback-spring.xml` / `logback.xml` of its own:
+  print the property line. If `logging.pattern.level` is already set, say to put the IDs in front
+  of its value instead of replacing it.
+- Neither (java.util.logging, `System.out`): print nothing to add and say these are not covered.
+
+The two lines, exactly (`tests/e2e/log-trace-ids.sh` reads them from here and runs them):
+
+```
+Logback or Log4j 2 pattern, before %n: trace_id=%X{trace_id} span_id=%X{span_id}
+Spring Boot application.properties: logging.pattern.level=trace_id=%mdc{trace_id} span_id=%mdc{span_id} trace_flags=%mdc{trace_flags} %5p
+```
+
+Outside a span the token prints `trace_id= span_id=` (Logback and Log4j 2 render a missing key as
+empty). `OTEL_TRACES_EXPORTER=none` does not empty it: the agent still makes and samples the span
+and only skips the export, so the line then names a trace no backend has (measured; say so if the
+summary mentions turning traces off). `trace_flags` prints `03` today, the sampled bit plus W3C
+Level 2's random-trace-ID bit. Per-language status: `skills/language-maturity`, "Trace IDs in log lines".
+
 ### After writing (Java) — return this summary
 
 ```
@@ -1401,6 +1429,10 @@ Next steps:
      # per target by exporting DEPLOYMENT_ENV before sourcing, e.g. DEPLOYMENT_ENV=production.
   3. See it locally: /otel-local starts a free Grafana stack on this machine and prints where
      your traces, logs and metrics appear (it sources otel-local.env after otel-java.env).
+  4. Trace IDs in your own log lines: the agent already adds trace_id and span_id to every
+     Logback / Log4j record logged during a request. Your logging setup was not changed; to show
+     them in the line, add <the line from "Trace IDs in log lines (Java)" that fits, or say that
+     java.util.logging and System.out are not covered>.
 ```
 
 Per the "Deployment-environment provisioning check" section: if `deploymentEnvConfigured` is not
