@@ -81,6 +81,12 @@ fi
 
 # Tool name and file path in one parse, as "<tool> <path>": a tool name has no space, so the
 # first space splits them and a path that contains spaces stays whole.
+# Payload that is not valid JSON fails OPEN here (PARSED is empty, so TOOL is empty, so exit 0),
+# while the no-Python branch above fails CLOSED on an unreadable name. That asymmetry is on
+# purpose: the harness always sends valid JSON (so do the Codex and Copilot adapters, which build
+# this shape), so a parse failure here means the payload is not a tool call this hook knows,
+# not that a protected write is hiding. Without Python, by contrast, the hook cannot tell the two
+# apart, so it refuses only the names it protects.
 PARSED=$(echo "$INPUT" | py -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_name',''), d.get('tool_input',{}).get('file_path',''))" 2>/dev/null || echo "")
 TOOL=${PARSED%% *}
 FILE_PATH=${PARSED#* }

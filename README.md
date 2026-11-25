@@ -478,16 +478,17 @@ images) can get a deployment-config diff from `/otel-remediate` instead; v1 cove
 
 | Flag | Commands | Effect |
 |---|---|---|
-| `--service <id>` | instrument, backend, enrich, test, uninstrument, remediate | Pick the target service instead of being prompted. `backend` also accepts `all` (one module per service) |
+| `--service <id>` | instrument, backend, local, enrich, test, uninstrument, remediate | Pick the target service instead of being prompted. `backend` also accepts `all` (one module per service) |
 | `--dry-run` | instrument, collector, backend, local, enrich, test, uninstrument | Preview a diff without writing; exits non-zero if anything would change |
 | `--experimental` | instrument, collector, backend | Unlock pre-Stable semconv and signals |
 | `--fix <ids>` | instrument | Apply only these `/otel-evaluate` findings, in place |
-| `--force` | instrument, collector, backend, test, uninstrument | **Full regeneration**, overwrites hand edits (see below). For `test`, regenerates a test it wrote earlier. For `uninstrument`, skips the confirmation prompt |
+| `--force` | instrument, collector, backend, local, test, uninstrument | **Full regeneration**, overwrites hand edits (see below). For `local`, rewrites `otel-local.compose.yaml` / `otel-local.env`. For `test`, regenerates a test it wrote earlier. For `uninstrument`, skips the confirmation prompt |
 | `--public` | collector | The Collector has no private-network path to its senders: adds receiver auth (`bearertokenauth`). Needs TLS in front to mean anything. Default is unauthenticated |
 | `--exporter-header <Name=${env:VAR}>` | collector | Add a header to the OTLP exporter. Values must reference an env var, never a literal secret |
 | `--cardinality-budget <N>` | collector | Gateway mode, with `--experimental`: generate a metrics cardinality ceiling that drops what exceeds it |
 | `--confirm-remove-auth` | collector | Required with `--force` (and without `--public`) to intentionally strip existing receiver auth |
 | `--confirm-remove-exporter-auth` | collector | Required with `--force` to regenerate over exporter auth the new config cannot carry |
+| `--down` | local | Stop the local stack and offer to remove its two files. Nothing else runs |
 | `--kind <dashboard\|alerts\|slo>` | backend | Emit one artifact instead of all three |
 | `--output-dir <path>` | backend | Override the default `infra/observability/<vendor>/` |
 | `--self-hosted` | backend (grafana) | Target self-hosted Grafana: a burn-rate alert rule instead of `grafana_slo`, which is Cloud-only |

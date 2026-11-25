@@ -356,6 +356,28 @@ else
   FAIL=$((FAIL+1))
 fi
 
+# #260: Rule 6 (SimpleSpanProcessor) skips test code by path SEGMENT or test-file NAME, not by
+# "test|spec|fixture" anywhere in the path, which also skipped /latest/ and /attestation/.
+# Each file carries the same Rule 6 content; only where it sits changes.
+R6=$(mktemp -d)
+rule6_warns() {   # rule6_warns <path under $R6>: does Rule 6 fire for a file there?
+  mkdir -p "$(dirname "$R6/$1")"
+  printf "%s\nconst p = new SimpleSpanProcessor(exporter);\n" "$OTEL_IMPORT" > "$R6/$1"
+  local out; out=$(emit "$R6/$1" | bash "$HOOK" 2>&1)   # captured: grep -q + pipefail would race
+  grep -q "per-span (Simple) export processor" <<<"$out"
+}
+for p in srv/latest/tracing.js attestation/otel.js app/contest.js src/latest.java src/Protest.cs specimen/tracing.js; do
+  if rule6_warns "$p"; then echo "PASS: #260 Rule 6 still warns for $p (not test code)"; PASS=$((PASS+1))
+  else echo "FAIL: #260 Rule 6 skipped $p, which is not test code"; FAIL=$((FAIL+1)); fi
+done
+for p in tests/tracing.js test/otel.js src/__tests__/otel.js spec/otel_helper.rb fixtures/app/tracing.js \
+         pkg/testdata/otel.js test_otel.py otel_test.go otel.test.cjs otel.spec.ts otel_spec.rb conftest.py \
+         src/OrderTest.java src/CheckoutTests.cs; do
+  if rule6_warns "$p"; then echo "FAIL: #260 Rule 6 warned for $p, which is test code"; FAIL=$((FAIL+1))
+  else echo "PASS: #260 Rule 6 skips $p (test code)"; PASS=$((PASS+1)); fi
+done
+rm -rf "$R6"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
