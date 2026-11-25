@@ -1407,7 +1407,10 @@ Spring Boot application.properties: logging.pattern.level=trace_id=%mdc{trace_id
 ```
 
 Outside a span the token prints `trace_id= span_id=` (Logback and Log4j 2 render a missing key as
-empty). Per-language status: `skills/language-maturity`, "Trace IDs in log lines".
+empty). `OTEL_TRACES_EXPORTER=none` does not empty it: the agent still makes and samples the span
+and only skips the export, so the line then names a trace no backend has (measured; say so if the
+summary mentions turning traces off). `trace_flags` prints `03` today, the sampled bit plus W3C
+Level 2's random-trace-ID bit. Per-language status: `skills/language-maturity`, "Trace IDs in log lines".
 
 ### After writing (Java) — return this summary
 

@@ -243,11 +243,18 @@ for lib in logback log4j2; do
     && ok "java ($lib): the app's own pattern is left as it was" || { bad "java ($lib, own pattern): '$line'"; }
 done
 
-java_request off.log logback-ids.xml log4j2-ids.xml OTEL_TRACES_EXPORTER=none
+# Unlike Python, OTEL_TRACES_EXPORTER=none only stops the export: the agent still makes and
+# samples the span, so the line carries an ID that no backend will have (measured, documented).
+java_request noexport.log logback-ids.xml log4j2-ids.xml OTEL_TRACES_EXPORTER=none
+line=$(jline noexport.log "logback pay line")
+[[ "$line" =~ ^"APP INFO payments | logback pay line orderId=o1 trace_id="[0-9a-f]{32}" span_id="[0-9a-f]{16}$ ]] \
+  && ok "java: with the traces exporter off the span still exists, so the line still has an ID (documented)" \
+  || { bad "java (exporter none): '$line'"; }
+java_request off.log logback-ids.xml log4j2-ids.xml OTEL_JAVAAGENT_ENABLED=false
 line=$(jline off.log "logback pay line")
 [ "$line" = "APP INFO payments | logback pay line orderId=o1 trace_id= span_id=" ] \
-  && ok "java: with traces off there is no span, and the token renders empty (documented)" \
-  || { bad "java (traces off): '$line'"; }
+  && ok "java: with the agent off there is no span, and the token renders empty (documented)" \
+  || { bad "java (agent off): '$line'"; }
 
 spring_request() {   # spring_request <out> [extra app argument]
   local out="$1"; shift
@@ -260,7 +267,9 @@ spring_request() {   # spring_request <out> [extra app argument]
 spring_request spring-ids.log "--$SPRING_PROP"
 stid=$(span_trace spring-ids.log "GET /orders/{id}")
 line=$(jline spring-ids.log "spring order line id=7")
-[[ "$stid" =~ ^[0-9a-f]{32}$ && "$line" == *"trace_id=$stid span_id="* && "$line" =~ " trace_flags=01  INFO " ]] \
+# trace_flags is the W3C byte: 01 is sampled; the agent's SDK also sets 02, the Level 2 "random
+# trace ID" bit, so 03 is what it prints today. Only the sampled bit is required here.
+[[ "$stid" =~ ^[0-9a-f]{32}$ && "$line" == *"trace_id=$stid span_id="* && "$line" =~ \ trace_flags=0[13]\ \ INFO\  ]] \
   && ok "java (spring boot): the printed property puts the request's trace ID in Boot's own line" \
   || { bad "java (spring boot): unexpected line"; echo "  line:  $line"; echo "  trace: $stid"; }
 spring_request spring-own.log
