@@ -163,11 +163,11 @@ If they exist AND `--force` IS set:
   "↷ --yes: overwriting without asking" instead of confirming. With no one to answer and no
   `--yes`, exit without writing and say `--yes` would have continued.
 - Authorize the overwrite for the `write-guard` hook by listing the module files (`main.tf`,
-  `variables.tf`, `outputs.tf`) under `<output_dir>` in the `.claude/.otel-force` sentinel, one
-  per line (this is how `--force` reaches the hook). **Truncate the sentinel first** (`:>`) so a
-  leftover from an aborted earlier run can never grant a standing overwrite authorization, then
-  append the three module files:
-  `mkdir -p .claude && :> .claude/.otel-force && for f in main.tf variables.tf outputs.tf; do printf '%s\n' "<output_dir>/$f" >> .claude/.otel-force; done`
+  `variables.tf`, `outputs.tf`) under `<output_dir>` in the `.claude/.otel-force` sentinel (this is
+  how `--force` reaches the hook). Write it only through the script (never by hand, #255), which
+  replaces any earlier sentinel and stamps a 10-minute expiry, so a leftover from an aborted
+  earlier run can never grant a standing overwrite authorization:
+  `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/otel_force.py" set "<output_dir>/main.tf" "<output_dir>/variables.tf" "<output_dir>/outputs.tf"`
   Repo-relative or absolute both work: the guard normalises both sides before comparing, so the
   sentinel does not have to match the host's path convention. It stays path-scoped — a file you
   do not list is still protected.
@@ -202,7 +202,7 @@ The subagent handles all file writing and validation — `terraform fmt`/`valida
 Print its output verbatim including the next-steps block.
 
 If a `.claude/.otel-force` sentinel was created in Step 4, remove it now to restore the
-write-guard: `rm -f .claude/.otel-force`.
+write-guard: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/otel_force.py" clear`.
 
 After the subagent output, print — using the SAME binary name (`terraform` or `tofu`) the
 subagent's own next-steps block above just printed, never assuming `terraform` independently:

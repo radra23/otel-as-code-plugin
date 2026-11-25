@@ -27,6 +27,7 @@ import os
 import posixpath
 import re
 import sys
+import time
 
 # chr(92) rather than an escaped literal: the plugin directory reads backslash escapes in a hook's
 # scripts as a sign it may print a tool-call decision.
@@ -91,6 +92,23 @@ def is_context(raw):
     return len(parts) >= 2 and parts[-2:] == [".claude", "otel-context.json"]
 
 
+def expired(lines):
+    """True when the sentinel carries an expiry line whose time has passed.
+
+    scripts/otel_force.py writes `# otel-as-code --force sentinel; expires <epoch> (<UTC>)` first,
+    so a sentinel an aborted command left behind stops authorising overwrites (#255). A sentinel
+    with no such line (written by hand, or by an older version) has no expiry, as before.
+    """
+    for line in lines:
+        words = line.strip().split()
+        if not words or words[0] != "#" or "expires" not in words:
+            continue
+        i = words.index("expires") + 1
+        if i < len(words) and words[i].isdigit():
+            return time.time() > int(words[i])
+    return False
+
+
 def main():
     if len(sys.argv) == 3 and sys.argv[1] == "--is-context":
         return 0 if is_context(sys.argv[2]) else 1
@@ -103,6 +121,8 @@ def main():
         with open(sentinel, encoding="utf-8", errors="replace") as fh:
             lines = fh.read().splitlines()
     except OSError:
+        return 1
+    if expired(lines):
         return 1
     for line in lines:
         entry = line.strip()
