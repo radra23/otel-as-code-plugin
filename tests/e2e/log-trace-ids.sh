@@ -10,9 +10,14 @@
 #   - Node.js: express + pino, winston and bunyan behind the golden tracing.js. The bundle's
 #     instrumentations already add the IDs; this pins it. console.log gets nothing, which is said
 #     in the docs and held here so it stays true.
+#   - Java: the pinned agent fills the Logback and Log4j MDC, and nothing is generated into the
+#     app's logging setup. A Logback and a Log4j 2 pattern with the token /otel-instrument prints
+#     (read out of the generator) carry the request's trace ID; the same patterns without it, and
+#     java.util.logging, are untouched. Spring Boot on its default logging gets the IDs from the
+#     printed logging.pattern.level property (tests/log-trace-ids/java, java-spring).
 # The span's trace ID is read from the console exporter, the log line from the app's output, and
 # the two must be equal: a trace ID that is merely present would not prove the link. No Docker.
-# Needs Node 18+, Python 3.9+ with venv, and network for npm and pip.
+# Needs Node 18+, Python 3.9+ with venv, JDK 17+ and Maven, and network for npm, pip and Maven.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 SRC=$PWD
@@ -161,6 +166,108 @@ node_request off.log OTEL_TRACES_EXPORTER=none
 [ "$(field off.log "pino order line" trace_id)" = absent ] \
   && ok "node: with traces off the lines carry no trace ID (documented)" \
   || bad "node: a trace ID appeared with traces off: $(grep -F 'pino order line' off.log)"
+
+# ---------------------------------------------------------------- Java
+# The agent fills the Logback and Log4j MDC; a line shows the IDs once its pattern names them.
+# The pattern token and the Spring Boot property are read out of the generator, so the lines
+# proven here are the ones /otel-instrument prints. The app's own configs are written below.
+GEN="$SRC/agents/instrumentation-gen.md"
+gen_line() { local v; v=$(sed -n "s/^$1//p" "$GEN"); [ -n "$v" ] && [ "$(printf '%s\n' "$v" | wc -l | tr -d ' ')" = 1 ] && printf '%s' "$v"; }
+TOKEN=$(gen_line 'Logback or Log4j 2 pattern, before %n: ') || bad "java: the generator has no single pattern-token line"
+SPRING_PROP=$(gen_line 'Spring Boot application.properties: ') || bad "java: the generator has no single Spring Boot property line"
+AGENT_VERSION=$(sed -n 's/^OTEL_JAVA_AGENT_VERSION = //p' "$GEN")
+mkdir -p "$WORK/java"
+cp -R "$SRC/tests/log-trace-ids/java" "$WORK/java/app"
+cp -R "$SRC/tests/log-trace-ids/java-spring" "$WORK/java/spring"
+cd "$WORK/java"
+curl -fsSLo agent.jar \
+  "https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v${AGENT_VERSION}/opentelemetry-javaagent.jar"
+(cd app && mvn -q -B package dependency:copy-dependencies -DskipTests)
+(cd spring && mvn -q -B package -DskipTests)
+
+OWN='APP %level %logger | %msg'
+logback_cfg() { cat > "$1" <<XML
+<configuration>
+  <appender name="OUT" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder><pattern>$2%n</pattern></encoder>
+  </appender>
+  <root level="INFO"><appender-ref ref="OUT"/></root>
+</configuration>
+XML
+}
+log4j2_cfg() { cat > "$1" <<XML
+<Configuration status="WARN">
+  <Appenders><Console name="OUT" target="SYSTEM_OUT"><PatternLayout pattern="$2%n"/></Console></Appenders>
+  <Loggers><Root level="info"><AppenderRef ref="OUT"/></Root></Loggers>
+</Configuration>
+XML
+}
+logback_cfg logback-own.xml "$OWN"; logback_cfg logback-ids.xml "$OWN $TOKEN"
+log4j2_cfg log4j2-own.xml "$OWN"; log4j2_cfg log4j2-ids.xml "$OWN $TOKEN"
+
+AGENT_ENV=(OTEL_SERVICE_NAME=payments-api OTEL_TRACES_EXPORTER=console OTEL_METRICS_EXPORTER=none OTEL_LOGS_EXPORTER=none)
+java_request() {   # java_request <out> <logback.xml> <log4j2.xml> [VAR=value ...]
+  local out="$1" lb="$2" l4="$3"; shift 3
+  env PORT=8940 "${AGENT_ENV[@]}" "$@" java -javaagent:agent.jar \
+    -Dlogback.configurationFile="$lb" -Dlog4j2.configurationFile="$l4" \
+    -cp "app/target/classes:app/target/dependency/*" App > "$out" 2>&1 & APP_PID=$!
+  wait_up http://localhost:8940/health || { bad "java: the service did not start"; tail -40 "$out"; }
+  curl -fsS -o /dev/null -X POST http://localhost:8940/pay
+  sleep 2; stop
+}
+# span_trace <out> <span name>: the trace ID of that server span, from the console exporter.
+span_trace() {
+  local ids; ids=$(sed -n "s#.*'$2' : \([0-9a-f]\{32\}\) [0-9a-f]\{16\} SERVER .*#\1#p" "$1" | sort -u)
+  [ "$(printf '%s\n' "$ids" | grep -c . || true)" = 1 ] && echo "$ids" || echo "expected one '$2' server span, found: [$ids]"
+}
+jline() { { grep -F "$2" "$1" || true; } | head -1; }   # the first line with that text, or none
+
+java_request ids.log logback-ids.xml log4j2-ids.xml
+jtid=$(span_trace ids.log "POST /pay")
+[[ "$jtid" =~ ^[0-9a-f]{32}$ ]] && ok "java: the request made one server span" || { bad "java: $jtid"; tail -40 ids.log; }
+for lib in logback log4j2; do
+  line=$(jline ids.log "$lib pay line")
+  [[ "$line" =~ ^"APP INFO payments | $lib pay line orderId=o1 trace_id=$jtid span_id="[0-9a-f]{16}$ ]] \
+    && ok "java ($lib): with the printed token the line carries the request's trace ID" \
+    || { bad "java ($lib): unexpected line"; echo "  line:  $line"; echo "  trace: $jtid"; }
+done
+line=$(jline ids.log "jul pay line")
+[[ -n "$line" && "$line" != *"$jtid"* ]] \
+  && ok "java: java.util.logging is not covered and its line carries no ID (documented)" \
+  || { bad "java (jul): '$line'"; }
+
+java_request own.log logback-own.xml log4j2-own.xml
+for lib in logback log4j2; do
+  line=$(jline own.log "$lib pay line")
+  [ "$line" = "APP INFO payments | $lib pay line orderId=o1" ] \
+    && ok "java ($lib): the app's own pattern is left as it was" || { bad "java ($lib, own pattern): '$line'"; }
+done
+
+java_request off.log logback-ids.xml log4j2-ids.xml OTEL_TRACES_EXPORTER=none
+line=$(jline off.log "logback pay line")
+[ "$line" = "APP INFO payments | logback pay line orderId=o1 trace_id= span_id=" ] \
+  && ok "java: with traces off there is no span, and the token renders empty (documented)" \
+  || { bad "java (traces off): '$line'"; }
+
+spring_request() {   # spring_request <out> [extra app argument]
+  local out="$1"; shift
+  env "${AGENT_ENV[@]}" OTEL_SERVICE_NAME=orders java -javaagent:agent.jar -jar spring/target/app.jar \
+    --server.port=8941 "$@" > "$out" 2>&1 & APP_PID=$!
+  wait_up http://localhost:8941/health || { bad "java (spring): the service did not start"; tail -40 "$out"; }
+  curl -fsS -o /dev/null http://localhost:8941/orders/7
+  sleep 2; stop
+}
+spring_request spring-ids.log "--$SPRING_PROP"
+stid=$(span_trace spring-ids.log "GET /orders/{id}")
+line=$(jline spring-ids.log "spring order line id=7")
+[[ "$stid" =~ ^[0-9a-f]{32}$ && "$line" == *"trace_id=$stid span_id="* && "$line" =~ " trace_flags=01  INFO " ]] \
+  && ok "java (spring boot): the printed property puts the request's trace ID in Boot's own line" \
+  || { bad "java (spring boot): unexpected line"; echo "  line:  $line"; echo "  trace: $stid"; }
+spring_request spring-own.log
+line=$(jline spring-own.log "spring order line id=7")
+[[ -n "$line" && "$line" != *"trace_id="* ]] \
+  && ok "java (spring boot): without the property Boot's line is unchanged (documented)" \
+  || { bad "java (spring boot, default): '$line'"; }
 
 [ "$failed" -eq 0 ] && echo "LOG TRACE IDS E2E PASS: log lines carry their request's trace ID, and the app's logging setup is untouched" \
   || { echo "LOG TRACE IDS E2E FAIL"; exit 1; }

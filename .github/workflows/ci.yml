@@ -468,7 +468,12 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Trace IDs in Python and Node.js log lines, end to end
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Trace IDs in Python, Node.js and Java log lines, end to end
         run: bash tests/e2e/log-trace-ids.sh
 
   # /otel-test: the generated telemetry tests, run on real apps. Each must pass on the instrumented
