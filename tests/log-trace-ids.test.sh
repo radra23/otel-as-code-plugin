@@ -37,8 +37,8 @@ for lang in "Node.js" "Python" "Java" ".NET" "Go" "Rust" "PHP" "Ruby"; do
   check "the maturity matrix has a log-line row for $lang" \
     'awk "/^## Trace IDs in log lines/{on=1;next} on&&/^## /{exit} on" $M | grep -q "^| $lang  *|"'
 done
-check "only the five languages the e2e runs are marked as checked" \
-  '[ "$(awk "/^## Trace IDs in log lines/{on=1;next} on&&/^## /{exit} on" $M | grep -c "| yes |$")" = 5 ] && [ "$(awk "/^## Trace IDs in log lines/{on=1;next} on&&/^## /{exit} on" $M | grep -c "| not checked |$")" = 3 ]'
+check "only the six languages the e2e runs are marked as checked" \
+  '[ "$(awk "/^## Trace IDs in log lines/{on=1;next} on&&/^## /{exit} on" $M | grep -c "| yes |$")" = 6 ] && [ "$(awk "/^## Trace IDs in log lines/{on=1;next} on&&/^## /{exit} on" $M | grep -c "| not checked |$")" = 2 ]'
 
 # Java: the generator prints, never writes. The e2e reads these two lines out of the generator, so
 # each must appear exactly once, and the agent pin the e2e downloads must be the generator's.
@@ -76,6 +76,18 @@ check "go: the generator's template carries the same WithTraceIDs code as the go
 check "go: the generator prints exactly one WithTraceIDs line, and the e2e reads that line" \
   '[ "$(grep -cxF "$GOLINE" $GEN)" = 1 ] && grep -qF "$GOLINE" tests/e2e/log-trace-ids.sh'
 check "go: the bootstrap still never sets the default logger itself" '! grep -q "slog.SetDefault" $GO'
+
+RB=tests/snapshots/instrument/ruby/tracing.rb
+rbmod() { awk '/^# Trace IDs in the application.s own log lines/{on=1} on{print} on&&/^end$/{exit}' "$1"; }
+check "ruby: the golden defines OtelAsCode.add_trace_ids and trace_log_tag" \
+  'rbmod $RB | grep -qF "def self.add_trace_ids(logger)" && rbmod $RB | grep -qF "def self.trace_log_tag"'
+check "ruby: the generator's template carries the same module as the golden" \
+  '[ -n "$(rbmod $RB)" ] && [ "$(rbmod $RB)" = "$(rbmod $GEN)" ]'
+check "ruby: the tag is nil outside a valid span, and JSON lines get nothing appended" \
+  'rbmod $RB | grep -qF "if span.valid?" && rbmod $RB | grep -qF "start_with?('"'"'{'"'"', '"'"'['"'"')"'
+check "ruby: the golden is valid Ruby" 'ruby -c $RB >/dev/null'
+check "ruby: the generator prints each line exactly once, and the e2e reads both" \
+  '[ "$(grep -cxF "  OtelAsCode.add_trace_ids(logger)" $GEN)" = 1 ] && [ "$(grep -cxF "  config.log_tags = [:request_id, ->(_req) { OtelAsCode.trace_log_tag }]" $GEN)" = 1 ] && grep -qF "rb_line '"'"'OtelAsCode.add_trace_ids(logger)'"'"'" tests/e2e/log-trace-ids.sh && grep -qF "rb_line '"'"'config.log_tags = [:request_id, ->(_req) { OtelAsCode.trace_log_tag }]'"'"'" tests/e2e/log-trace-ids.sh'
 
 check ".NET: OpenTelemetry.cs and the csproj are still the only .NET goldens (no appsettings)" \
   '[ "$(git ls-files tests/snapshots/instrument/dotnet | grep -v /.gitignore$ | xargs -n1 basename | tr "\n" " ")" = "OpenTelemetry.cs checkout-api.csproj " ]'

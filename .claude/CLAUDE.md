@@ -120,8 +120,12 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
   scopes on (it must name the formatter: without `FormatterName` the console logger ignores
   `FormatterOptions`). Go has no MDC, so `tracing.go` carries `WithTraceIDs`, a `slog.Handler`
   wrapper that adds `trace_id`/`span_id` from the record's context, and the summary prints the
-  line that wraps the app's own handler with it (never `slog.SetDefault` from the bootstrap). The
-  e2e reads those printed lines out of `instrumentation-gen.md`. Never replace the user's logger or format: the
+  line that wraps the app's own handler with it (never `slog.SetDefault` from the bootstrap).
+  Ruby's bootstrap carries an `OtelAsCode` module: `add_trace_ids(logger)` wraps a stdlib
+  `Logger`'s formatter (JSON lines untouched), and Rails gets a printed `config.log_tags` lambda
+  calling `trace_log_tag` (nil outside a span, so no zero IDs; a lambda because
+  `config/application.rb` loads before the initializer). The e2e reads those printed lines out of
+  `instrumentation-gen.md`; Rust and PHP are still "not checked". Never replace the user's logger or format: the
   upstream `set_logging_format` was measured to make the app's later `basicConfig(format=...)` a
   no-op, so it is not used. Text is never appended to a custom formatter class or to a line that
   is already JSON (it was caught breaking a structlog-style formatter in a probe). The block is
