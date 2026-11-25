@@ -2053,6 +2053,32 @@ OpenTelemetry::SDK.configure do |c|
   })
   c.use_all
 end
+
+# Trace IDs in the application's own log lines (#279). Nothing here runs unless the application
+# calls it; /otel-instrument prints the one line that does. Both read the current span, so a line
+# written outside a span (or while no endpoint is set, when no spans are made) is left as it was.
+module OtelAsCode
+  # A plain Ruby Logger (Sinatra, Rack, scripts): wraps the logger's own formatter so a line
+  # written inside a span ends with " trace_id=... span_id=...". The format, level and output
+  # stay the logger's; a JSON line is left untouched, since appended text would break it.
+  def self.add_trace_ids(logger)
+    inner = logger.formatter || ::Logger::Formatter.new
+    logger.formatter = proc do |severity, time, progname, msg|
+      line = inner.call(severity, time, progname, msg)
+      ids = trace_log_tag
+      next line if ids.nil? || line.lstrip.start_with?('{', '[')
+
+      line.end_with?("\n") ? "#{line.chomp} #{ids}\n" : "#{line} #{ids}"
+    end
+    logger
+  end
+
+  # Rails: the tag config.log_tags asks for once per request; nil outside a span, which Rails drops.
+  def self.trace_log_tag
+    span = OpenTelemetry::Trace.current_span.context
+    "trace_id=#{span.hex_trace_id} span_id=#{span.hex_span_id}" if span.valid?
+  end
+end
 ```
 For the Rails path, write the IDENTICAL content above (only the header comment's first line
 changes to `# config/initializers/opentelemetry.rb — ...`) to `config/initializers/opentelemetry.rb`
@@ -2086,6 +2112,34 @@ require_relative 'tracing'   # AFTER require 'sinatra' (or your framework) — i
                               # patches already-loaded classes, so this must load LAST, not first
 ```
 
+### Trace IDs in log lines (Ruby, printed, never written)
+
+The bootstrap's `OtelAsCode` module does the work, for both paths, and does nothing until the
+app calls it; print the line for the path, and never write it into the user's code
+(`tests/e2e/log-trace-ids.sh` reads both lines from here and runs them):
+
+- **Non-Rails** (Sinatra, Rack, scripts) logging through a stdlib `Logger`: after the app builds
+  its logger, with the app's own variable in place of `logger`:
+  ```ruby
+  OtelAsCode.add_trace_ids(logger)
+  ```
+  It wraps that logger's formatter: a line written inside a span ends with
+  ` trace_id=... span_id=...`; its format, level and output stay the app's; a JSON line is left
+  as it was (appended text would break it).
+- **Rails**, in `config/application.rb` (or an environment file). If `config.log_tags` is
+  already set, add the lambda to the app's own list instead of replacing it:
+  ```ruby
+  config.log_tags = [:request_id, ->(_req) { OtelAsCode.trace_log_tag }]
+  ```
+  The tag is computed once per request, inside the Rack server span, and prints as
+  `[trace_id=... span_id=...]` before every line of that request. The lambda is what makes
+  this work from `config/application.rb`, which loads before the initializer that defines
+  `OtelAsCode`: it is only called at request time.
+
+Not covered: `puts`/`warn`, loggers other than the stdlib `Logger` and Rails' (semantic_logger,
+lograge), and every line while `OTEL_EXPORTER_OTLP_ENDPOINT` is unset (the bootstrap then makes
+no spans, so the line is unchanged and the Rails tag is dropped).
+
 ### After writing (Ruby) — return this summary
 
 ```
@@ -2100,6 +2154,9 @@ Wire it up:
      `require 'sinatra'`), not before:
        require_relative 'tracing'
   3. bundle exec ruby -e "require_relative './tracing'"   (verifies the wiring loads cleanly)
+  4. Optional: trace IDs in your own log lines. Your logging setup was not changed; add
+       <the line from "Trace IDs in log lines (Ruby)" for this path: OtelAsCode.add_trace_ids
+       around the app's Logger, or the config.log_tags lambda for Rails>
 
 Still required:
   - Deployment: OTEL_EXPORTER_OTLP_ENDPOINT is unset by default, so the deployed service exports

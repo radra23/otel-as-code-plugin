@@ -1,7 +1,7 @@
 {
   "name": "otel-as-code",
   "displayName": "OTel as Code",
-  "version": "0.25.9",
+  "version": "0.25.10",
   "description": "OpenTelemetry set up for you: tracing, metrics and logs added to your services, checked as they are written and proven in CI. See your first trace on a free local dashboard today, then generate dashboards and alerts for Grafana, Datadog, New Relic or Dash0.",
   "author": {
     "name": "radra.gwent",
