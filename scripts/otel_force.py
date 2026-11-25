@@ -18,28 +18,56 @@ This script is now the one writer.
          sentinel left behind by an aborted command stops authorising anything once it passes.
   clear  removes it; not an error when there is none.
 
-Exit 0 on success. Exit 1 with a one-line reason and nothing written when `set` has no paths.
+Exit 0 on success. Exit 1 with a one-line reason and nothing written when `set` has no paths,
+when a path is not one clean line (a line break would smuggle in a second entry), or when
+.claude is a symlink. A symlink planted at .claude/.otel-force itself is replaced, never
+followed: the file is written beside it and renamed over it.
 """
 import argparse
 import os
 import sys
+import tempfile
 import time
 
 SENTINEL = os.path.join(".claude", ".otel-force")
 DEFAULT_TTL = 600
 
 
+def refuse(reason):
+    print(f"otel_force.py: {reason}; nothing written", file=sys.stderr)
+    return 1
+
+
 def set_sentinel(paths, ttl):
     if not paths:
-        print("otel_force.py: set needs at least one path; nothing written", file=sys.stderr)
-        return 1
+        return refuse("set needs at least one path")
+    entries = [os.path.abspath(p) for p in paths]
+    for entry in entries:
+        # The matcher reads the file back with splitlines() and strip(), so an entry must come
+        # back as exactly itself: a path with a line break (or any character splitlines() splits
+        # on) would otherwise turn into a second entry and authorise a path nobody listed.
+        if entry != entry.strip() or entry.splitlines() != [entry]:
+            return refuse(f"refusing a path that is not one clean line: {entry!r}")
+    directory = os.path.dirname(SENTINEL)
+    if os.path.islink(directory):
+        return refuse(f"{directory} is a symlink; the sentinel is only written to a real directory")
     expires = int(time.time()) + ttl
     stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(expires))
-    lines = [f"# otel-as-code --force sentinel; expires {expires} ({stamp})"]
-    lines += [os.path.abspath(p) for p in paths]
-    os.makedirs(os.path.dirname(SENTINEL), exist_ok=True)
-    with open(SENTINEL, "w", encoding="utf-8") as fh:
-        fh.write("\n".join(lines) + "\n")
+    lines = [f"# otel-as-code --force sentinel; expires {expires} ({stamp})"] + entries
+    os.makedirs(directory, exist_ok=True)
+    # Written to a new file beside it, then renamed over it: a rename replaces a symlink planted
+    # at .claude/.otel-force instead of following it to the file it points at.
+    fd, tmp = tempfile.mkstemp(prefix=".otel-force.", dir=directory)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(lines) + "\n")
+        os.replace(tmp, SENTINEL)
+    except BaseException:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
     print(f"otel_force.py: --force allows {len(paths)} path(s) until {stamp}")
     return 0
 

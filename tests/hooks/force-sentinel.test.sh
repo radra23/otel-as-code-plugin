@@ -45,6 +45,25 @@ check "set with no path exits 1 and writes nothing new" '[ "$rc" = 1 ] && grep -
 python3 "$FORCE" clear; python3 "$FORCE" clear; rc=$?
 check "clear removes the sentinel, and clearing again is not an error" '[ "$rc" = 0 ] && [ ! -e .claude/.otel-force ]'
 
+# A planted symlink at the sentinel is replaced, never followed to the file it points at.
+printf 'precious\n' > "$T/precious"
+python3 "$FORCE" clear; ln -s "$T/precious" .claude/.otel-force
+python3 "$FORCE" set infra/main.tf >/dev/null
+check "set replaces a symlink planted at .claude/.otel-force instead of writing through it" \
+  '[ "$(cat "$T/precious")" = precious ] && [ ! -L .claude/.otel-force ] && grep -qF "$HERE/infra/main.tf" .claude/.otel-force'
+mkdir -p "$T/elsewhere" sub; ln -s "$T/elsewhere" sub/.claude
+out=$(cd sub && python3 "$FORCE" set x 2>&1); rc=$?
+check "set refuses a symlinked .claude directory and writes nothing there" \
+  '[ "$rc" = 1 ] && grep -q "is a symlink" <<<"$out" && [ -z "$(ls -A "$T/elsewhere")" ]'
+# A path that does not come back from the matcher's splitlines() as exactly itself is refused,
+# so a line break cannot smuggle in a second entry.
+before=$(cat .claude/.otel-force)
+for bad in "$(printf 'infra/a.tf\n/etc/passwd')" "$(printf 'infra/a.tf\r/etc/passwd')" "infra/a.tf$(printf '\342\200\250')/etc/passwd" "infra/a.tf "; do
+  out=$(python3 "$FORCE" set "$bad" 2>&1); rc=$?
+  check "set refuses a path that is not one clean line ($(printf '%q' "$bad"))" \
+    '[ "$rc" = 1 ] && grep -q "not one clean line" <<<"$out" && [ "$(cat .claude/.otel-force)" = "$before" ]'
+done
+
 M="$ROOT/hooks/otel-force-match.py"
 touch infra/main.tf
 python3 "$FORCE" set infra/main.tf >/dev/null
