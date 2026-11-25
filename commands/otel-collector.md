@@ -127,11 +127,12 @@ If the file already exists:
   Never print a header VALUE that is not an `${env:…}` reference; if the existing file holds a
   literal secret there, say "a literal credential" and recommend moving it to an env var.
 - **With `--force` otherwise:** print "↻ Overwriting `<filename>` (--force)." and authorize the
-  write-guard by writing the absolute path of the file to the `.claude/.otel-force` sentinel. A
-  slash-command flag cannot set an env var for the hook process, so the sentinel is how `--force`
-  reaches it. **Truncate the sentinel as you write it** (`>`, not `>>`) so a leftover from an
-  aborted earlier run can never grant a standing overwrite authorization:
-  `mkdir -p .claude && printf '%s\n' "<abs path of the otelcol-*.yaml>" > .claude/.otel-force`
+  write-guard by listing the file in the `.claude/.otel-force` sentinel. A slash-command flag
+  cannot set an env var for the hook process, so the sentinel is how `--force` reaches it. Write
+  it only through the script (never by hand, #255), which replaces any earlier sentinel and stamps
+  a 10-minute expiry, so a leftover from an aborted earlier run can never grant a standing
+  overwrite authorization:
+  `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/otel_force.py" set "<abs path of the otelcol-*.yaml>"`
 
 ## Step 4: Generate the config
 
@@ -207,7 +208,7 @@ value an `${env:VAR}` reference. Emit no `headers:` block when there are none. S
 ## Step 5: Write the file and validate
 
 Write the YAML config file. If a `.claude/.otel-force` sentinel was created in Step 3, remove it
-now (`rm -f .claude/.otel-force`) so the write-guard is restored for subsequent writes.
+now (`python3 "${CLAUDE_PLUGIN_ROOT}/scripts/otel_force.py" clear`) so the write-guard is restored for subsequent writes.
 
 Run: `otelcol-contrib validate --config=<filename>` (if otelcol-contrib is on PATH).
 If not on PATH, print: "otelcol-contrib not found on PATH. To validate manually:

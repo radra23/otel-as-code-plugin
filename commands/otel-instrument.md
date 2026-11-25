@@ -217,11 +217,11 @@ untouched" and stay out of everything below):
   "The regenerated bootstrap no longer turns on <names>. Run /otel-enrich --clients to put that
   back; the packages are still in requirements.txt."
 - Authorize the overwrite for the `write-guard` hook by listing the paths the subagent will
-  overwrite in the `.claude/.otel-force` sentinel, one per line. **Truncate the sentinel as you
-  write it** (`>`, not `>>`) so a leftover from an aborted earlier run can never grant a standing
-  overwrite authorization — write all paths in a single `printf`:
+  overwrite in the `.claude/.otel-force` sentinel, through the one script that writes it (never by
+  hand, #255). It replaces any earlier sentinel and stamps a 10-minute expiry, so a leftover from
+  an aborted earlier run can never grant a standing overwrite authorization:
   ```
-  mkdir -p .claude && printf '%s\n' "<path 1>" "<path 2>" > .claude/.otel-force
+  python3 "${CLAUDE_PLUGIN_ROOT}/scripts/otel_force.py" set "<path 1>" "<path 2>"
   ```
   A slash-command flag cannot set an env var for the hook process, so this file is how
   `--force` reaches the guard. List the GENERATED paths resolved in this step, exactly as found, and only those. Absolute
@@ -293,7 +293,7 @@ generated. Rewrite only `existingOtel` for that service; leave every other field
 user-owned field, untouched.
 
 If a `.claude/.otel-force` sentinel was created in Step 4, remove it now so the write-guard
-is restored for subsequent writes: `rm -f .claude/.otel-force`.
+is restored for subsequent writes: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/otel_force.py" clear`.
 
 ## Step 7: Verify the bootstrap actually loads and identity is correct
 
