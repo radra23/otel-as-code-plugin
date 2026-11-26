@@ -205,7 +205,9 @@ cp -R "$SRC/tests/log-trace-ids/java-spring" "$WORK/java/spring"
 cd "$WORK/java"
 curl -fsSLo agent.jar \
   "https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v${AGENT_VERSION}/opentelemetry-javaagent.jar"
-(cd app && mvn -q -B package dependency:copy-dependencies -DskipTests)
+# The plugin by its coordinates, not the dependency: prefix: resolving a prefix reads Central's
+# group metadata, and CI was served a copy without it (No plugin found for prefix 'dependency').
+(cd app && mvn -q -B package org.apache.maven.plugins:maven-dependency-plugin:3.11.0:copy-dependencies -DskipTests)
 (cd spring && mvn -q -B package -DskipTests)
 
 OWN='APP %level %logger | %msg'
