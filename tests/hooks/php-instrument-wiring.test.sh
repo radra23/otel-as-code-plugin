@@ -7,6 +7,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 source tests/hooks/lib/supported-languages.sh   # supported_languages, read by meaning (#259)
+source tests/hooks/lib/maturity-status.sh      # maturity_status, read by table row (#259)
 source tests/hooks/lib/step8-languages.sh       # step8_languages, read by meaning (#259)
 pass=0; fail=0
 check() { if eval "$2"; then echo "PASS: $1"; pass=$((pass+1)); else echo "FAIL: $1"; fail=$((fail+1)); fi; }
@@ -55,9 +56,9 @@ check "otel-instrument documents composer validate + php -l as the PHP smoke che
 # --- maturity ---
 check "language-maturity: runtime php is in scope" \
   'grep -qE "^\| \`php\` +\| yes" "$MAT"'
-check "language-maturity: PHP row says all three core signals are Stable, no --experimental needed" \
-  'grep -qF "### PHP" "$MAT" \
-   && grep -qF "PHP needs no \`--experimental\` gating for any of the three core signals" "$MAT"'
+check "language-maturity: PHP's table has all three core signals Stable, so none needs --experimental" \
+  '[ "$(maturity_status PHP Traces "$MAT")" = Stable ] && [ "$(maturity_status PHP Metrics "$MAT")" = Stable ] \
+   && [ "$(maturity_status PHP Logs "$MAT")" = Stable ]'
 check "language-maturity: PHP's own SDK-default gotcha (otlp+localhost, not a no-op) is documented" \
   'grep -qiF "otlp enabled + localhost" "$MAT"'
 check "PHP removed from the v1-additions stub table (it is a real section now)" \

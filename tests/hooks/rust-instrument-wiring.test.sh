@@ -7,6 +7,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 source tests/hooks/lib/supported-languages.sh   # supported_languages, read by meaning (#259)
+source tests/hooks/lib/maturity-status.sh      # maturity_status, read by table row (#259)
 pass=0; fail=0
 check() { if eval "$2"; then echo "PASS: $1"; pass=$((pass+1)); else echo "FAIL: $1"; fail=$((fail+1)); fi; }
 
@@ -43,7 +44,8 @@ check "otel-instrument documents cargo check as the Rust smoke check" \
 
 # --- maturity ---
 check "language-maturity: runtime rust is in scope, traces Beta, metrics/logs Stable" \
-  'grep -qE "^\| \`rust\` +\| yes" "$MAT" && grep -qE "^\| Traces +\| Beta +\| \`opentelemetry_sdk\`" "$MAT"'
+  'grep -qE "^\| \`rust\` +\| yes" "$MAT" && [ "$(maturity_status Rust Traces "$MAT")" = Beta ] \
+   && [ "$(maturity_status Rust Metrics "$MAT")" = Stable ] && [ "$(maturity_status Rust Logs "$MAT")" = Stable ]'
 
 # --- generator ---
 check "instrumentation-gen defines the Rust section" \
