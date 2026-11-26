@@ -130,9 +130,14 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
   `return` so the printed `pushProcessor` line never calls an undefined function; Laravel's line
   goes in `AppServiceProvider::boot()` on `Log::getLogger()`. The e2e reads those printed lines out of
   `instrumentation-gen.md` (PHP in a plain script and a new Laravel app, the span started by the
-  fixture because the auto packages need the PECL extension); Rust is still "not checked".
+  fixture because the auto packages need the PECL extension). Rust's bootstrap installs the
+  stdout `fmt` layer itself, so it carries the formatter and nothing is printed:
+  `.event_format(WithTraceIds)` renders the stock line (with the writer's colour setting, since
+  a buffered `Writer` has none) and appends the IDs from `opentelemetry::Context::current()`,
+  which the tower and actix-web layers and `tracing-opentelemetry` all set; the e2e compares
+  each line with a build that drops that one line (actix-web is read from source, not run).
 - PHP's bootstrap is loaded by `composer.json`'s `autoload.files` (#351), the one thing that runs
-  it: PHP runs no file by name, and until 0.25.19 nothing loaded `telemetry.php`, so a PHP
+  it: PHP runs no file by name, and until 0.25.20 nothing loaded `telemetry.php`, so a PHP
   service exported nothing and said nothing. It loads once (a constant guard) and stands down
   with an `error_log` line, never `trigger_error` (that lands in the response body), when the SDK
   is not installed, because every entry point now runs it. The summary's first step is
