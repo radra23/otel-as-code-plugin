@@ -67,8 +67,8 @@ Each line links to the test that backs it.
   to overwrite a generated file by accident, one flags outdated attribute names.
   [Hook tests](https://github.com/radra23/otel-as-code-plugin/blob/main/tests/hooks/), run on Linux and Windows on [every push](https://github.com/radra23/otel-as-code-plugin/blob/main/.github/workflows/ci.yml).
 - **The setup is run for real.** For Node.js, Python, Java, .NET, Go, Ruby and Rust (axum), CI
-  puts the generated setup into a real app and checks the traces arrive. PHP and Rust (actix-web)
-  are not run yet. [Results per language](#what-is-proven-and-how) · [tests](https://github.com/radra23/otel-as-code-plugin/blob/main/tests/e2e/)
+  puts the generated setup into a real app and checks the traces arrive. PHP's setup is run only
+  in the log-line test, and Rust (actix-web) not yet. [Results per language](#what-is-proven-and-how) · [tests](https://github.com/radra23/otel-as-code-plugin/blob/main/tests/e2e/)
 - **The first trace on your machine.** CI starts the same local dashboard and reads the trace
   back. [Test](https://github.com/radra23/otel-as-code-plugin/blob/main/tests/e2e/local-stack.sh)
 - **Your functions and business numbers.** CI adds them to real apps, runs the dashboard's own
@@ -292,7 +292,7 @@ on the spans, on every push (see [`tests/e2e/`](https://github.com/radra23/otel-
 | Ruby | `opentelemetry-instrumentation-all` | Stable | Development (`--experimental`) | Development (`--experimental`) | HTTP :4318 | ✅ |
 | Rust (axum) | generated `src/telemetry.rs` | Beta | Stable | Stable | HTTP :4318 | ✅ |
 | Rust (actix-web) | same `src/telemetry.rs` | Beta | Stable | Stable | HTTP :4318 | not yet: static and hook tests only |
-| PHP | generated `telemetry.php` | Stable | Stable | Stable | HTTP :4318 | not yet: static and hook tests only, never run against a PHP runtime |
+| PHP | generated `telemetry.php` | Stable | Stable | Stable | HTTP :4318 | partly: the log-line test runs it under PHP 8.4 with Monolog and in a new Laravel app, and its spans reach a test receiver over OTLP/HTTP; no run through a Collector, no metrics check, and the framework packages (they need the PECL extension) are not run |
 
 **Terraform, live per backend.** Every module is `terraform validate`d on every push. The
 [`tf-live-validate`](https://github.com/radra23/otel-as-code-plugin/blob/main/.github/workflows/tf-live-validate.yml) job goes further: it applies each
