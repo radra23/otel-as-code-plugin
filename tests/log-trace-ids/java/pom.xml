@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- tests/e2e/log-trace-ids.sh (#279): one service that logs a line through JUL, Logback and
      Log4j 2 while a request is handled, run under the pinned Java agent. Built with
-     `mvn package` plus maven-dependency-plugin's copy-dependencies, run with target/classes:target/dependency/*. -->
+     `mvn package dependency:copy-dependencies`, run with target/classes:target/dependency/*. -->
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
