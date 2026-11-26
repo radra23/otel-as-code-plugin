@@ -605,37 +605,35 @@ line=$(pline noendpoint-ids.log "php pay line")
 [[ "$line" == *"app.INFO: php pay line orderId=o1 [] []" ]] \
   && ok "php: with no endpoint there are no spans, so the line is unchanged (documented)" || bad "php (no endpoint): '$line'"
 
-# The Monolog logs add-on (printed when monolog/monolog is a dependency): its php block and its
-# pushHandler line, both read out of the generator, put where they say, and nothing adjusted. A
-# record logged in the span must reach the sink carrying that span's trace ID and the bootstrap's
-# service.name; a record outside it, no trace ID; with no endpoint, nothing.
+# The Monolog logs bridge (printed when monolog/monolog is a dependency, outside Laravel): its
+# pushHandler line, read out of the generator, against the golden as it is (the bootstrap registers
+# the logger provider). A record logged in the span must reach the sink carrying that span's trace
+# ID and the bootstrap's service.name; a record outside it, no trace ID; with no endpoint, nothing.
 PHP_BRIDGE_PIN=$(sed -n 's/.*`"\(open-telemetry\/opentelemetry-logger-monolog\)": "\([^"]*\)"`.*/\1:\2/p' "$GEN" | head -1)
 PHP_HANDLER='$logger->pushHandler(new \OpenTelemetry\Contrib\Logs\Monolog\Handler(\OpenTelemetry\API\Globals::loggerProvider(), \Monolog\Logger::DEBUG));'
-[ "$(grep -cxF "$PHP_HANDLER" "$GEN")" = 1 ] || bad "php (logs add-on): the generator does not print the pushHandler line exactly once"
-[ -n "$PHP_BRIDGE_PIN" ] || bad "php (logs add-on): no opentelemetry-logger-monolog pin in the generator"
+[ "$(grep -cxF "$PHP_HANDLER" "$GEN")" = 1 ] || bad "php (logs bridge): the generator does not print the pushHandler line exactly once"
+[ -n "$PHP_BRIDGE_PIN" ] || bad "php (logs bridge): no opentelemetry-logger-monolog pin in the generator"
 mkdir -p "$WORK/php-bridge"
 cd "$WORK/php-bridge"
 printf '{"name":"otel-as-code/log-trace-ids-php-bridge","type":"project","require":{"monolog/monolog":"^3.0"},"config":{"allow-plugins":{"php-http/discovery":true}}}\n' > composer.json
 php_composer composer.json telemetry.php
-composer require -q --no-interaction "$PHP_BRIDGE_PIN" || bad "php (logs add-on): composer require $PHP_BRIDGE_PIN failed"
-python3 "$SRC/tests/e2e/php_monolog_addon.py" "$GEN" "$SRC/tests/snapshots/instrument/php/telemetry.php" telemetry.php \
-  || bad "php (logs add-on): the add-on could not be placed in the golden"
-php -l telemetry.php > /dev/null || bad "php (logs add-on): telemetry.php with the add-on does not parse"
+composer require -q --no-interaction "$PHP_BRIDGE_PIN" || bad "php (logs bridge): composer require $PHP_BRIDGE_PIN failed"
+cp "$SRC/tests/snapshots/instrument/php/telemetry.php" telemetry.php
 php_place "$SRC/tests/log-trace-ids/php/app.php" app-bridge.php "$PHP_HANDLER"
 php_run bridge app-bridge.php
 logs() { "$WORK/venv/bin/python" "$SRC/tests/e2e/otlp_logs.py" "$1"; }
 pay_tid=$("$WORK/venv/bin/python" "$SRC/tests/e2e/otlp_spans.py" sink-bridge | awk '$7" "$8=="POST /pay"{print $1}')
 rec=$(logs sink-bridge | grep -F " php pay line orderId=o1" || true)
 [[ -n "$pay_tid" && "$rec" == "$pay_tid "*" billing-api php pay line orderId=o1" ]] \
-  && ok "php (logs add-on): the record logged in the span is exported with that span's trace ID and the bootstrap's service.name" \
-  || { bad "php (logs add-on): unexpected records"; logs sink-bridge; tail -5 bridge.log; }
+  && ok "php (logs bridge): the record logged in the span is exported with that span's trace ID and the bootstrap's service.name" \
+  || { bad "php (logs bridge): unexpected records"; logs sink-bridge; tail -5 bridge.log; }
 rec=$(logs sink-bridge | grep -F " php line outside a span" || true)
 [[ "$rec" == "- - billing-api php line outside a span" ]] \
-  && ok "php (logs add-on): a record logged outside a span is exported with no trace ID" || bad "php (logs add-on, outside a span): '$rec'"
+  && ok "php (logs bridge): a record logged outside a span is exported with no trace ID" || bad "php (logs bridge, outside a span): '$rec'"
 php_run bridge-noendpoint app-bridge.php OTEL_EXPORTER_OTLP_ENDPOINT=
 [ -z "$(ls sink-bridge-noendpoint)" ] && [ -n "$(pline bridge-noendpoint.log "php pay line")" ] \
-  && ok "php (logs add-on): with no endpoint the app runs and nothing is exported" \
-  || { bad "php (logs add-on, no endpoint)"; ls sink-bridge-noendpoint; tail -5 bridge-noendpoint.log; }
+  && ok "php (logs bridge): with no endpoint the app runs and nothing is exported" \
+  || { bad "php (logs bridge, no endpoint)"; ls sink-bridge-noendpoint; tail -5 bridge-noendpoint.log; }
 
 # Laravel: a new app (it has a bootstrap/ dir and a composer.lock), the golden at
 # bootstrap/telemetry.php, composer.json edited as generated, then the summary's first step.
@@ -725,6 +723,13 @@ if php -m | grep -qx opentelemetry; then
   [[ "$line" == *"\"trace_id\":\"$(spans sink-laravel-auto | awk -v p="$root_id" '$2==p{print $1}')\""* ]] \
     && ok "php (laravel auto): the request's log line carries that request span's trace ID" \
     || { bad "php (laravel auto): the line's trace ID is not the request span's"; echo "  line: $line"; }
+  # The package's LogWatcher exports every Laravel log line through the global logger provider:
+  # the bootstrap's, so the record has its resource, and once (no Monolog bridge is generated).
+  lrec=$(logs sink-laravel-auto | grep -F " laravel order line id=7" || true)
+  root_tid=$(spans sink-laravel-auto | awk -v p="$root_id" '$2==p{print $1}')
+  [ "$(grep -c . <<<"$lrec")" = 1 ] && [[ -n "$root_tid" && "$lrec" == "$root_tid "*" billing-api laravel order line id=7" ]] \
+    && ok "php (laravel auto): the package exports the request's log line once, through the bootstrap's logger provider (billing-api, the request's trace ID)" \
+    || { bad "php (laravel auto): expected one exported record for the line, from billing-api in trace $root_tid"; logs sink-laravel-auto; }
   rm -rf sink-default-port; mkdir sink-default-port
   python3 "$SRC/tests/e2e/otlp-http-sink.py" sink-default-port 4318 > sink-default-port.log 2>&1 & PORT_SINK=$!
   lv_request laravel-auto-noendpoint OTEL_PHP_AUTOLOAD_ENABLED=true OTEL_EXPORTER_OTLP_ENDPOINT=

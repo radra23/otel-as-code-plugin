@@ -2621,10 +2621,11 @@ relationship Ruby's `framework: rails` has to its bootstrap content.
 **Signals.** Traces, Metrics, and Logs are all Stable (see `language-maturity`) — **no
 `--experimental` gating needed for any of the three**, unlike every other language this plugin
 generates for. Logs are NOT automatic the way Go's structured logger or .NET's `ILogger` is:
-PHP has no ambient logging API, and Monolog is the de facto standard, so the logs bridge
-(`open-telemetry/opentelemetry-logger-monolog`) is generated only when Monolog is detected in
-the service (`monolog/monolog` in `composer.json`) — printed as a separate add-on line, the same
-gating shape .NET's EF Core detection already uses for its DB instrumentation block.
+PHP has no ambient logging API. The bootstrap always registers a logger provider (when an
+endpoint is set); what feeds it is per framework: Laravel's package exports Laravel's log lines
+itself, and for any other service with Monolog (`monolog/monolog` in `composer.json`) the logs
+bridge (`open-telemetry/opentelemetry-logger-monolog`) is added and its handler line printed,
+the same gating shape .NET's EF Core detection already uses for its DB instrumentation block.
 
 **Export: OTLP/HTTP protobuf on `:4318`, not gRPC.** Verified from the official zero-code
 getting-started example (`OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf`) and from
@@ -2764,19 +2765,32 @@ $meterProvider = MeterProvider::builder()
     ->addReader(new ExportingReader(new MetricExporter($meterTransport)))
     ->build();
 
+// Logs: registered even when nothing here writes to it, because something else may. The Laravel
+// package exports every Laravel log line through the global logger provider, and without this one
+// the SDK's own (OTEL_PHP_AUTOLOAD_ENABLED) would send them with no service.version or
+// deployment.environment.name, and as unknown_service unless OTEL_SERVICE_NAME is set.
+$logsTransport = (new OtlpHttpTransportFactory())->create($endpoint . '/v1/logs', 'application/x-protobuf');
+$loggerProvider = LoggerProvider::builder()
+    ->setResource($resource)
+    ->addLogRecordProcessor(new BatchLogRecordProcessor(new LogsExporter($logsTransport), Clock::getDefault()))
+    ->build();
+
 // The propagator too (OTEL_PROPAGATORS, default tracecontext,baggage, as the SDK reads it): without
 // one the API's is a no-op, and a framework package (Symfony's reads it whether or not
 // OTEL_PHP_AUTOLOAD_ENABLED is set) would start a new trace for every incoming request.
-\OpenTelemetry\API\Globals::registerInitializer(function ($configurator) use ($tracerProvider, $meterProvider) {
+\OpenTelemetry\API\Globals::registerInitializer(function ($configurator) use ($tracerProvider, $meterProvider, $loggerProvider) {
     return $configurator
         ->withTracerProvider($tracerProvider)
         ->withMeterProvider($meterProvider)
+        ->withLoggerProvider($loggerProvider)
         ->withPropagator((new PropagatorFactory())->create());
 });
 
-register_shutdown_function(static function () use ($tracerProvider, $meterProvider): void {
+register_shutdown_function(static function () use ($tracerProvider, $meterProvider, $loggerProvider): void {
     $tracerProvider->shutdown();
     $meterProvider->shutdown();
+    // The batch log processor holds records until it is flushed: without this, none leave.
+    $loggerProvider->shutdown();
 });
 ```
 
@@ -2791,32 +2805,27 @@ runs the metrics export. It is written against `open-telemetry/sdk` 1.17.0 / `op
 run — verify with `composer validate` + `php -l` (syntax only) plus a real `php artisan serve` /
 request cycle before trusting this in production, and flag that gap in the summary.
 
-### Logs (Monolog bridge — printed as a separate add-on, only when Monolog is detected)
+### Logs (Monolog bridge — a printed line, only when Monolog is detected and the framework is not Laravel)
 
-```php
-// Add to telemetry.php, after the metrics block above, ONLY if monolog/monolog is a dependency:
-$logsTransport = (new OtlpHttpTransportFactory())->create($endpoint . '/v1/logs', 'application/x-protobuf');
-$loggerProvider = LoggerProvider::builder()
-    ->setResource($resource)
-    ->addLogRecordProcessor(new BatchLogRecordProcessor(new LogsExporter($logsTransport), Clock::getDefault()))
-    ->build();
-\OpenTelemetry\API\Globals::registerInitializer(fn ($c) => $c->withLoggerProvider($loggerProvider));
-register_shutdown_function(static fn () => $loggerProvider->shutdown());
-```
+The bootstrap above already registers the logger provider (its resource, OTLP/HTTP, flushed at
+shutdown). What reaches it depends on the framework:
+- **Laravel:** nothing to add. `opentelemetry-auto-laravel`'s `LogWatcher` exports every Laravel
+  log line through the global logger provider once the package is active. Never print the
+  Monolog handler line or add `opentelemetry-logger-monolog` for Laravel: with both, every line
+  is exported twice. Say in the summary that Laravel's log lines are exported by the package.
+- **Any other framework with Monolog** (Symfony, Slim, scripts): add
+  `"open-telemetry/opentelemetry-logger-monolog": "^1.3.1"` and print the line below.
+
 Printed wiring line (paste wherever the app constructs its Monolog `Logger`):
 ```php
 $logger->pushHandler(new \OpenTelemetry\Contrib\Logs\Monolog\Handler(\OpenTelemetry\API\Globals::loggerProvider(), \Monolog\Logger::DEBUG));
 ```
-Each part of this was caught by running it (`tests/e2e/log-trace-ids.sh`, which reads both blocks
-out of this file). The block has no `use` lines: the template's `use` block already imports
-`LogsExporter`, `LoggerProvider` and `BatchLogRecordProcessor`, and importing one again is a
-fatal error. `LoggerProvider::builder()`, because the constructor's second argument is an
-instrumentation-scope factory, not the resource. The shutdown function, because the batch
-processor holds the records until it is flushed and the bootstrap's own shutdown flushes only
-traces and metrics: without it no record left the process. And the printed line names
-`Globals::loggerProvider()`, never `$loggerProvider`: Composer includes `telemetry.php` inside a
-function, so its variables are not visible to the app. With no endpoint the block is never
-reached, `Globals::loggerProvider()` is the no-op provider, and the handler drops every record.
+The line names `Globals::loggerProvider()`, never `$loggerProvider`: Composer includes
+`telemetry.php` inside a function, so its variables are not visible to the app. With no endpoint
+no provider is registered, `Globals::loggerProvider()` is the no-op one, and the handler drops
+every record. `tests/e2e/log-trace-ids.sh` runs this line, and Laravel's package, against the
+golden (until 0.25.24 the provider was a separate add-on block, which had never run and failed
+four ways; see the changelog).
 
 ### Trace IDs in log lines (PHP, printed, never written)
 
@@ -2891,8 +2900,9 @@ plugin the Symfony skeleton allows, adds them itself in the middle of the update
 `bump-after-update` then finds `composer.json` newer than the lock and the step exits 2 with the
 packages installed (measured on a new `symfony/skeleton`). Neither auto package is
 added for `other`/`unknown` — the framework-agnostic path has no matching auto-package; the
-bootstrap above is the entire instrumentation. If `monolog/monolog` is already a dependency, also
-add `"open-telemetry/opentelemetry-logger-monolog": "^1.3.1"`. Versions are the verified-current
+bootstrap above is the entire instrumentation. If `monolog/monolog` is already a dependency and
+the framework is not `laravel`, also add `"open-telemetry/opentelemetry-logger-monolog": "^1.3.1"`
+(for Laravel the package already exports the log lines, and the bridge would send each twice). Versions are the verified-current
 stable line (checked at implementation time against Packagist) — bump to latest at generation
 time rather than copying verbatim if newer releases exist, same discipline as every other
 language's pins.
@@ -2971,8 +2981,15 @@ Still required:
     name too, e.g. GET app_order_show for /orders/{id} (measured; the package does this, not the
     semantic conventions' path template). Dashboards that group by http.route show route names:
     give every route an explicit, stable name.">
-  - <Monolog bridge bullet, only if monolog/monolog was NOT detected: "Logs were not generated —
-    this service has no Monolog dependency to bridge. Add monolog/monolog and re-run to add logs.">
+  - <Logs bullet, one of:
+    framework: laravel: "Laravel's own log lines are exported as OpenTelemetry logs by
+    opentelemetry-auto-laravel once it is active (the extension and OTEL_PHP_AUTOLOAD_ENABLED
+    above); nothing to add.";
+    Monolog detected, any other framework: "To export your Monolog records as logs, push the
+    bridge's handler where the app builds its logger:" followed by the printed wiring line from
+    "Logs (Monolog bridge)";
+    no Monolog: "Logs were not generated — this service has no Monolog dependency to bridge.
+    Add monolog/monolog and re-run to add logs.">
 ```
 
 ## After writing files (Node.js / Python)

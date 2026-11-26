@@ -292,7 +292,7 @@ on the spans, on every push (see [`tests/e2e/`](tests/e2e/)).
 | Ruby | `opentelemetry-instrumentation-all` | Stable | Development (`--experimental`) | Development (`--experimental`) | HTTP :4318 | ✅ |
 | Rust (axum) | generated `src/telemetry.rs` | Beta | Stable | Stable | HTTP :4318 | ✅ |
 | Rust (actix-web) | same `src/telemetry.rs` | Beta | Stable | Stable | HTTP :4318 | not yet: static and hook tests only |
-| PHP | generated `telemetry.php` | Stable | Stable | Stable | HTTP :4318 | partly: the log-line test runs it under PHP 8.4 with Monolog and in a new Laravel app, and its spans reach a test receiver over OTLP/HTTP; with the PECL extension, Laravel's own request span is exported through it; the Monolog logs add-on, as printed, exports a record carrying its span's trace ID; in a new Symfony app, Symfony's request span continues an incoming trace; no run through a Collector and no metrics check |
+| PHP | generated `telemetry.php` | Stable | Stable | Stable | HTTP :4318 | partly: the log-line test runs it under PHP 8.4 with Monolog and in a new Laravel app, and its spans reach a test receiver over OTLP/HTTP; with the PECL extension, Laravel's own request span is exported through it; its logger provider exports a Monolog record (through the printed bridge line) and Laravel's own log line, each once, carrying its span's trace ID; in a new Symfony app, Symfony's request span continues an incoming trace; no run through a Collector and no metrics check |
 
 **Terraform, live per backend.** Every module is `terraform validate`d on every push. The
 [`tf-live-validate`](.github/workflows/tf-live-validate.yml) job goes further: it applies each
