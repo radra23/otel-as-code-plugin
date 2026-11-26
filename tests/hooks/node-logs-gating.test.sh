@@ -8,6 +8,7 @@ set -uo pipefail
 cd "$(dirname "$0")/../.."
 pass=0; fail=0
 DIR="tests/snapshots/instrument/nodejs"
+source tests/hooks/lib/maturity-status.sh   # maturity_status, read by table row (#259)
 
 # Run only the exporter-selection block (hasEndpoint .. the protocol default) so no OTel package is
 # needed; print the three exporter vars it settles on.
@@ -46,7 +47,7 @@ if grep -qF "const LOGS_ON_BY_DEFAULT = false;" agents/instrumentation-gen.md \
 else
   echo "FAIL: generator template lost the LOGS_ON_BY_DEFAULT gate"; fail=$((fail+1))
 fi
-if grep -qE "^\| Logs +\| Development +\| \`@opentelemetry/sdk-logs\`" skills/language-maturity/SKILL.md; then
+if [ "$(maturity_status Node.js Logs)" = Development ]; then
   echo "PASS: language-maturity lists Node.js logs as Development"; pass=$((pass+1))
 else
   echo "FAIL: language-maturity Node.js logs row is not Development"; fail=$((fail+1))
