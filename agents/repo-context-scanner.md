@@ -39,7 +39,10 @@ frameworks, existing OTel coverage, and team ownership. You do NOT write any fil
   which fields you overwrite and which you carry over; this file says why, and the exceptions. If
   it was not provided or cannot be read, carry over from `priorContext` every field you did not
   freshly read from disk, and add a `derived.notes` entry saying the ownership file was
-  unavailable. Never drop a field because you could not tell who owns it.
+  unavailable. Never drop a field because you could not tell who owns it. Its `types` give each
+  field's JSON type: a confidence is a number (`0.9`, not `"0.9"`), a flag a boolean, and an
+  unknown value `null`. `scripts/write_context.py` refuses a document with a wrong type, so the
+  command would have to scan again.
 - `priorContext` (optional) — the existing `.claude/otel-context.json`, when one is on disk.
   You MUST merge it per the ownership contract below. **A re-scan that returns
   `businessAttrs: []` and `confirmedAt: null` over a cache that had them destroys work the
