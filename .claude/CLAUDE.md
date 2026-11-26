@@ -74,7 +74,10 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
   tests on real apps and requires them to FAIL, naming the gap, when instrumentation is removed.
   FastAPI 0.142.0 and later makes its own request span whenever a provider is registered, so
   "the request's span is missing" cannot prove the bootstrap is loaded there: the Python test
-  checks the import.
+  checks the import. What the test cannot assert is reported, not guessed: `enrich.py handwritten`
+  (#320) lists every `getMeter`/`getTracer` (`get_meter`/`get_tracer`) call outside an enrich
+  block and outside the plugin's generated files, and `/otel-test` puts each in `notCovered`;
+  it never becomes an expected span or metric, since its name, kind and unit are not confirmed.
 - FastAPI's own telemetry (#300): from 0.142.0 FastAPI reports request spans and
   `http.server.request.duration` under the stable names, and switches itself off when the
   instrumentation package's middleware is in its stack, so there are never two server spans. The
