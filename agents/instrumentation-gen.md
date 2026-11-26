@@ -2672,6 +2672,7 @@ use OpenTelemetry\Contrib\Otlp\MetricExporter;
 use OpenTelemetry\Contrib\Otlp\LogsExporter;
 use OpenTelemetry\SDK\Common\Attribute\Attributes;
 use OpenTelemetry\SDK\Logs\LoggerProvider;
+use OpenTelemetry\SDK\Logs\Processor\BatchLogRecordProcessor;
 use OpenTelemetry\SDK\Metrics\MeterProvider;
 use OpenTelemetry\SDK\Metrics\MetricReader\ExportingReader;
 use OpenTelemetry\SDK\Resource\ResourceInfo;
@@ -2787,21 +2788,28 @@ request cycle before trusting this in production, and flag that gap in the summa
 
 ```php
 // Add to telemetry.php, after the metrics block above, ONLY if monolog/monolog is a dependency:
-use OpenTelemetry\Contrib\Otlp\LogsExporter;
-use OpenTelemetry\SDK\Logs\LoggerProvider;
-use OpenTelemetry\SDK\Logs\Processor\BatchLogRecordProcessor;
-
 $logsTransport = (new OtlpHttpTransportFactory())->create($endpoint . '/v1/logs', 'application/x-protobuf');
-$loggerProvider = new LoggerProvider(
-    new BatchLogRecordProcessor(new LogsExporter($logsTransport), Clock::getDefault()),
-    $resource,
-);
+$loggerProvider = LoggerProvider::builder()
+    ->setResource($resource)
+    ->addLogRecordProcessor(new BatchLogRecordProcessor(new LogsExporter($logsTransport), Clock::getDefault()))
+    ->build();
 \OpenTelemetry\API\Globals::registerInitializer(fn ($c) => $c->withLoggerProvider($loggerProvider));
+register_shutdown_function(static fn () => $loggerProvider->shutdown());
 ```
 Printed wiring line (paste wherever the app constructs its Monolog `Logger`):
 ```php
-$logger->pushHandler(new \OpenTelemetry\Contrib\Logs\Monolog\Handler($loggerProvider, \Monolog\Logger::DEBUG));
+$logger->pushHandler(new \OpenTelemetry\Contrib\Logs\Monolog\Handler(\OpenTelemetry\API\Globals::loggerProvider(), \Monolog\Logger::DEBUG));
 ```
+Each part of this was caught by running it (`tests/e2e/log-trace-ids.sh`, which reads both blocks
+out of this file). The block has no `use` lines: the template's `use` block already imports
+`LogsExporter`, `LoggerProvider` and `BatchLogRecordProcessor`, and importing one again is a
+fatal error. `LoggerProvider::builder()`, because the constructor's second argument is an
+instrumentation-scope factory, not the resource. The shutdown function, because the batch
+processor holds the records until it is flushed and the bootstrap's own shutdown flushes only
+traces and metrics: without it no record left the process. And the printed line names
+`Globals::loggerProvider()`, never `$loggerProvider`: Composer includes `telemetry.php` inside a
+function, so its variables are not visible to the app. With no endpoint the block is never
+reached, `Globals::loggerProvider()` is the no-op provider, and the handler drops every record.
 
 ### Trace IDs in log lines (PHP, printed, never written)
 
