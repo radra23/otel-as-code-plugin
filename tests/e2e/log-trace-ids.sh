@@ -679,7 +679,9 @@ if php -m | grep -qx opentelemetry; then
     && ok "php (laravel auto): without OTEL_PHP_AUTOLOAD_ENABLED the package adds no span (only the route's own)" \
     || { bad "php (laravel auto, variable unset): unexpected spans"; spans sink-laravel-noauto; }
   lv_request laravel-auto OTEL_PHP_AUTOLOAD_ENABLED=true OTEL_LOG_LEVEL=debug
-  roots=$(spans sink-laravel-auto | awk -v s="$LV_SCOPE." '$4=="SERVER" && $3=="-" && index($6, s)==1')
+  # Only the /orders/7 request: wait_up's GET /health is traced too now, and Laravel's own
+  # session queries add CLIENT spans under each request.
+  roots=$(spans sink-laravel-auto | awk -v s="$LV_SCOPE." '$4=="SERVER" && $3=="-" && index($6, s)==1 && $7" "$8=="GET /orders/{id}"')
   root_id=$(awk '{print $2}' <<<"$roots")
   [ "$(grep -c . <<<"$roots")" = 1 ] && [ "$(awk '{print $5}' <<<"$roots")" = billing-api ] \
     && ok "php (laravel auto): with the variable, Laravel's request span is exported once, by the bootstrap's provider (service.name billing-api)" \
