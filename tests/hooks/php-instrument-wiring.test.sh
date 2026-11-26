@@ -87,12 +87,22 @@ check "golden telemetry.php keeps the exporter guard, provider registration, and
    && grep -q "withTracerProvider" "$GOLD/telemetry.php" \
    && grep -q "register_shutdown_function" "$GOLD/telemetry.php"'
 
-# The composer.json require block, verbatim from the generator (the core + laravel pins).
-awk '/^```json$/{f++; if(f==2){g=1;next}} g&&/^```$/{exit} g' "$GEN" > "$tmp/core_block.json"
+# The composer.json block, verbatim from the generator: the first json fence under its heading
+# (counting json fences from the top of the file found a Node.js snippet, and the package check
+# below then passed on an empty list).
+awk '/^### Update `composer.json`/{h=1} h&&/^```json$/{g=1;next} g&&/^```$/{exit} g' "$GEN" > "$tmp/core_block.json"
 check "golden composer.json carries every core OTel package the generator's json block lists" \
   'core_pkgs=$(grep -oE "\"open-telemetry/[a-z-]+\":" "$tmp/core_block.json" | tr -d "\":"); \
    missing=0; for p in $core_pkgs; do grep -qF "\"$p\":" "$GOLD/composer.json" || missing=1; done; \
-   [ -s "$tmp/core_block.json" ] && [ "$missing" -eq 0 ]'
+   [ -n "$core_pkgs" ] && [ "$missing" -eq 0 ]'
+check "the generator's composer block loads the bootstrap through autoload.files, and the golden does too (#351)" \
+  'python3 -c "import json,sys; b=json.load(open(sys.argv[1])); g=json.load(open(sys.argv[2])); sys.exit(0 if b[\"autoload\"][\"files\"]==[\"telemetry.php\"] and \"telemetry.php\" in g[\"autoload\"][\"files\"] and g[\"autoload\"].get(\"psr-4\") else 1)" "$tmp/core_block.json" "$GOLD/composer.json"'
+check "the golden bootstrap loads once and stands down without the SDK, before any provider is built" \
+  'g=$GOLD/telemetry.php; a=$(grep -n "^if (defined(.OTEL_AS_CODE_BOOTSTRAPPED.)) {" $g | cut -d: -f1); b=$(grep -n "^if (!class_exists(TracerProvider::class)) {" $g | cut -d: -f1); c=$(grep -n "^\$tracerProvider = new TracerProvider(" $g | cut -d: -f1); [ -n "$a" ] && [ -n "$b" ] && [ -n "$c" ] && [ "$a" -lt "$b" ] && [ "$b" -lt "$c" ] && ! grep -q "trigger_error(" $g'
+check "the summary's first step is composer update for the added packages, not a bare composer install" \
+  'grep -qF "  1. composer update '"'"'open-telemetry/*'"'"'" "$GEN" && ! grep -qx "  1. composer install" "$GEN"'
+check "/otel-uninstrument warns that autoload.files still names the deleted bootstrap" \
+  'grep -qF "\`autoload.files\` still names it" commands/otel-uninstrument.md && grep -qF "composer dump-autoload" commands/otel-uninstrument.md'
 check "golden composer.json (Laravel) also carries the laravel auto-instrumentation package" \
   'grep -qF "open-telemetry/opentelemetry-auto-laravel" "$GOLD/composer.json"'
 
