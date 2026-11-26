@@ -351,9 +351,9 @@ that `composer.json`'s `autoload.files` names the bootstrap (`telemetry.php`, or
 `bootstrap/telemetry.php`): without it nothing loads the file and the service exports nothing,
 silently (#351). (Runtime span emission is the e2e follow-up, as with every other language. PHP's
 is only partly proven: `tests/e2e/log-trace-ids.sh` loads the golden through `autoload.files` in a
-plain script and a Laravel app and receives its spans, and runs `opentelemetry-auto-laravel` with
-the PECL extension, but nothing runs the Symfony package or a Collector; say so plainly rather
-than implying more.)
+plain script and a Laravel app and receives its spans, and runs `opentelemetry-auto-laravel` and
+`opentelemetry-auto-symfony` with the PECL extension, but nothing runs a Collector or checks
+metrics; say so plainly rather than implying more.)
 
 Run the smoke only if the SDK dependencies are installed (`node_modules` / the venv present). If
 they are not, DO NOT fail — print the exact command for the user to run after `npm install` /

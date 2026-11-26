@@ -5,7 +5,7 @@ usage: otlp_spans.py <sink dir>
 
 Reads every <sink dir>/trace-*.bin (an ExportTraceServiceRequest, as otlp-http-sink.py and
 otlp-grpc-sink.py write them) and prints, per span:
-  <trace id> <span id> <parent span id or -> <kind> <service.name> <scope name> <name>
+  <trace id> <span id> <parent span id or -> <kind> <service.name> <scope name> <name> [http.route=<value>]
 Needs opentelemetry-proto (the Python OTLP exporter already depends on it).
 """
 import glob
@@ -22,5 +22,6 @@ for path in sorted(glob.glob(sys.argv[1] + "/trace-*.bin")):
         for ss in rs.scope_spans:
             for s in ss.spans:
                 kind = Span.SpanKind.Name(s.kind).removeprefix("SPAN_KIND_")
+                route = next((f"http.route={a.value.string_value}" for a in s.attributes if a.key == "http.route"), None)
                 print(s.trace_id.hex(), s.span_id.hex(), s.parent_span_id.hex() or "-", kind, service,
-                      ss.scope.name or "-", s.name)
+                      ss.scope.name or "-", s.name, *([route] if route else []))
