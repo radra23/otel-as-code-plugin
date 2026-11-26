@@ -455,8 +455,9 @@ jobs:
       - name: FastAPI behind the golden bootstrap, both sides of 0.142.0
         run: bash tests/e2e/fastapi-native.sh
 
-  # Trace IDs in log lines (#279): the golden Python and Node.js bootstraps in real apps; the ID in
-  # a request's log line must equal its span's, and the app's own log format must survive.
+  # Trace IDs in log lines (#279): the golden bootstraps (Python, Node.js, Java, .NET, Go, Ruby,
+  # PHP) in real apps; the ID in a request's log line must equal its span's, and the app's own log
+  # format must survive.
   log-trace-ids:
     name: Log lines carry their request's trace ID
     runs-on: ubuntu-latest
@@ -489,7 +490,12 @@ jobs:
         with:
           ruby-version: '3.4'
 
-      - name: Trace IDs in Python, Node.js, Java, .NET, Go and Ruby log lines, end to end
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          tools: composer
+
+      - name: Trace IDs in Python, Node.js, Java, .NET, Go, Ruby and PHP log lines, end to end
         run: bash tests/e2e/log-trace-ids.sh
 
   # /otel-test: the generated telemetry tests, run on real apps. Each must pass on the instrumented

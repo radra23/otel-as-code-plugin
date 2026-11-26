@@ -27,6 +27,11 @@
 #     prints: add_trace_ids around a Sinatra app's own stdlib Logger (plain and default formats
 #     get the IDs, JSON is left alone), and a config.log_tags lambda for Rails' tagged logger.
 #     Exported over OTLP/HTTP to otlp-http-sink.py (tests/log-trace-ids/ruby). Needs Ruby 3.4+.
+#   - PHP: the golden telemetry.php's otel_as_code_trace_ids Monolog processor, installed by the
+#     two lines /otel-instrument prints: pushProcessor on a script's own Monolog logger (default
+#     line and JSON get the IDs; a format without %extra% is left as it was), and the
+#     AppServiceProvider line in a new Laravel app. Exported over OTLP/HTTP to otlp-http-sink.py
+#     (tests/log-trace-ids/php). Needs PHP 8.3+ and Composer.
 # The span's trace ID is read from the exporter's output, the log line from the app's output, and
 # the two must be equal: a trace ID that is merely present would not prove the link. No Docker.
 # Needs Node 18+, Python 3.9+ with venv, JDK 17+ and Maven, the .NET 10 SDK, and network for npm,
@@ -499,6 +504,123 @@ line=$(rline rails-noendpoint "rails order line id=7")
   && ok "ruby (rails): with no endpoint the tag is dropped, never printed as zeros (documented)" \
   || bad "ruby (rails, no endpoint): '$line'"
 unset BUNDLE_GEMFILE BUNDLE_PATH
+
+# ---------------------------------------------------------------- PHP
+# The golden telemetry.php's otel_as_code_trace_ids processor does the work; the two lines that
+# install it are read out of the generator. A plain Monolog script, and a new Laravel app with the
+# line in AppServiceProvider::boot(). Both take the golden composer.json's OpenTelemetry pins and
+# export over OTLP/HTTP to otlp-http-sink.py; each starts the server span itself, since the
+# framework auto-instrumentation needs the PECL extension.
+php_line() { [ "$(grep -cxF "  $1" "$GEN")" = 1 ] && printf '%s' "$1"; }
+PHP_LOGGER=$(php_line "\$logger->pushProcessor('otel_as_code_trace_ids');") \
+  || bad "php: the generator does not print the Monolog line exactly once"
+PHP_LARAVEL=$(php_line "\\Illuminate\\Support\\Facades\\Log::getLogger()->pushProcessor('otel_as_code_trace_ids');") \
+  || bad "php: the generator does not print the Laravel line exactly once"
+PHP_PINS=$(python3 -c 'import json,sys; r=json.load(open(sys.argv[1]))["require"]; print(" ".join(f"{k}:{v}" for k,v in r.items() if k.startswith("open-telemetry/") and "auto-" not in k))' \
+  "$SRC/tests/snapshots/instrument/php/composer.json")
+mkdir -p "$WORK/php"
+cd "$WORK/php"
+printf '{"name":"otel-as-code/log-trace-ids-php","type":"project","config":{"allow-plugins":{"php-http/discovery":true}}}\n' > composer.json
+# shellcheck disable=SC2086  # one argument per pin
+composer require -q --no-interaction monolog/monolog:^3.0 $PHP_PINS || bad "php: composer require failed"
+cp "$SRC/tests/snapshots/instrument/php/telemetry.php" telemetry.php
+php_place() {   # php_place <src> <out> <line or empty>: the line after "// log setup" replaced
+  python3 - "$1" "$2" "$3" <<'PY'
+import sys
+src, dst, line = sys.argv[1:4]
+lines = open(src, encoding="utf-8").read().split("\n")
+i = lines.index("// log setup")
+if line:
+    lines[i + 1] = line
+open(dst, "w", encoding="utf-8").write("\n".join(lines))
+PY
+}
+php_place "$SRC/tests/log-trace-ids/php/app.php" app-own.php ""
+php_place "$SRC/tests/log-trace-ids/php/app.php" app-ids.php "$PHP_LOGGER"
+php_run() {   # php_run <name> <script> [VAR=value ...]: one run, spans to sink-<name>, lines to <name>.log
+  local n="$1" script="$2"; shift 2
+  rm -rf "sink-$n"; mkdir "sink-$n"
+  python3 "$SRC/tests/e2e/otlp-http-sink.py" "sink-$n" 48420 > "sink-$n.log" 2>&1 & SINK=$!
+  sleep 0.5
+  env OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:48420 "$@" php "$script" > "$n.log" 2>&1 || bad "php ($n): the script failed"
+  sleep 0.5; kill "$SINK" 2>/dev/null || true; wait "$SINK" 2>/dev/null || true
+}
+pline() { { grep -F "$2" "$1" || true; } | head -1; }
+ptid() { sed -n 's/.*"trace_id":"\([0-9a-f]\{32\}\)","span_id":"[0-9a-f]\{16\}".*/\1/p' <<<"$1"; }
+
+php_run default-own app-own.php
+line=$(pline default-own.log "php pay line")
+[[ "$line" == *"app.INFO: php pay line orderId=o1 [] []" ]] \
+  && ok "php: without the printed line Monolog's own line is left as it was" || bad "php (own): '$line'"
+php_run default-ids app-ids.php
+line=$(pline default-ids.log "php pay line")
+[[ "$line" =~ "app.INFO: php pay line orderId=o1 [] {\"trace_id\":\""[0-9a-f]{32}"\",\"span_id\":\""[0-9a-f]{16}"\"}"$ ]] \
+  && exported sink-default-ids "$(ptid "$line")" \
+  && ok "php: with the printed pushProcessor line Monolog's default line ends with the exported span's trace ID" \
+  || { bad "php (pushProcessor): unexpected line"; echo "  line: $line"; }
+line=$(pline default-ids.log "php line outside a span")
+[[ "$line" == *"app.INFO: php line outside a span [] []" ]] \
+  && ok "php: a line logged outside a span gets nothing" || bad "php (outside a span): '$line'"
+php_run json-ids app-ids.php LOG_MODE=json
+line=$(pline json-ids.log "php pay line")
+jtid=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["extra"].get("trace_id", ""))' "$line" 2>/dev/null || true)
+exported sink-json-ids "$jtid" \
+  && ok "php: with JsonFormatter the record has the exported span's trace ID as a field" \
+  || { bad "php (json): unexpected record"; echo "  record: $line"; }
+php_run own-format-ids app-ids.php LOG_MODE=own
+line=$(pline own-format-ids.log "php pay line")
+[ "$line" = "APP INFO | php pay line orderId=o1" ] \
+  && ok "php: a line format without %extra% is left as it was, IDs not printed (documented)" || bad "php (own format): '$line'"
+php_run noendpoint-ids app-ids.php OTEL_EXPORTER_OTLP_ENDPOINT=
+line=$(pline noendpoint-ids.log "php pay line")
+[[ "$line" == *"app.INFO: php pay line orderId=o1 [] []" ]] \
+  && ok "php: with no endpoint there are no spans, so the line is unchanged (documented)" || bad "php (no endpoint): '$line'"
+
+# Laravel: a new app, the golden loaded from bootstrap/app.php, the printed line in boot().
+cd "$WORK"
+composer create-project -q --no-interaction --prefer-dist 'laravel/laravel:^13.0' laravel || bad "php (laravel): create-project failed"
+cd "$WORK/laravel"
+# shellcheck disable=SC2086
+composer require -q --no-interaction $PHP_PINS || bad "php (laravel): composer require failed"
+cp "$SRC/tests/snapshots/instrument/php/telemetry.php" bootstrap/telemetry.php
+cat "$SRC/tests/log-trace-ids/php/laravel_routes.php" >> routes/web.php
+python3 - bootstrap/app.php <<'PY'
+import sys
+p = sys.argv[1]; s = open(p, encoding="utf-8").read()
+open(p, "w", encoding="utf-8").write(s.replace("<?php\n", "<?php\n\nrequire __DIR__ . '/telemetry.php';\n", 1))
+PY
+lv_request() {   # lv_request <name> [VAR=value ...]: one GET /orders/7, the line from laravel.log
+  local n="$1"; shift
+  rm -rf "sink-$n" storage/logs/laravel.log; mkdir "sink-$n"
+  python3 "$SRC/tests/e2e/otlp-http-sink.py" "sink-$n" 48421 > "sink-$n.log" 2>&1 & SINK=$!
+  sleep 0.5
+  env OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:48421 "$@" php -S 127.0.0.1:8972 -t public public/index.php > "$n.server.log" 2>&1 & APP_PID=$!
+  wait_up http://127.0.0.1:8972/health || { bad "php (laravel $n): the app did not start"; tail -20 "$n.server.log"; }
+  curl -fsS -o /dev/null http://127.0.0.1:8972/orders/7
+  sleep 0.5; stop; kill "$SINK" 2>/dev/null || true; wait "$SINK" 2>/dev/null || true
+  cp storage/logs/laravel.log "$n.log" 2>/dev/null || : > "$n.log"
+}
+lv_request laravel-own
+line=$(pline laravel-own.log "laravel order line id=7")
+[[ "$line" == *"local.INFO: laravel order line id=7"* && "$line" != *trace_id* ]] \
+  && ok "php (laravel): without the line Laravel's own log line is left as it was" || bad "php (laravel, own): '$line'"
+python3 - app/Providers/AppServiceProvider.php "$PHP_LARAVEL" <<'PY'
+import sys
+p, line = sys.argv[1:3]; s = open(p, encoding="utf-8").read()
+old = "    public function boot(): void\n    {\n"
+assert s.count(old) == 1, "AppServiceProvider::boot() not found"
+open(p, "w", encoding="utf-8").write(s.replace(old, old + "        " + line + "\n", 1))
+PY
+lv_request laravel-ids
+line=$(pline laravel-ids.log "laravel order line id=7")
+[[ "$line" =~ "local.INFO: laravel order line id=7".*"{\"trace_id\":\""[0-9a-f]{32}"\",\"span_id\":\""[0-9a-f]{16}"\"}"$ ]] \
+  && exported sink-laravel-ids "$(ptid "$line")" \
+  && ok "php (laravel): the printed AppServiceProvider line puts the exported span's trace ID on the request's line" \
+  || { bad "php (laravel): unexpected line"; echo "  line: $line"; }
+lv_request laravel-noendpoint OTEL_EXPORTER_OTLP_ENDPOINT=
+line=$(pline laravel-noendpoint.log "laravel order line id=7")
+[[ -n "$line" && "$line" != *trace_id* ]] \
+  && ok "php (laravel): with no endpoint the line has no IDs (documented)" || bad "php (laravel, no endpoint): '$line'"
 
 [ "$failed" -eq 0 ] && echo "LOG TRACE IDS E2E PASS: log lines carry their request's trace ID, and the app's logging setup is untouched" \
   || { echo "LOG TRACE IDS E2E FAIL"; exit 1; }

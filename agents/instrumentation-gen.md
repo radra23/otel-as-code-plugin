@@ -276,7 +276,12 @@ summary if they ever differ.
   the application's log format.
 - **Node.js:** nothing to add. `getNodeAutoInstrumentations()` already loads the pino, winston
   and bunyan instrumentations, which add the IDs. Never disable them, and never patch `console`.
-- **Every other language:** generate nothing for this.
+- **Go, Ruby and PHP:** the bootstrap carries a helper (`WithTraceIDs`, `OtelAsCode`,
+  `otel_as_code_trace_ids`) that does nothing until the app uses it; the summary prints the line
+  that uses it, from that language's "Trace IDs in log lines" section, and never writes it.
+- **Java and .NET:** nothing generated; the summary prints the pattern token or `appsettings.json`
+  fragment from that language's section.
+- **Rust:** generate nothing for this.
 
 Say it in the summary in one line, naming what is not covered: for Python, "log lines from
 `logging` carry the trace ID (not `print()`)"; for Node.js, "pino, winston and bunyan lines carry
@@ -2633,6 +2638,26 @@ $resource = ResourceInfoFactory::defaultResource()->merge(ResourceInfo::create(A
     'deployment.environment.name' => getenv('DEPLOYMENT_ENV') ?: '<DEPLOYMENT_ENV>',
 ])));
 
+// Trace IDs in the app's own log lines (#279): a Monolog processor that adds trace_id and span_id
+// to a record's `extra` while a span is active, and nothing outside one. Monolog's LineFormatter
+// prints `extra` where its format says %extra% (the default format ends with it) and
+// JsonFormatter writes it as fields; the app's handlers and format are not touched. Installed by
+// the line /otel-instrument prints, where the app builds its Monolog logger:
+//   $logger->pushProcessor('otel_as_code_trace_ids');
+// Defined before the endpoint check, so that line also works with no endpoint (no spans, nothing
+// added).
+if (!function_exists('otel_as_code_trace_ids')) {
+    function otel_as_code_trace_ids(\Monolog\LogRecord $record): \Monolog\LogRecord
+    {
+        $span = \OpenTelemetry\API\Trace\Span::getCurrent()->getContext();
+        if ($span->isValid()) {
+            $record->extra['trace_id'] = $span->getTraceId();
+            $record->extra['span_id'] = $span->getSpanId();
+        }
+        return $record;
+    }
+}
+
 if (!$endpointSet) {
     // No provider is registered; OpenTelemetry's own global no-op API answers every call.
     return;
@@ -2665,9 +2690,10 @@ register_shutdown_function(static function () use ($tracerProvider, $meterProvid
 });
 ```
 
-**This file is NOT independently runtime-verified** — unlike Rust's `telemetry.rs` and Ruby's
-`tracing.rb`, there is no PHP toolchain available to execute this and confirm the wiring compiles
-and exports correctly. It is written against `open-telemetry/sdk` 1.17.0 / `open-telemetry/sem-conv`
+**This file is only partly runtime-verified.** `tests/e2e/log-trace-ids.sh` runs the golden
+under PHP with Monolog and a plain script and a new Laravel app, and requires the spans to arrive
+over OTLP/HTTP; nothing runs the metrics export or the framework auto-instrumentation packages
+(they need the PECL extension). It is written against `open-telemetry/sdk` 1.17.0 / `open-telemetry/sem-conv`
 1.45.0's documented public API and the verified source behavior cited above, not against a live
 run — verify with `composer validate` + `php -l` (syntax only) plus a real `php artisan serve` /
 request cycle before trusting this in production, and flag that gap in the summary.
@@ -2691,6 +2717,33 @@ Printed wiring line (paste wherever the app constructs its Monolog `Logger`):
 ```php
 $logger->pushHandler(new \OpenTelemetry\Contrib\Logs\Monolog\Handler($loggerProvider, \Monolog\Logger::DEBUG));
 ```
+
+### Trace IDs in log lines (PHP, printed, never written)
+
+The bootstrap's `otel_as_code_trace_ids` Monolog processor does the work and does nothing until
+the app installs it; print the line for the path, and never write it into the user's code
+(`tests/e2e/log-trace-ids.sh` reads both lines from here and runs them):
+
+- **Monolog directly** (Symfony's Monolog bundle, Slim, scripts): after the app builds its
+  `Logger`, with the app's own variable in place of `$logger`:
+  ```php
+  $logger->pushProcessor('otel_as_code_trace_ids');
+  ```
+- **Laravel**, in `App\Providers\AppServiceProvider::boot()`:
+  ```php
+  \Illuminate\Support\Facades\Log::getLogger()->pushProcessor('otel_as_code_trace_ids');
+  ```
+  That is the default channel's Monolog logger (`stack` in a new app); a line logged through
+  another channel (`Log::channel('x')`) gets nothing.
+
+A record logged inside a span gets `trace_id` and `span_id` in its `extra`: Monolog's default line
+format ends with them as a small JSON object, and `JsonFormatter` writes them as fields. The
+handlers, level and format stay the app's.
+
+Not covered: a line format that leaves out `%extra%` (the IDs are on the record but not printed;
+say so, never change the format), `error_log`/`echo`, loggers other than Monolog, and every line
+while `OTEL_EXPORTER_OTLP_ENDPOINT` is unset (the bootstrap then makes no spans, so the line is
+unchanged).
 
 ### Update `composer.json`: append the marked block to `require`
 
@@ -2742,6 +2795,9 @@ Wire it up:
   3. composer validate && php -l telemetry.php   (syntax check only — no PHP runtime available
      in this environment to prove the wiring actually works; verify with a real request cycle
      before trusting this in production)
+  4. Optional: trace IDs in your own log lines. Your logging setup was not changed; add
+       <the line from "Trace IDs in log lines (PHP)" for this path: pushProcessor on the app's
+       Monolog logger, or the AppServiceProvider line for Laravel>
 
 Still required:
   - Deployment: OTEL_EXPORTER_OTLP_ENDPOINT is unset by default, so the deployed service exports

@@ -37,8 +37,8 @@ for lang in "Node.js" "Python" "Java" ".NET" "Go" "Rust" "PHP" "Ruby"; do
   check "the maturity matrix has a log-line row for $lang" \
     'awk "/^## Trace IDs in log lines/{on=1;next} on&&/^## /{exit} on" $M | grep -q "^| $lang  *|"'
 done
-check "only the six languages the e2e runs are marked as checked" \
-  '[ "$(awk "/^## Trace IDs in log lines/{on=1;next} on&&/^## /{exit} on" $M | grep -c "| yes |$")" = 6 ] && [ "$(awk "/^## Trace IDs in log lines/{on=1;next} on&&/^## /{exit} on" $M | grep -c "| not checked |$")" = 2 ]'
+check "only the seven languages the e2e runs are marked as checked" \
+  '[ "$(awk "/^## Trace IDs in log lines/{on=1;next} on&&/^## /{exit} on" $M | grep -c "| yes |$")" = 7 ] && [ "$(awk "/^## Trace IDs in log lines/{on=1;next} on&&/^## /{exit} on" $M | grep -c "| not checked |$")" = 1 ]'
 
 # Java: the generator prints, never writes. The e2e reads these two lines out of the generator, so
 # each must appear exactly once, and the agent pin the e2e downloads must be the generator's.
@@ -88,6 +88,19 @@ check "ruby: the tag is nil outside a valid span, and JSON lines get nothing app
 check "ruby: the golden is valid Ruby" 'ruby -c $RB >/dev/null'
 check "ruby: the generator prints each line exactly once, and the e2e reads both" \
   '[ "$(grep -cxF "  OtelAsCode.add_trace_ids(logger)" $GEN)" = 1 ] && [ "$(grep -cxF "  config.log_tags = [:request_id, ->(_req) { OtelAsCode.trace_log_tag }]" $GEN)" = 1 ] && grep -qF "rb_line '"'"'OtelAsCode.add_trace_ids(logger)'"'"'" tests/e2e/log-trace-ids.sh && grep -qF "rb_line '"'"'config.log_tags = [:request_id, ->(_req) { OtelAsCode.trace_log_tag }]'"'"'" tests/e2e/log-trace-ids.sh'
+
+PHPG=tests/snapshots/instrument/php/telemetry.php
+phpfn() { awk '/^\/\/ Trace IDs in the app.s own log lines/{on=1} on{print} on&&/^}$/{exit}' "$1"; }
+check "php: the golden defines otel_as_code_trace_ids before the no-endpoint return" \
+  'phpfn $PHPG | grep -qF "function otel_as_code_trace_ids(\Monolog\LogRecord \$record): \Monolog\LogRecord" && [ "$(grep -n "function otel_as_code_trace_ids" $PHPG | cut -d: -f1)" -lt "$(grep -n "^if (!\$endpointSet) {" $PHPG | cut -d: -f1)" ]'
+check "php: the generator's template carries the same processor as the golden" \
+  '[ -n "$(phpfn $PHPG)" ] && [ "$(phpfn $PHPG)" = "$(phpfn $GEN)" ]'
+check "php: it adds IDs only for a valid span context, to extra, never to the message or context" \
+  'phpfn $PHPG | grep -qF "if (\$span->isValid())" && [ "$(phpfn $PHPG | grep -c "\$record->extra\[")" = 2 ] && ! phpfn $PHPG | grep -q "\$record->\(message\|context\)"'
+check "php: the golden is valid PHP" '! command -v php >/dev/null || php -l $PHPG >/dev/null'
+check "php: the generator prints each line exactly once, and the e2e reads both" \
+  '[ "$(grep -cxF "  \$logger->pushProcessor('"'"'otel_as_code_trace_ids'"'"');" $GEN)" = 1 ] && [ "$(grep -cxF "  \Illuminate\Support\Facades\Log::getLogger()->pushProcessor('"'"'otel_as_code_trace_ids'"'"');" $GEN)" = 1 ] && grep -qF "php_line \"\\\$logger->pushProcessor(" tests/e2e/log-trace-ids.sh && grep -qF "php_line \"\\\\Illuminate" tests/e2e/log-trace-ids.sh'
+check "php: the bootstrap never pushes the processor itself" '! grep -q "pushProcessor(" <(grep -v "^//" $PHPG)'
 
 check ".NET: OpenTelemetry.cs and the csproj are still the only .NET goldens (no appsettings)" \
   '[ "$(git ls-files tests/snapshots/instrument/dotnet | grep -v /.gitignore$ | xargs -n1 basename | tr "\n" " ")" = "OpenTelemetry.cs checkout-api.csproj " ]'
