@@ -668,18 +668,20 @@ if php -m | grep -qx opentelemetry; then
     "$SRC/tests/snapshots/instrument/php/composer.json")
   composer require -q --no-interaction "$AUTO_PIN" || bad "php (laravel auto): composer require $AUTO_PIN failed"
   spans() { "$WORK/venv/bin/python" "$SRC/tests/e2e/otlp_spans.py" "$1"; }
+  # The route's span is the fixture's (scope log-trace-ids); Laravel's is the package's.
+  LV_SCOPE=io.opentelemetry.contrib.php.laravel
   lv_request laravel-noauto
-  [ "$(spans sink-laravel-noauto | awk '$4=="SERVER" && $3=="-"' | wc -l | tr -d ' ')" = 1 ] \
-    && [ "$(spans sink-laravel-noauto | wc -l | tr -d ' ')" = 1 ] \
+  [ "$(spans sink-laravel-noauto | wc -l | tr -d ' ')" = 1 ] \
+    && [ "$(spans sink-laravel-noauto | awk '$3=="-" && $6=="log-trace-ids"' | wc -l | tr -d ' ')" = 1 ] \
     && ok "php (laravel auto): without OTEL_PHP_AUTOLOAD_ENABLED the package adds no span (only the route's own)" \
     || { bad "php (laravel auto, variable unset): unexpected spans"; spans sink-laravel-noauto; }
-  lv_request laravel-auto OTEL_PHP_AUTOLOAD_ENABLED=true
-  roots=$(spans sink-laravel-auto | awk '$4=="SERVER" && $3=="-"')
+  lv_request laravel-auto OTEL_PHP_AUTOLOAD_ENABLED=true OTEL_LOG_LEVEL=debug
+  roots=$(spans sink-laravel-auto | awk -v s="$LV_SCOPE" '$4=="SERVER" && $3=="-" && $6==s')
   root_id=$(awk '{print $2}' <<<"$roots")
   [ "$(grep -c . <<<"$roots")" = 1 ] && [ "$(awk '{print $5}' <<<"$roots")" = billing-api ] \
     && ok "php (laravel auto): with the variable, Laravel's request span is exported once, by the bootstrap's provider (service.name billing-api)" \
-    || { bad "php (laravel auto): expected one root server span from billing-api"; spans sink-laravel-auto; }
-  [ -n "$root_id" ] && spans sink-laravel-auto | awk -v p="$root_id" '$3==p && $6=="GET /orders/{id}"' | grep -q . \
+    || { bad "php (laravel auto): expected one root server span from $LV_SCOPE, service billing-api"; spans sink-laravel-auto; grep -i "opentelemetry" laravel-auto.server.log | tail -20; }
+  [ -n "$root_id" ] && spans sink-laravel-auto | awk -v p="$root_id" '$3==p && $6=="log-trace-ids"' | grep -q . \
     && ok "php (laravel auto): the route's own span is a child of Laravel's request span" \
     || { bad "php (laravel auto): the route's span is not under the request span"; spans sink-laravel-auto; }
   line=$(pline laravel-auto.log "laravel order line id=7")
