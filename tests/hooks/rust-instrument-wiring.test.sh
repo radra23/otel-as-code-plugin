@@ -6,6 +6,7 @@
 # rust-golden job in ci.yml.
 set -uo pipefail
 cd "$(dirname "$0")/../.."
+source tests/hooks/lib/supported-languages.sh   # supported_languages, read by meaning (#259)
 pass=0; fail=0
 check() { if eval "$2"; then echo "PASS: $1"; pass=$((pass+1)); else echo "FAIL: $1"; fail=$((fail+1)); fi; }
 
@@ -36,7 +37,7 @@ check "scanner: axum and actix-web are both framework enum values (prose and sch
 
 # --- command ---
 check "otel-instrument lists rust as supported and no longer as coming in v1" \
-  'grep -q "go, ruby,$" "$CMD" && grep -qF "rust, php." "$CMD" && ! grep -q "v1 will add" "$CMD"'
+  'supported_languages | grep -qx rust && ! grep -q "v1 will add" "$CMD"'
 check "otel-instrument documents cargo check as the Rust smoke check" \
   'grep -q "For \*\*Rust\*\* the equivalent check is \`cargo check\`" "$CMD"'
 

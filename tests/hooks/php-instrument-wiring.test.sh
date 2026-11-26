@@ -6,6 +6,7 @@
 # Supersedes tests/hooks/php-refusal.test.sh (deleted): PHP is no longer refused, it generates.
 set -uo pipefail
 cd "$(dirname "$0")/../.."
+source tests/hooks/lib/supported-languages.sh   # supported_languages, read by meaning (#259)
 pass=0; fail=0
 check() { if eval "$2"; then echo "PASS: $1"; pass=$((pass+1)); else echo "FAIL: $1"; fail=$((fail+1)); fi; }
 
@@ -41,7 +42,7 @@ check "scanner no longer claims php is outside today's codegen" \
 
 # --- command ---
 check "otel-instrument lists php as supported, not v1-only" \
-  'grep -qF "rust, php." "$CMD" && ! grep -q "v1 will add: php" "$CMD"'
+  'supported_languages | grep -qx php && ! grep -q "v1 will add: php" "$CMD"'
 check "otel-instrument documents composer validate + php -l as the PHP smoke check" \
   'grep -qF "For **PHP** the equivalent check is \`composer validate && php -l telemetry.php\`" "$CMD"'
 

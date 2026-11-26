@@ -5,6 +5,7 @@
 # actually define what the command's summary promises.
 set -uo pipefail
 cd "$(dirname "$0")/../.."
+source tests/hooks/lib/supported-languages.sh   # supported_languages, read by meaning (#259)
 pass=0; fail=0
 check() { if eval "$2"; then echo "PASS: $1"; pass=$((pass+1)); else echo "FAIL: $1"; fail=$((fail+1)); fi; }
 
@@ -12,7 +13,7 @@ CMD="commands/otel-instrument.md"
 GEN="agents/instrumentation-gen.md"
 
 check "otel-instrument recognizes ruby as a supported language" \
-  'grep -qE "nodejs.{0,10}python.{0,10}java.{0,10}dotnet.{0,10}go.{0,10}(or )?ruby" "$CMD"'
+  'supported_languages | grep -qx ruby'
 check "otel-instrument documents the bundle exec ruby smoke check" \
   'grep -qF "bundle exec ruby -e" "$CMD"'
 check "otel-instrument notes Ruby exports over OTLP/HTTP :4318, not the usual :4317" \
