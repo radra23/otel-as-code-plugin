@@ -491,14 +491,18 @@ jobs:
         with:
           ruby-version: '3.4'
 
+      # The opentelemetry extension: the Laravel auto-instrumentation package hooks through it.
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.4'
           tools: composer
+          extensions: opentelemetry
 
       # cargo comes preinstalled on ubuntu-latest (stable, above the golden's 1.88 floor).
       - name: Trace IDs in Python, Node.js, Java, .NET, Go, Ruby, PHP and Rust log lines, end to end
         run: bash tests/e2e/log-trace-ids.sh
+        env:
+          OTEL_AS_CODE_REQUIRE_PHP_EXTENSION: '1'
 
   # /otel-test: the generated telemetry tests, run on real apps. Each must pass on the instrumented
   # service and fail, naming what is missing, when the enrichment, the instrumentor or the

@@ -70,7 +70,13 @@ check "generator prints the PECL extension + php.ini step as a host change it ca
   'grep -qiF "pecl install opentelemetry" "$GEN" \
    && grep -qiF "this plugin cannot touch the host" "$GEN"'
 check "generator says how far the PHP bootstrap is runtime-verified, and what is not run" \
-  'grep -qF "This file is only partly runtime-verified." "$GEN" && grep -qF "nothing runs the metrics export or the framework auto-instrumentation packages" "$GEN"'
+  'grep -qF "This file is only partly runtime-verified." "$GEN" && grep -qF "nothing runs the metrics export or the Symfony package" "$GEN"'
+check "the printed host step says why OTEL_PHP_AUTOLOAD_ENABLED is needed, not that it is unconfirmed" \
+  '! grep -qF "deployment env — unconfirmed" "$GEN" && grep -qF "registers its hooks only through" "$GEN" && grep -qF "the SDK'"'"'s autoloader, which runs only when OTEL_PHP_AUTOLOAD_ENABLED=true." "$GEN"'
+check "the golden sets OTEL_*_EXPORTER before the no-endpoint return (what keeps the autoload variable from exporting)" \
+  'g=$GOLD/telemetry.php; a=$(grep -n "^    putenv(\$var" $g | cut -d: -f1); b=$(grep -n "^if (!\$endpointSet) {" $g | cut -d: -f1); [ -n "$a" ] && [ -n "$b" ] && [ "$a" -lt "$b" ]'
+check "the e2e runs the Laravel auto package with the variable, and CI requires the extension" \
+  'grep -qF "lv_request laravel-auto OTEL_PHP_AUTOLOAD_ENABLED=true" tests/e2e/log-trace-ids.sh && grep -qF "extensions: opentelemetry" .github/workflows/ci.yml && grep -qF "OTEL_AS_CODE_REQUIRE_PHP_EXTENSION: '"'"'1'"'"'" .github/workflows/ci.yml'
 
 # Extract the generator's telemetry.php template and fill the placeholders with the golden's values.
 awk '/^```php$/{f++; if(f==1){g=1;next}} g&&/^```$/{exit} g' "$GEN" \

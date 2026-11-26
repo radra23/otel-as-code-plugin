@@ -137,13 +137,21 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
   which the tower and actix-web layers and `tracing-opentelemetry` all set; the e2e compares
   each line with a build that drops that one line (actix-web is read from source, not run).
 - PHP's bootstrap is loaded by `composer.json`'s `autoload.files` (#351), the one thing that runs
-  it: PHP runs no file by name, and until 0.25.20 nothing loaded `telemetry.php`, so a PHP
+  it: PHP runs no file by name, and until 0.25.21 nothing loaded `telemetry.php`, so a PHP
   service exported nothing and said nothing. It loads once (a constant guard) and stands down
   with an `error_log` line, never `trigger_error` (that lands in the response body), when the SDK
   is not installed, because every entry point now runs it. The summary's first step is
   `composer update 'open-telemetry/*'`: with a `composer.lock`, `composer install` leaves the
   new packages out. The e2e never `require`s the bootstrap; it applies the golden
-  `composer.json`'s entries, so a generator that stops adding `autoload.files` fails there. Never replace the user's logger or format: the
+  `composer.json`'s entries, so a generator that stops adding `autoload.files` fails there.
+  `OTEL_PHP_AUTOLOAD_ENABLED=true` (printed as a required host step) is what activates the
+  framework packages, which register only through the SDK's autoloader. It also makes the SDK
+  register providers from the environment, before ours: the bootstrap's initializer still wins
+  for traces and metrics because the project's autoload files load after the packages', and the
+  `putenv(... none)` loop must stay above the no-endpoint `return` or the variable turns export
+  on against localhost:4318. The e2e runs that on Laravel with the PECL extension
+  (`OTEL_AS_CODE_REQUIRE_PHP_EXTENSION=1` in CI; elsewhere a missing extension is "not
+  checked"). Never replace the user's logger or format: the
   upstream `set_logging_format` was measured to make the app's later `basicConfig(format=...)` a
   no-op, so it is not used. Text is never appended to a custom formatter class or to a line that
   is already JSON (it was caught breaking a structlog-style formatter in a probe). The block is
