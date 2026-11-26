@@ -124,8 +124,13 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
   Ruby's bootstrap carries an `OtelAsCode` module: `add_trace_ids(logger)` wraps a stdlib
   `Logger`'s formatter (JSON lines untouched), and Rails gets a printed `config.log_tags` lambda
   calling `trace_log_tag` (nil outside a span, so no zero IDs; a lambda because
-  `config/application.rb` loads before the initializer). The e2e reads those printed lines out of
-  `instrumentation-gen.md`; Rust and PHP are still "not checked". Never replace the user's logger or format: the
+  `config/application.rb` loads before the initializer). PHP's `telemetry.php` defines
+  `otel_as_code_trace_ids`, a Monolog processor that puts the IDs in a record's `extra` (printed
+  by Monolog's default line format, fields under `JsonFormatter`), defined before the no-endpoint
+  `return` so the printed `pushProcessor` line never calls an undefined function; Laravel's line
+  goes in `AppServiceProvider::boot()` on `Log::getLogger()`. The e2e reads those printed lines out of
+  `instrumentation-gen.md` (PHP in a plain script and a new Laravel app, the span started by the
+  fixture because the auto packages need the PECL extension); Rust is still "not checked". Never replace the user's logger or format: the
   upstream `set_logging_format` was measured to make the app's later `basicConfig(format=...)` a
   no-op, so it is not used. Text is never appended to a custom formatter class or to a line that
   is already JSON (it was caught breaking a structlog-style formatter in a probe). The block is

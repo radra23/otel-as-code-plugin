@@ -69,8 +69,8 @@ check "generator gates the Monolog logs bridge on Monolog being detected, prints
 check "generator prints the PECL extension + php.ini step as a host change it cannot make itself" \
   'grep -qiF "pecl install opentelemetry" "$GEN" \
    && grep -qiF "this plugin cannot touch the host" "$GEN"'
-check "generator explicitly says the PHP bootstrap was not runtime-verified (no PHP toolchain available)" \
-  'grep -qF "This file is NOT independently runtime-verified" "$GEN"'
+check "generator says how far the PHP bootstrap is runtime-verified, and what is not run" \
+  'grep -qF "This file is only partly runtime-verified." "$GEN" && grep -qF "nothing runs the metrics export or the framework auto-instrumentation packages" "$GEN"'
 
 # Extract the generator's telemetry.php template and fill the placeholders with the golden's values.
 awk '/^```php$/{f++; if(f==1){g=1;next}} g&&/^```$/{exit} g' "$GEN" \
