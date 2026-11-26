@@ -341,7 +341,8 @@ emitting a bootstrap that silently does nothing.
   Node.js, pino, winston and bunyan lines gain `trace_id` and `span_id` fields; `console.log` does
   not. In Python, lines from the standard `logging` module get ` trace_id=... span_id=...` at the
   end, and a JSON formatter gets `otelTraceID` / `otelSpanID` fields; `print()` does not, and
-  `OTEL_AS_CODE_LOG_TRACE_IDS=off` turns the appending off. This needs traces to be on, and it puts
+  `OTEL_AS_CODE_LOG_TRACE_IDS=off` turns the appending off. In Rust, a `tracing` event written
+  during a request ends with ` trace_id=... span_id=...` on stdout. This needs traces to be on, and it puts
   the ID in the line you already write: the logs themselves reach a backend only where the logs
   signal is exported. Run on real apps in CI
   ([`tests/e2e/log-trace-ids.sh`](https://github.com/radra23/otel-as-code-plugin/blob/main/tests/e2e/log-trace-ids.sh)).
