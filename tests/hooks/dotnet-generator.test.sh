@@ -14,6 +14,7 @@ check() { if eval "$2"; then echo "PASS: $1"; pass=$((pass+1)); else echo "FAIL:
 
 GEN="agents/instrumentation-gen.md"
 CMD="commands/otel-instrument.md"
+source tests/hooks/lib/step8-languages.sh   # step8_languages, read by meaning (#259)
 GOLD="tests/snapshots/instrument/dotnet/OpenTelemetry.cs"
 NET=$(sed -n '/^## .NET (code-based SDK)/,/^## Go (manual SDK wiring)/p' "$GEN")   # captured once: grep -q + pipefail would race
 STEP2=$(sed -n '/^3\. Validate the chosen service before generating/,/^4\. Derive/p' "$CMD")
@@ -50,7 +51,7 @@ check "generator no longer says the exporter defaults to localhost with nothing 
 check "the logs add-on is gated on the endpoint too" \
   'net "if (!string.IsNullOrWhiteSpace(builder.Configuration[\"OTEL_EXPORTER_OTLP_ENDPOINT\"]))"'
 check "Step 8 groups .NET with the languages that export nowhere until configured" \
-  'grep -qF "Node.js/Python/Go/Rust/.NET code defaults every exporter to \`none\`" "$CMD" && ! grep -qF "The .NET OTLP exporter and the" "$CMD"'
+  'step8_languages silent "$CMD" | grep -qxF .NET && ! grep -qF "The .NET OTLP exporter and the" "$CMD"'
 
 # ---- #186 refusal ----
 check "refusal sentence is language-neutral and no longer names a Node SDK bootstrap" \
