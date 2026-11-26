@@ -22,8 +22,9 @@ Produces a structured gap analysis report.
 Check `.claude/otel-context.json`. Apply the freshness rule from `/otel-init` Step 1
 (identity-input fingerprint, not `HEAD`). If stale or absent, dispatch
 `otel-as-code:repo-context-scanner` **passing the existing cache as `priorContext`, `scanTime`
-(the output of `date -u +%Y-%m-%dT%H:%M:%SZ`), and `pluginVersion` (the `version` field from
-`${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json`)**.
+(the output of `date -u +%Y-%m-%dT%H:%M:%SZ`), `pluginVersion` (the `version` field from
+`${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json`), and `contextSchemaPath`
+(`${CLAUDE_PLUGIN_ROOT}/scripts/context-schema.json`, the ownership list it merges by)**.
 
 **Without `--no-cache-write`:** write what the scanner returns via `scripts/write_context.py`,
 exactly as `/otel-init` Step 4 does (#211) — never by transcribing the JSON into a `Write` call. A

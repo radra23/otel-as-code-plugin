@@ -65,8 +65,9 @@ guardrails from that skill throughout this command.
 Check `.claude/otel-context.json`. Apply the freshness rule from `/otel-init` Step 1
 (identity-input fingerprint, not `HEAD`). If stale or absent, dispatch
 `otel-as-code:repo-context-scanner` **passing the existing cache as `priorContext`, `scanTime`
-(the output of `date -u +%Y-%m-%dT%H:%M:%SZ`), and `pluginVersion` (the `version` field from
-`${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json`)** and write what it returns via
+(the output of `date -u +%Y-%m-%dT%H:%M:%SZ`), `pluginVersion` (the `version` field from
+`${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json`), and `contextSchemaPath`
+(`${CLAUDE_PLUGIN_ROOT}/scripts/context-schema.json`, the ownership list it merges by)** and write what it returns via
 `scripts/write_context.py`, exactly as `/otel-init` Step 4 does (#211) — never by transcribing the
 JSON into a `Write` call. A refresh is a merge, never a replace (see the cache ownership contract
 in `agents/repo-context-scanner.md`).

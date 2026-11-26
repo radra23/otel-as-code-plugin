@@ -34,6 +34,12 @@ frameworks, existing OTel coverage, and team ownership. You do NOT write any fil
   and note in `derived.notes` that no pinned version was supplied — do NOT invent one.
 - `semconvGuidancePath` — the absolute path to `semconv-discipline/SKILL.md`; `Read` it for the
   canonical high-cardinality identifier list you populate `derived.highCardinalityAttributes` from.
+- `contextSchemaPath` — the absolute path to `scripts/context-schema.json`, the ownership contract
+  below in machine-readable form. `Read` it before you merge: its `scanner` and `user` lists say
+  which fields you overwrite and which you carry over; this file says why, and the exceptions. If
+  it was not provided or cannot be read, carry over from `priorContext` every field you did not
+  freshly read from disk, and add a `derived.notes` entry saying the ownership file was
+  unavailable. Never drop a field because you could not tell who owns it.
 - `priorContext` (optional) — the existing `.claude/otel-context.json`, when one is on disk.
   You MUST merge it per the ownership contract below. **A re-scan that returns
   `businessAttrs: []` and `confirmedAt: null` over a cache that had them destroys work the
@@ -41,34 +47,27 @@ frameworks, existing OTel coverage, and team ownership. You do NOT write any fil
 
 ## Cache ownership contract (the single source of truth for merging)
 
-Every field in the context JSON has exactly one owner. When `priorContext` is supplied:
+Every field in the context JSON has exactly one owner, and the file at `contextSchemaPath`
+(`scripts/context-schema.json`) lists them: `topLevel`, `services` and `conflicts` each carry a
+`scanner` list and a `user` list, and a `.*` name means the whole object. That file is the list;
+this section is the reasoning and the exceptions, and `scripts/write_context.py` enforces the same
+file when the cache is written. When `priorContext` is supplied:
 
-**Scanner-owned — always overwrite with what you just read from disk.** These are facts about
-the repo, and a fresh read is by definition more current:
+**Scanner-owned (the `scanner` lists) — always overwrite with what you just read from disk.**
+These are facts about the repo, and a fresh read is by definition more current. One exception:
+`services[].existingOtel.*` — when the prior entry is marked `"source": "recorded-by-command"` and
+you found no OTel on disk for that service, keep the prior entry and note the disagreement in
+`derived.notes`. `services[].derived.*` follows "Facts vs judgements" below.
 
-- `scannedAt`, `pluginVersion`, `freshness.*`
-- `services[].name`, `nameSource`, `nameConfidence`, `rootDir`, `language`, `languageVersion`,
-  `runtime`, `runtimeSource`, `runtimeConfidence`, `generatorSupported`, `inScope`, `instrumentableReason`,
-  `host`, `hostSource`, `hostConfidence`, `framework`, `runnableEntry`, `hasDockerfile`
-- `services[].deployment.*`
-- `services[].existingOtel.*` — except when the prior entry is marked
-  `"source": "recorded-by-command"` and you found no OTel on disk for that service; in that
-  case keep the prior entry and note the disagreement in `derived.notes`
-- `conflicts[].serviceId`, `conflicts[].attribute`, `conflicts[].sources`
-- `namespaceHint`, `namespaceSource`
-- `services[].derived.*` (see "Facts vs judgements")
+**User-owned (the `user` lists) — carry over from `priorContext` verbatim;
+NEVER reset to null or `[]`.** These exist only because a human answered a question:
 
-**User-owned — carry over from `priorContext` verbatim; NEVER reset to null or `[]`.**
-These exist only because a human answered a question:
-
-- `businessAttrs` (the whole array, including each entry's `confirmed` / `confirmedAt`, and the
+- `businessAttrs` is the whole array, including each entry's `confirmed` / `confirmedAt`, and the
   `callSite` (`{"file", "function"}`) `/otel-enrich --business` records once it has added the code
-  that emits the metric; it is absent until then, and you never set or clear it)
-- `confirmedAt`
-- `namespace`, `deploymentEnvironment`
-- `services[].namespace`, `namespaceSource`, `namespaceConfidence` when
-  `namespaceSource` is `user-confirmed`
-- `services[].team`, `teamSource`, `teamConfidence` when `teamSource` is `user-confirmed`
+  that emits the metric; it is absent until then, and you never set or clear it.
+- `services[].namespace` and `services[].team`, with their `*Source` and `*Confidence`, are
+  user-owned only when their source is `user-confirmed` (the file's `services.userWhenConfirmed`);
+  otherwise they are facts you derive like any other.
 - `services[].scopeOverride` (`"out"` or absent, #207) — a human decided this service is not a
   candidate for observability work (test/tooling harness, perf-test rig, etc.), independent of
   whatever the detection rules below would otherwise compute for it. `inScope` itself stays
@@ -80,9 +79,9 @@ These exist only because a human answered a question:
   is the fix for the exact failure the override exists to prevent: hand-editing `inScope` in
   `.claude/otel-context.json` directly does NOT work today, because that field is scanner-owned
   and the very next scan overwrites it back.
-- `conflicts[].resolvedValue`, `resolvedSource`, `resolvedAt`, `conflict_resolved`
-- Any service the user added manually (`nameSource: "user-added"`) that you did not
-  re-detect — keep it, and add a `derived.notes` entry saying it was not found this scan
+- Any service the user added manually (`nameSource: "user-added"`, the file's
+  `services.userAdded`) that you did not re-detect — keep it, and add a `derived.notes` entry
+  saying it was not found this scan
 
 Match services between the two objects by `id`; fall back to `rootDir`. A service present in
 `priorContext` but absent now is dropped from `services` and named in `derived.notes` — do not

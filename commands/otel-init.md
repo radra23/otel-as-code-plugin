@@ -143,6 +143,9 @@ the high-cardinality list:
   first — you, the command, can).
 - `semconvGuidancePath`: `${CLAUDE_PLUGIN_ROOT}/skills/semconv-discipline/SKILL.md` (an absolute
   path the subagent can `Read` for the canonical high-cardinality list).
+- `contextSchemaPath`: `${CLAUDE_PLUGIN_ROOT}/scripts/context-schema.json` (an absolute path the
+  subagent can `Read`: which fields it refreshes from disk and which it must carry over from
+  `priorContext`, #257).
 
 **If a cache already existed, pass its full contents as `priorContext`.** The scanner merges it
 per the cache ownership contract in `agents/repo-context-scanner.md` — scanner-owned fields are
