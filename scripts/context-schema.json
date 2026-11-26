@@ -1,16 +1,21 @@
 {
-  "_comment": "Who owns each field of .claude/otel-context.json (#257). The scanner reads it (contextSchemaPath, passed by every command that dispatches it) and scripts/write_context.py enforces it; the 'Cache ownership contract' in agents/repo-context-scanner.md keeps the reasoning and exceptions, and tests/context-schema.test.sh holds every field that prose names to its owner here. Owners only for now; field types are a follow-up. A '.*' name is the whole object.",
+  "_comment": "Who owns each field of .claude/otel-context.json, and what JSON type it holds (#257). The scanner reads it (contextSchemaPath, passed by every command that dispatches it) and scripts/write_context.py enforces it: a refresh never empties a user-owned field, and a field listed under 'types' holds that type or null (null is how the scanner says it could not tell); a field not listed is not type-checked. The 'Cache ownership contract' in agents/repo-context-scanner.md keeps the reasoning and exceptions, and tests/context-schema.test.sh holds every field that prose names to its owner here and every owned field to a type. A '.*' name is the whole object.",
   "topLevel": {
     "scanner": ["scannedAt", "pluginVersion", "freshness.*", "namespaceHint", "namespaceSource"],
-    "user": ["businessAttrs", "confirmedAt", "namespace", "deploymentEnvironment"]
+    "user": ["businessAttrs", "confirmedAt", "namespace", "deploymentEnvironment"],
+    "types": {
+      "schemaVersion": "string", "scannedAt": "string", "pluginVersion": "string", "freshness": "object",
+      "services": "array", "conflicts": "array", "namespaceHint": "string", "namespaceSource": "string",
+      "namespace": "string", "deploymentEnvironment": "string", "businessAttrs": "array", "confirmedAt": "string"
+    }
   },
   "services": {
     "matchBy": ["id", "rootDir"],
     "scanner": [
       "name", "nameSource", "nameConfidence", "rootDir", "language", "languageVersion",
       "runtime", "runtimeSource", "runtimeConfidence", "generatorSupported", "inScope",
-      "instrumentableReason", "host", "hostSource", "hostConfidence", "framework",
-      "runnableEntry", "hasDockerfile", "deployment.*", "existingOtel.*", "derived.*"
+      "instrumentableReason", "host", "hostSource", "hostConfidence", "framework", "frameworkVersion",
+      "runnableEntry", "hasDockerfile", "cliEntryPoints", "deployment.*", "existingOtel.*", "derived.*"
     ],
     "user": ["scopeOverride"],
     "userWhenConfirmed": {
@@ -18,11 +23,26 @@
       "team": {"sourceField": "teamSource", "with": ["teamSource", "teamConfidence"]}
     },
     "confirmedValue": "user-confirmed",
-    "userAdded": {"field": "nameSource", "value": "user-added"}
+    "userAdded": {"field": "nameSource", "value": "user-added"},
+    "types": {
+      "id": "string", "name": "string", "nameSource": "string", "nameConfidence": "number",
+      "rootDir": "string", "language": "string", "languageVersion": "string", "runtime": "string",
+      "runtimeSource": "string", "runtimeConfidence": "number", "generatorSupported": "boolean",
+      "inScope": "boolean", "instrumentableReason": "string", "host": "string", "hostSource": "string",
+      "hostConfidence": "number", "framework": "string", "frameworkVersion": "string",
+      "runnableEntry": "string", "hasDockerfile": "boolean", "cliEntryPoints": "array",
+      "deployment": "object", "existingOtel": "object", "derived": "object", "scopeOverride": "string",
+      "namespace": "string", "namespaceSource": "string", "namespaceConfidence": "number",
+      "team": "string", "teamSource": "string", "teamConfidence": "number"
+    }
   },
   "conflicts": {
     "matchBy": ["serviceId", "attribute"],
     "scanner": ["serviceId", "attribute", "sources"],
-    "user": ["resolvedValue", "resolvedSource", "resolvedAt", "conflict_resolved"]
+    "user": ["resolvedValue", "resolvedSource", "resolvedAt", "conflict_resolved"],
+    "types": {
+      "serviceId": "string", "attribute": "string", "sources": "array", "resolvedValue": "string",
+      "resolvedSource": "string", "resolvedAt": "string", "conflict_resolved": "boolean"
+    }
   }
 }
