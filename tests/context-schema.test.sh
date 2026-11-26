@@ -95,6 +95,65 @@ rm "$T/s/context-schema.json"
 out=$(printf '{"scannedAt":"%s","services":[]}' "$NOW" | python3 "$T/s/write_context.py" --output "$T/out.json" 2>&1); rc=$?
 check "without the schema it refuses to write rather than guess" \
   '[ "$rc" = 1 ] && grep -q "cannot read the ownership schema" <<<"$out" && [ ! -e "$T/out.json" ]'
+# Types: every owned field has one, every typed field has an owner, and the scanner's own Output
+# template agrees with them (a field the template shows as a number is typed "number" here).
+types_problems() {
+  python3 - "$1" "$SCANNER" <<'PY'
+import json, re, sys
+schema = json.load(open(sys.argv[1]))
+text = open(sys.argv[2], encoding="utf-8").read()
+kinds = {"string": str, "number": (int, float), "boolean": bool, "array": list, "object": dict}
+problems = []
+for sec in ("topLevel", "services", "conflicts"):
+    s = schema[sec]
+    owned = {f.removesuffix(".*") for f in s["scanner"] + s["user"]} | set(s.get("matchBy", []))
+    for field, rule in s.get("userWhenConfirmed", {}).items():
+        owned |= {field, *rule["with"]}
+    if sec == "topLevel":
+        owned |= {"schemaVersion", "services", "conflicts"}
+    typed = set(s["types"])
+    problems += [f"{sec}.{f} has an owner but no type" for f in sorted(owned - typed)]
+    problems += [f"{sec}.{f} has a type but no owner" for f in sorted(typed - owned)]
+    problems += [f"{sec}.{f}: unknown type {t!r}" for f, t in s["types"].items() if t not in kinds]
+template = json.loads(re.search(r"## Output.*?```json\n(.*?)\n```", text, re.S).group(1))
+def agree(obj, sec, where):
+    for f, t in schema[sec]["types"].items():
+        v = obj.get(f)
+        if v is None or t not in kinds:
+            continue
+        if not isinstance(v, kinds[t]) or (t == "number" and isinstance(v, bool)):
+            problems.append(f"the scanner template's {where}{f} is {v!r}; the schema types it {t}")
+agree(template, "topLevel", "")
+for key in ("services", "conflicts"):
+    for e in template[key]:
+        agree(e, key, f"{key}[].")
+print("\n".join(problems))
+PY
+}
+tp=$(types_problems "$SCHEMA")
+check "every owned field has a type, every typed field an owner, and the scanner template agrees" '[ -z "$tp" ]'
+[ -n "$tp" ] && echo "$tp" | sed 's/^/    /'
+python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); d["services"]["types"]["inScope"]="string"; json.dump(d,open(sys.argv[2],"w"))' $SCHEMA "$T/badtype.json"
+check "a type that disagrees with the scanner template is caught (teeth)" '[ -n "$(types_problems "$T/badtype.json")" ]'
+python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); del d["services"]["types"]["hostConfidence"]; json.dump(d,open(sys.argv[2],"w"))' $SCHEMA "$T/untyped.json"
+check "an owned field with no type is caught (teeth)" '[ -n "$(types_problems "$T/untyped.json")" ]'
+
+# write_context.py refuses a wrong type, and accepts null and an untyped field.
+typed_write() {  # <python expression mutating d> -> rc of the write
+  python3 -c 'import json,sys
+d={"schemaVersion":"2","scannedAt":sys.argv[1],"services":[{"id":"a","nameConfidence":0.9,"inScope":True}],
+   "conflicts":[{"serviceId":"a","attribute":"service.name","sources":[]}]}
+exec(sys.argv[2]); print(json.dumps(d))' "$NOW" "$1" | python3 scripts/write_context.py --output "$T/typed.json" 2>"$T/typed.err"
+}
+check "a well-typed document is written" 'typed_write "pass"'
+for m in 'd["services"][0]["nameConfidence"]="0.9"' 'd["services"][0]["inScope"]="false"' \
+         'd["services"][0]["nameConfidence"]=True' 'd["conflicts"][0]["conflict_resolved"]="yes"' \
+         'd["businessAttrs"]={}' 'd["schemaVersion"]=2'; do
+  check "write_context.py refuses a wrong type: $m" '! typed_write "$m" && grep -q "not a JSON" "$T/typed.err"'
+done
+check "null is accepted for a typed field" 'typed_write "d[\"services\"][0][\"languageVersion\"]=None"'
+check "a field the schema does not type is not checked" 'typed_write "d[\"services\"][0][\"somethingNew\"]=42"'
+
 check "the slim directory build ships the schema" 'grep -qF "scripts/context-schema.json" scripts/build-directory.sh'
 
 echo "Results: $pass passed, $fail failed"

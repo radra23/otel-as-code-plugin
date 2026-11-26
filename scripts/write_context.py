@@ -26,6 +26,9 @@ actual write, and enforces in code the rules a transcription can't reliably chec
      the user approves it. hooks/write-guard.sh enforces the same rule on a Write of this file,
      but the commands write the cache through this script from the shell, which the hook never
      sees, so the rule has to live here too or it is not enforced at all.
+  5. Every field scripts/context-schema.json gives a type holds that type or null (#257): a
+     confidence written as the string "0.9", or inScope as "false" (truthy), is refused rather
+     than handed to every command that reads the cache.
 
 Exit 0 and a written file on success. Exit 1 with a one-line reason and NOTHING written on any
 safety-rule failure, including an I/O or parse error encountered while enforcing a rule, or an
@@ -71,6 +74,9 @@ SERVICE_USER_WHEN_CONFIRMED = SCHEMA["services"]["userWhenConfirmed"]
 CONFIRMED = SCHEMA["services"]["confirmedValue"]
 USER_ADDED = SCHEMA["services"]["userAdded"]
 CONFLICT_KEY = SCHEMA["conflicts"]["matchBy"]
+# Each field's JSON type, or null. bool is excluded from "number" because Python makes it an int.
+JSON_TYPES = {"string": (str,), "number": (int, float), "boolean": (bool,), "array": (list,),
+              "object": (dict,)}
 
 
 def fail(msg):
@@ -92,6 +98,27 @@ def check_shape(doc, label):
                 fail(f"{label} {key}[{i}] is {entry!r}, not an object -- not a valid context object.")
     if "scannedAt" in doc and doc["scannedAt"] is not None and not isinstance(doc["scannedAt"], str):
         fail(f"{label} scannedAt {doc['scannedAt']!r} is not a string timestamp.")
+
+
+def check_types(doc):
+    """Every field the schema types holds that type or null; a field it doesn't list is not
+    checked. A wrong type (a confidence written as "0.9", inScope as "true") is refused here
+    because every later reader would otherwise act on it: the string "false" is truthy."""
+    def check(fields, where, types):
+        for key, expected in types.items():
+            value = fields.get(key)
+            if value is None:
+                continue
+            ok = isinstance(value, JSON_TYPES[expected])
+            if expected == "number" and isinstance(value, bool):
+                ok = False
+            if not ok:
+                fail(f"{where}{key} is {value!r} ({type(value).__name__}), not a JSON {expected} "
+                     f"or null, per {SCHEMA_PATH} -- nothing written.")
+    check(doc, "", SCHEMA["topLevel"]["types"])
+    for key in ("services", "conflicts"):
+        for i, entry in enumerate(doc.get(key) or []):
+            check(entry, f"{key}[{i}].", SCHEMA[key]["types"])
 
 
 def write_atomically(path, doc):
@@ -294,6 +321,7 @@ def main():
         fail("'services' is missing or not a list -- not a valid context object.")
     if "schemaVersion" not in new:
         fail("'schemaVersion' is missing -- not a valid context object.")
+    check_types(new)
 
     check_scanned_at(new)
     check_plugin_version(new, args.plugin_root)
