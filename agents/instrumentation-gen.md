@@ -2884,7 +2884,12 @@ relative to `composer.json`: `bootstrap/telemetry.php` when the file went there.
 app's existing `autoload` object (keep its `psr-4`, `classmap` and other `files` entries; never
 replace it). The bootstrap loads once even if the app also `require`s it.
 For `framework: laravel`, add `"open-telemetry/opentelemetry-auto-laravel": "^1.10.0"`. For
-`framework: symfony`, add `"open-telemetry/opentelemetry-auto-symfony": "^1.7.0"`. Neither is
+`framework: symfony`, add `"open-telemetry/opentelemetry-auto-symfony": "^1.7.0"`, plus
+`"nyholm/psr7": "^1.8"` and `"symfony/http-client"` at the app's own `symfony/framework-bundle`
+constraint (each unless already required). Without those two, `php-http/discovery`, a Composer
+plugin the Symfony skeleton allows, adds them itself in the middle of the update, and Symfony's
+`bump-after-update` then finds `composer.json` newer than the lock and the step exits 2 with the
+packages installed (measured on a new `symfony/skeleton`). Neither auto package is
 added for `other`/`unknown` — the framework-agnostic path has no matching auto-package; the
 bootstrap above is the entire instrumentation. If `monolog/monolog` is already a dependency, also
 add `"open-telemetry/opentelemetry-logger-monolog": "^1.3.1"`. Versions are the verified-current
@@ -2932,7 +2937,8 @@ Wire it up:
      with a lock, install keeps the old lock and leaves the new packages out; until they are
      installed, telemetry.php writes one line to the error log per request and does nothing). This also regenerates the autoloader,
      which is what loads telemetry.php (composer.json's autoload.files).
-     <framework: symfony only: "Do step 2 first. opentelemetry-auto-symfony requires
+     <framework: symfony only: print step 1 as `composer update 'open-telemetry/*' nyholm/psr7 symfony/http-client`
+     (the two PSR implementations added above), followed by: "Do step 2 first. opentelemetry-auto-symfony requires
      ext-opentelemetry, so Composer refuses this step on a machine without the extension. Pass
      --ignore-platform-req=ext-opentelemetry only where Composer runs without it but the server
      has it (a build stage): on a server without the extension the package writes a PHP warning

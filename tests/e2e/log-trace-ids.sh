@@ -753,9 +753,14 @@ mkdir -p src/Controller
 cp "$SRC/tests/log-trace-ids/php/symfony/OrderController.php" src/Controller/
 php_composer composer.json telemetry.php
 SY_PIN=$(sed -n 's/.*`"\(open-telemetry\/opentelemetry-auto-symfony\)": "\([^"]*\)"`.*/\2/p' "$GEN" | head -1)
-python3 -c 'import json,sys; p=sys.argv[1]; a=json.load(open(p)); a["require"]["open-telemetry/opentelemetry-auto-symfony"]=sys.argv[2]; json.dump(a,open(p,"w"),indent=4)' composer.json "$SY_PIN"
+# The generator's Symfony additions: the auto package, and the two PSR implementations at
+# nyholm/psr7's pin and the app's own framework-bundle constraint.
+SY_PSR7=$(sed -n 's/.*`"nyholm\/psr7": "\([^"]*\)"`.*/\1/p' "$GEN" | head -1)
+python3 -c 'import json,sys; p=sys.argv[1]; a=json.load(open(p)); r=a["require"]; r["open-telemetry/opentelemetry-auto-symfony"]=sys.argv[2]; r.setdefault("nyholm/psr7", sys.argv[3]); r.setdefault("symfony/http-client", r["symfony/framework-bundle"]); json.dump(a,open(p,"w"),indent=4)' composer.json "$SY_PIN" "$SY_PSR7"
+SY_UPDATE="composer update 'open-telemetry/*' nyholm/psr7 symfony/http-client"
+grep -qF "print step 1 as \`$SY_UPDATE\`" "$GEN" || bad "php (symfony): the generator does not print '$SY_UPDATE' as Symfony's step 1"
 if php -m | grep -qx opentelemetry; then
-  eval "$PHP_UPDATE -q --no-interaction" || bad "php (symfony): '$PHP_UPDATE' failed with the extension loaded"
+  eval "$SY_UPDATE -q --no-interaction" || bad "php (symfony): '$SY_UPDATE' failed with the extension loaded"
   APP_ENV=prod php bin/console cache:clear -q || bad "php (symfony): cache:clear failed"
   SY_TRACE=4bf92f3577b34da6a3ce929d0e0e4736 SY_PARENT=00f067aa0ba902b7
   sy_request() {   # sy_request <name> [VAR=value ...]: one GET /orders/7 carrying SY_TRACE/SY_PARENT
@@ -783,10 +788,10 @@ if php -m | grep -qx opentelemetry; then
       || { bad "php (symfony, $mode): unexpected span name or http.route"; echo "  $srv"; }
   done
 else
-  out=$(eval "$PHP_UPDATE --no-interaction" 2>&1) && bad "php (symfony): '$PHP_UPDATE' succeeded without the extension" \
+  out=$(eval "$SY_UPDATE --no-interaction" 2>&1) && bad "php (symfony): '$SY_UPDATE' succeeded without the extension" \
     || { grep -qF "ext-opentelemetry" <<<"$out" \
       && ok "php (symfony): without the extension the summary's composer step fails on ext-opentelemetry (so it comes after the extension)" \
-      || { bad "php (symfony): '$PHP_UPDATE' failed for another reason"; tail -5 <<<"$out"; }; }
+      || { bad "php (symfony): '$SY_UPDATE' failed for another reason"; tail -5 <<<"$out"; }; }
   if [ "${OTEL_AS_CODE_REQUIRE_PHP_EXTENSION:-}" = 1 ]; then
     bad "php (symfony): the opentelemetry extension is not loaded, and this run requires it"
   else

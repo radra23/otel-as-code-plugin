@@ -74,7 +74,9 @@ check "generator says how far the PHP bootstrap is runtime-verified, and what is
 check "the bootstrap sets the propagator (OTEL_PROPAGATORS through PropagatorFactory), in the template and the golden" \
   'grep -qF "        ->withPropagator((new PropagatorFactory())->create());" "$GOLD/telemetry.php" && grep -qF "        ->withPropagator((new PropagatorFactory())->create());" "$GEN" && grep -qxF "use OpenTelemetry\SDK\Propagation\PropagatorFactory;" "$GOLD/telemetry.php"'
 check "the Symfony summary puts the extension before composer update, and says why" \
-  'grep -qF "<framework: symfony only: \"Do step 2 first. opentelemetry-auto-symfony requires" "$GEN" && grep -qF "ext-opentelemetry, so Composer refuses this step on a machine without the extension." "$GEN"'
+  'grep -qF "followed by: \"Do step 2 first. opentelemetry-auto-symfony requires" "$GEN" && grep -qF "ext-opentelemetry, so Composer refuses this step on a machine without the extension." "$GEN"'
+check "for Symfony the generator adds the two PSR implementations and names them in step 1 (else bump-after-update fails the step)" \
+  'grep -qF "\`\"nyholm/psr7\": \"^1.8\"\` and \`\"symfony/http-client\"\` at the app'"'"'s own \`symfony/framework-bundle\`" "$GEN" && grep -qF "print step 1 as \`composer update '"'"'open-telemetry/*'"'"' nyholm/psr7 symfony/http-client\`" "$GEN"'
 check "the route-naming caveat states what was measured per framework, not that it is unconfirmed" \
   '! grep -qF "was not independently confirmed from docs" "$GEN" && grep -qF "e.g. GET app_order_show for /orders/{id} (measured" "$GEN" && grep -qF "e.g. GET /orders/{id}" "$GEN"'
 check "the e2e runs a Symfony app with a known traceparent, and requires the composer step to fail without the extension" \

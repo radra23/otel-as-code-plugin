@@ -158,7 +158,10 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
   checked"). Symfony's package differs, measured: it registers itself whenever the extension is
   loaded (no variable needed), names request spans and `http.route` after the route's NAME
   (`GET app_order_show`, not `/orders/{id}`), and requires `ext-opentelemetry`, so its summary
-  installs the extension before `composer update`. It reads `traceparent` through the global
+  installs the extension before `composer update`. The generator also adds `nyholm/psr7` and
+  `symfony/http-client` (at the app's framework-bundle constraint) and names them in that step:
+  otherwise `php-http/discovery` adds them mid-update and the skeleton's `bump-after-update`
+  fails the step (exit 2) with everything installed. It reads `traceparent` through the global
   propagator, which the bootstrap's initializer sets (`PropagatorFactory`, honouring
   `OTEL_PROPAGATORS`): without the variable nothing else does, and until 0.25.23 every request
   started a new trace. The Monolog logs add-on (printed only when Monolog is a dependency) is run as
