@@ -109,6 +109,10 @@ check "the summary's first step is composer update for the added packages, not a
   'grep -qF "  1. composer update '"'"'open-telemetry/*'"'"'" "$GEN" && ! grep -qx "  1. composer install" "$GEN"'
 check "/otel-uninstrument warns that autoload.files still names the deleted bootstrap" \
   'grep -qF "\`autoload.files\` still names it" commands/otel-uninstrument.md && grep -qF "composer dump-autoload" commands/otel-uninstrument.md'
+check "the generator's composer block and the golden allow tbachert/spi (the extension's hook manager is registered only through it)" \
+  'python3 -c "import json,sys; b=json.load(open(sys.argv[1])); g=json.load(open(sys.argv[2])); sys.exit(0 if b[\"config\"][\"allow-plugins\"]=={\"tbachert/spi\": True} and g[\"config\"][\"allow-plugins\"].get(\"tbachert/spi\") is True else 1)" "$tmp/core_block.json" "$GOLD/composer.json"'
+check "the e2e merges the golden's allow-plugins into the app, as generated" \
+  'grep -qF "update(gold[\"config\"][\"allow-plugins\"])" tests/e2e/log-trace-ids.sh'
 check "golden composer.json (Laravel) also carries the laravel auto-instrumentation package" \
   'grep -qF "open-telemetry/opentelemetry-auto-laravel" "$GOLD/composer.json"'
 

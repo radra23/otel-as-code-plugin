@@ -2830,7 +2830,7 @@ say so, never change the format), `error_log`/`echo`, loggers other than Monolog
 while `OTEL_EXPORTER_OTLP_ENDPOINT` is unset (the bootstrap then makes no spans, so the line is
 unchanged).
 
-### Update `composer.json`: add the packages to `require` and the bootstrap to `autoload.files`
+### Update `composer.json`: add the packages to `require`, the bootstrap to `autoload.files`, and allow the SPI plugin
 
 ```json
 {
@@ -2843,9 +2843,22 @@ unchanged).
   },
   "autoload": {
     "files": ["telemetry.php"]
+  },
+  "config": {
+    "allow-plugins": {
+      "tbachert/spi": true
+    }
   }
 }
 ```
+**`allow-plugins` for `tbachert/spi` is what lets the framework packages work.** `open-telemetry/api`
+registers the PECL extension's hook manager only in its `composer.json` `extra.spi`, which only that
+Composer plugin reads. A plugin that is not allowed is skipped without an error when Composer runs
+non-interactively (and prompts otherwise), and then the SDK falls back to a no-op hook manager: the
+extension and `opentelemetry-auto-laravel` are both installed and the framework makes no span.
+Measured in `tests/e2e/log-trace-ids.sh`. Merge into the app's existing `config.allow-plugins`
+(keep its other entries).
+
 **`autoload.files` is what runs the bootstrap (#351).** PHP runs no file because of its name, and
 without this entry nothing ever loads `telemetry.php`: no provider is registered and the service
 exports nothing, with no error. Composer includes every `autoload.files` entry from

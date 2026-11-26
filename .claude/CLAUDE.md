@@ -149,7 +149,11 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
   register providers from the environment, before ours: the bootstrap's initializer still wins
   for traces and metrics because the project's autoload files load after the packages', and the
   `putenv(... none)` loop must stay above the no-endpoint `return` or the variable turns export
-  on against localhost:4318. The e2e runs that on Laravel with the PECL extension
+  on against localhost:4318. The generated `composer.json` also allows the `tbachert/spi`
+  plugin: `open-telemetry/api` registers the extension's hook manager only in its `extra.spi`,
+  which only that plugin reads, and a non-interactive Composer skips a plugin it was not allowed
+  without an error, leaving a no-op hook manager and no framework span (caught by the first CI
+  run with the extension). The e2e runs that on Laravel with the PECL extension
   (`OTEL_AS_CODE_REQUIRE_PHP_EXTENSION=1` in CI; elsewhere a missing extension is "not
   checked"). Never replace the user's logger or format: the
   upstream `set_logging_format` was measured to make the app's later `basicConfig(format=...)` a

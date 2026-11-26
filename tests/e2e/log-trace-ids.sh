@@ -527,8 +527,9 @@ PHP_UPDATE="composer update 'open-telemetry/*'"
 [ "$(grep -cF "  1. $PHP_UPDATE " "$GEN")" = 1 ] || bad "php: the generator's summary does not print '$PHP_UPDATE' as its first step"
 # php_composer <composer.json> <bootstrap path>: what the golden composer.json adds (it is held to
 # the generator's block by tests/hooks/php-instrument-wiring.test.sh) -- its OpenTelemetry pins (no
-# framework auto package) in require, and its autoload.files entry, at this app's bootstrap path,
-# merged into what the app already has. Nothing here names the bootstrap on its own.
+# framework auto package) in require, its autoload.files entry, at this app's bootstrap path, and
+# its config.allow-plugins, merged into what the app already has. Nothing here names the bootstrap
+# on its own.
 php_composer() {
   python3 - "$1" "$2" "$SRC/tests/snapshots/instrument/php/composer.json" <<'PY'
 import json, sys
@@ -542,6 +543,7 @@ for entry in gold.get("autoload", {}).get("files", []):
     entry = bootstrap if entry == "telemetry.php" else entry
     if entry not in files:
         files.append(entry)
+app.setdefault("config", {}).setdefault("allow-plugins", {}).update(gold["config"]["allow-plugins"])
 json.dump(app, open(path, "w", encoding="utf-8"), indent=4)
 PY
 }
@@ -668,7 +670,8 @@ if php -m | grep -qx opentelemetry; then
     "$SRC/tests/snapshots/instrument/php/composer.json")
   composer require -q --no-interaction "$AUTO_PIN" || bad "php (laravel auto): composer require $AUTO_PIN failed"
   spans() { "$WORK/venv/bin/python" "$SRC/tests/e2e/otlp_spans.py" "$1"; }
-  # The route's span is the fixture's (scope log-trace-ids); Laravel's is the package's.
+  # The route's span is the fixture's (scope log-trace-ids); Laravel's come from the package's
+  # scopes, io.opentelemetry.contrib.php.laravel.<component> (http.kernel for the request).
   LV_SCOPE=io.opentelemetry.contrib.php.laravel
   lv_request laravel-noauto
   [ "$(spans sink-laravel-noauto | wc -l | tr -d ' ')" = 1 ] \
@@ -676,11 +679,11 @@ if php -m | grep -qx opentelemetry; then
     && ok "php (laravel auto): without OTEL_PHP_AUTOLOAD_ENABLED the package adds no span (only the route's own)" \
     || { bad "php (laravel auto, variable unset): unexpected spans"; spans sink-laravel-noauto; }
   lv_request laravel-auto OTEL_PHP_AUTOLOAD_ENABLED=true OTEL_LOG_LEVEL=debug
-  roots=$(spans sink-laravel-auto | awk -v s="$LV_SCOPE" '$4=="SERVER" && $3=="-" && $6==s')
+  roots=$(spans sink-laravel-auto | awk -v s="$LV_SCOPE." '$4=="SERVER" && $3=="-" && index($6, s)==1')
   root_id=$(awk '{print $2}' <<<"$roots")
   [ "$(grep -c . <<<"$roots")" = 1 ] && [ "$(awk '{print $5}' <<<"$roots")" = billing-api ] \
     && ok "php (laravel auto): with the variable, Laravel's request span is exported once, by the bootstrap's provider (service.name billing-api)" \
-    || { bad "php (laravel auto): expected one root server span from $LV_SCOPE, service billing-api"; spans sink-laravel-auto; grep -i "opentelemetry" laravel-auto.server.log | tail -20; }
+    || { bad "php (laravel auto): expected one root server span from $LV_SCOPE.*, service billing-api"; spans sink-laravel-auto; grep -i "opentelemetry" laravel-auto.server.log | tail -20; }
   [ -n "$root_id" ] && spans sink-laravel-auto | awk -v p="$root_id" '$3==p && $6=="log-trace-ids"' | grep -q . \
     && ok "php (laravel auto): the route's own span is a child of Laravel's request span" \
     || { bad "php (laravel auto): the route's span is not under the request span"; spans sink-laravel-auto; }
