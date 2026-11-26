@@ -122,6 +122,22 @@ check "the Datadog threshold variable defaults to 5%, and its monitor query is i
 check "the skill says why Datadog filters by status and what it misses" \
   'grep -q "Why status and not the number" "$SKILL" && grep -q "SEVERE" "$SKILL"'
 
+# From a trace to its logs (#279): tests/e2e/trace_link.py builds the LogQL the stack's Tempo
+# datasource link (tracesToLogsV2) builds. The saved datasource is the shape grafana/otel-lgtm
+# 0.41.1 provisions (its $$ escapes already resolved, as Grafana's API returns them).
+TL=tests/e2e/trace_link.py
+tl_ds=$(mktemp); tl_bad=$(mktemp); tl_none=$(mktemp)
+printf '%s' '{"uid":"tempo","jsonData":{"tracesToLogsV2":{"customQuery":true,"datasourceUid":"loki","query":"{${__tags}} | trace_id = \"${__trace.traceId}\"","tags":[{"key":"service.name","value":"service_name"}]}}}' > "$tl_ds"
+sed 's/"service.name"/"k8s.pod.name"/' "$tl_ds" > "$tl_bad"
+printf '%s' '{"uid":"tempo","jsonData":{}}' > "$tl_none"
+check "trace_link.py renders the link the way Grafana does: tag mapped to the Loki label, trace ID filled in" \
+  '[ "$(python3 $TL query --service svc --trace-id 0af7651916cd43dd8448eb211c80319c --datasource-json "$tl_ds")" = "$(printf "loki\n{service_name=\"svc\"} | trace_id = \"0af7651916cd43dd8448eb211c80319c\"")" ]'
+check "trace_link.py refuses a tag whose value it does not know, and a datasource with no link" \
+  '! python3 $TL query --service svc --trace-id 0af7651916cd43dd8448eb211c80319c --datasource-json "$tl_bad" 2>/dev/null && ! python3 $TL query --service svc --trace-id 0af7651916cd43dd8448eb211c80319c --datasource-json "$tl_none" 2>/dev/null'
+check "the e2e starts from a trace found in Tempo, reads the link from the running Grafana, and checks another trace ID finds nothing" \
+  'e=tests/e2e/log-panel.sh; a=$(grep -n "link trace-id --grafana" $e | cut -d: -f1); b=$(grep -n "link query --grafana \"\$GRAFANA\" --service \"\$SERVICE\" --trace-id \"\$tid\"" $e | cut -d: -f1); [ -n "$a" ] && [ -n "$b" ] && [ "$a" -lt "$b" ] && grep -q "trace-id 0123456789abcdef0123456789abcdef" $e && ! grep -q "datasource-json" $e'
+rm -f "$tl_ds" "$tl_bad" "$tl_none"
+
 check "the sections the new text was inserted before are still there" \
   'grep -q "^## Grafana main.tf$" agents/terraform-gen.md && grep -q "^### Notification routing (contact points)$" "$SKILL"'
 check "the e2e reads its queries out of the golden and is wired into CI" \

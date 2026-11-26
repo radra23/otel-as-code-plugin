@@ -12,6 +12,10 @@
 # The alert RULE is not evaluated here, only its query.
 # Every alert's trace-search link (#288) carries a TraceQL query; that query, read out of the same
 # golden, must find the service's request traces in the stack's Tempo.
+# From a trace to its logs: a request's trace is found in Tempo first, then the LogQL the stack's
+# own trace-to-logs link builds for it (tracesToLogsV2, read from the running Grafana by
+# tests/e2e/trace_link.py) must return that request's line from Loki, and nothing for another
+# trace ID. This is the "Logs for this span" button in Explore, without the browser.
 # Needs Docker with compose, Python 3.9+ with venv, and network for the image and pip.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -141,5 +145,32 @@ else
   bad "the alerts' trace-link query found no trace for $SERVICE"; printf '%s\n' "$out"
 fi
 
-[ "$failed" -eq 0 ] && echo "LOG PANEL E2E PASS: the Grafana golden's log panel and error-log alert queries return data from Loki, and its alerts' trace link finds traces in Tempo" \
+# From the trace to its log lines, through the stack's own link.
+link() { python3 "$SRC/tests/e2e/trace_link.py" "$@"; }
+if tid=$(link trace-id --grafana "$GRAFANA" --service "$SERVICE" --wait 60 \
+           --traceql "{resource.service.name=\"$SERVICE\" && span.http.route=\"/inventory/reserve\"}"); then
+  ok "a reserve request's trace was found in Tempo: $tid"
+  if out=$(link query --grafana "$GRAFANA" --service "$SERVICE" --trace-id "$tid"); then
+    uid=$(sed -n 1p <<<"$out"); LINK=$(sed -n 2p <<<"$out")
+    echo "trace-to-logs query: $LINK"
+    [ "$uid" = loki ] || bad "the trace-to-logs link points at datasource '$uid', not the stack's Loki"
+    if out=$(logs --expr "$LINK" --contains "reserved sku=A-1" --wait 60); then
+      ok "the stack's trace-to-logs link, built from that trace, returns the request's log line from Loki"
+    else
+      bad "the trace-to-logs link returned no line for trace $tid"; printf '%s\n' "$out"; dump
+    fi
+    other=$(link query --grafana "$GRAFANA" --service "$SERVICE" --trace-id 0123456789abcdef0123456789abcdef | sed -n 2p)
+    if out=$(logs --expr "$other"); then
+      bad "the trace-to-logs link returned lines for a trace ID nothing logged under"; printf '%s\n' "$out"
+    else
+      ok "the same link for another trace ID returns nothing, so it filters by the trace"
+    fi
+  else
+    bad "the Tempo datasource has no usable trace-to-logs link"; printf '%s\n' "$out"
+  fi
+else
+  bad "no reserve request's trace in Tempo"
+fi
+
+[ "$failed" -eq 0 ] && echo "LOG PANEL E2E PASS: the Grafana golden's log panel and error-log alert queries return data from Loki, its alerts' trace link finds traces in Tempo, and a trace leads to its log lines" \
   || { echo "LOG PANEL E2E FAIL"; exit 1; }
