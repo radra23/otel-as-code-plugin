@@ -137,7 +137,7 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
   which the tower and actix-web layers and `tracing-opentelemetry` all set; the e2e compares
   each line with a build that drops that one line (actix-web is read from source, not run).
 - PHP's bootstrap is loaded by `composer.json`'s `autoload.files` (#351), the one thing that runs
-  it: PHP runs no file by name, and until 0.25.21 nothing loaded `telemetry.php`, so a PHP
+  it: PHP runs no file by name, and until 0.25.22 nothing loaded `telemetry.php`, so a PHP
   service exported nothing and said nothing. It loads once (a constant guard) and stands down
   with an `error_log` line, never `trigger_error` (that lands in the response body), when the SDK
   is not installed, because every entry point now runs it. The summary's first step is
@@ -155,7 +155,12 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
   without an error, leaving a no-op hook manager and no framework span (caught by the first CI
   run with the extension). The e2e runs that on Laravel with the PECL extension
   (`OTEL_AS_CODE_REQUIRE_PHP_EXTENSION=1` in CI; elsewhere a missing extension is "not
-  checked"). Never replace the user's logger or format: the
+  checked"). The Monolog logs add-on (printed only when Monolog is a dependency) is run as
+  printed too, both blocks read out of the generator (`tests/e2e/php_monolog_addon.py`): until
+  0.25.22 it was a parse error (it re-imported names the template imports), then a TypeError
+  (`new LoggerProvider($processor, $resource)`; the builder takes the resource), its printed
+  line named `$loggerProvider`, which the app cannot see (`telemetry.php` is included inside a
+  function), and it exported nothing (no shutdown flushed the batch). Never replace the user's logger or format: the
   upstream `set_logging_format` was measured to make the app's later `basicConfig(format=...)` a
   no-op, so it is not used. Text is never appended to a custom formatter class or to a line that
   is already JSON (it was caught breaking a structlog-style formatter in a probe). The block is

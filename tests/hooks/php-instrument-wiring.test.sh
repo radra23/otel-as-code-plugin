@@ -113,6 +113,16 @@ check "the generator's composer block and the golden allow tbachert/spi (the ext
   'python3 -c "import json,sys; b=json.load(open(sys.argv[1])); g=json.load(open(sys.argv[2])); sys.exit(0 if b[\"config\"][\"allow-plugins\"]=={\"tbachert/spi\": True} and g[\"config\"][\"allow-plugins\"].get(\"tbachert/spi\") is True else 1)" "$tmp/core_block.json" "$GOLD/composer.json"'
 check "the e2e merges the golden's allow-plugins into the app, as generated" \
   'grep -qF "update(gold[\"config\"][\"allow-plugins\"])" tests/e2e/log-trace-ids.sh'
+# The Monolog logs add-on, as printed: each of these was a runtime failure (#279 follow-up).
+awk '/^### Logs \(Monolog bridge/{h=1} h&&/^```php$/{g=1;next} g&&/^```$/{exit} g' "$GEN" > "$tmp/addon.php"
+check "the logs add-on has no use lines (the template imports them; a second import is fatal)" \
+  'test -s "$tmp/addon.php" && ! grep -q "^use " "$tmp/addon.php" && for c in LogsExporter LoggerProvider BatchLogRecordProcessor; do grep -q "^use .*\\\\$c;$" "$GOLD/telemetry.php" || exit 1; done'
+check "the logs add-on builds the provider with the builder and flushes it at shutdown" \
+  'grep -qF "LoggerProvider::builder()" "$tmp/addon.php" && ! grep -qF "new LoggerProvider(" "$tmp/addon.php" && grep -qF "register_shutdown_function(static fn () => \$loggerProvider->shutdown());" "$tmp/addon.php"'
+check "the printed pushHandler line names Globals::loggerProvider(), never the bootstrap's local variable" \
+  'grep -qxF "\$logger->pushHandler(new \OpenTelemetry\Contrib\Logs\Monolog\Handler(\OpenTelemetry\API\Globals::loggerProvider(), \Monolog\Logger::DEBUG));" "$GEN" && ! grep -qF "Handler(\$loggerProvider" "$GEN"'
+check "the e2e runs the add-on as printed and reads its records" \
+  'grep -qF "php_monolog_addon.py" tests/e2e/log-trace-ids.sh && grep -qF "otlp_logs.py" tests/e2e/log-trace-ids.sh'
 check "golden composer.json (Laravel) also carries the laravel auto-instrumentation package" \
   'grep -qF "open-telemetry/opentelemetry-auto-laravel" "$GOLD/composer.json"'
 
