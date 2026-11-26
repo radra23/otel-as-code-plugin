@@ -527,8 +527,9 @@ PHP_UPDATE="composer update 'open-telemetry/*'"
 [ "$(grep -cF "  1. $PHP_UPDATE " "$GEN")" = 1 ] || bad "php: the generator's summary does not print '$PHP_UPDATE' as its first step"
 # php_composer <composer.json> <bootstrap path>: what the golden composer.json adds (it is held to
 # the generator's block by tests/hooks/php-instrument-wiring.test.sh) -- its OpenTelemetry pins (no
-# framework auto package) in require, and its autoload.files entry, at this app's bootstrap path,
-# merged into what the app already has. Nothing here names the bootstrap on its own.
+# framework auto package) in require, its autoload.files entry, at this app's bootstrap path, and
+# its config.allow-plugins, merged into what the app already has. Nothing here names the bootstrap
+# on its own.
 php_composer() {
   python3 - "$1" "$2" "$SRC/tests/snapshots/instrument/php/composer.json" <<'PY'
 import json, sys
@@ -542,6 +543,7 @@ for entry in gold.get("autoload", {}).get("files", []):
     entry = bootstrap if entry == "telemetry.php" else entry
     if entry not in files:
         files.append(entry)
+app.setdefault("config", {}).setdefault("allow-plugins", {}).update(gold["config"]["allow-plugins"])
 json.dump(app, open(path, "w", encoding="utf-8"), indent=4)
 PY
 }
@@ -653,6 +655,56 @@ lv_request laravel-noendpoint OTEL_EXPORTER_OTLP_ENDPOINT=
 line=$(pline laravel-noendpoint.log "laravel order line id=7")
 [[ -n "$line" && "$line" != *trace_id* ]] \
   && ok "php (laravel): with no endpoint the line has no IDs (documented)" || bad "php (laravel, no endpoint): '$line'"
+
+# Laravel's own request span: the golden's opentelemetry-auto-laravel package, the PECL
+# extension it hooks through, and the OTEL_PHP_AUTOLOAD_ENABLED=true step the summary prints.
+# The package registers its hooks only through the SDK's autoloader, so without the variable it
+# does nothing; with it, the SDK registers providers from the environment first and the
+# bootstrap's initializer, which runs after, must still be the one that exports the request span
+# (its resource, not unknown_service), with the route's own span as its child. With no endpoint,
+# the bootstrap's exporter guard must keep the SDK's own providers from exporting to their
+# default localhost:4318. Needs the opentelemetry extension: not loaded here is "not checked",
+# and a failure where OTEL_AS_CODE_REQUIRE_PHP_EXTENSION=1 (CI).
+if php -m | grep -qx opentelemetry; then
+  AUTO_PIN=$(python3 -c 'import json,sys; r=json.load(open(sys.argv[1]))["require"]; print(next(f"{k}:{v}" for k in r for v in [r[k]] if "auto-laravel" in k))' \
+    "$SRC/tests/snapshots/instrument/php/composer.json")
+  composer require -q --no-interaction "$AUTO_PIN" || bad "php (laravel auto): composer require $AUTO_PIN failed"
+  spans() { "$WORK/venv/bin/python" "$SRC/tests/e2e/otlp_spans.py" "$1"; }
+  # The route's span is the fixture's (scope log-trace-ids); Laravel's come from the package's
+  # scopes, io.opentelemetry.contrib.php.laravel.<component> (http.kernel for the request).
+  LV_SCOPE=io.opentelemetry.contrib.php.laravel
+  lv_request laravel-noauto
+  [ "$(spans sink-laravel-noauto | wc -l | tr -d ' ')" = 1 ] \
+    && [ "$(spans sink-laravel-noauto | awk '$3=="-" && $6=="log-trace-ids"' | wc -l | tr -d ' ')" = 1 ] \
+    && ok "php (laravel auto): without OTEL_PHP_AUTOLOAD_ENABLED the package adds no span (only the route's own)" \
+    || { bad "php (laravel auto, variable unset): unexpected spans"; spans sink-laravel-noauto; }
+  lv_request laravel-auto OTEL_PHP_AUTOLOAD_ENABLED=true OTEL_LOG_LEVEL=debug
+  # Only the /orders/7 request: wait_up's GET /health is traced too now, and Laravel's own
+  # session queries add CLIENT spans under each request.
+  roots=$(spans sink-laravel-auto | awk -v s="$LV_SCOPE." '$4=="SERVER" && $3=="-" && index($6, s)==1 && $7" "$8=="GET /orders/{id}"')
+  root_id=$(awk '{print $2}' <<<"$roots")
+  [ "$(grep -c . <<<"$roots")" = 1 ] && [ "$(awk '{print $5}' <<<"$roots")" = billing-api ] \
+    && ok "php (laravel auto): with the variable, Laravel's request span is exported once, by the bootstrap's provider (service.name billing-api)" \
+    || { bad "php (laravel auto): expected one root server span from $LV_SCOPE.*, service billing-api"; spans sink-laravel-auto; grep -i "opentelemetry" laravel-auto.server.log | tail -20; }
+  [ -n "$root_id" ] && spans sink-laravel-auto | awk -v p="$root_id" '$3==p && $6=="log-trace-ids"' | grep -q . \
+    && ok "php (laravel auto): the route's own span is a child of Laravel's request span" \
+    || { bad "php (laravel auto): the route's span is not under the request span"; spans sink-laravel-auto; }
+  line=$(pline laravel-auto.log "laravel order line id=7")
+  [[ "$line" == *"\"trace_id\":\"$(spans sink-laravel-auto | awk -v p="$root_id" '$2==p{print $1}')\""* ]] \
+    && ok "php (laravel auto): the request's log line carries that request span's trace ID" \
+    || { bad "php (laravel auto): the line's trace ID is not the request span's"; echo "  line: $line"; }
+  rm -rf sink-default-port; mkdir sink-default-port
+  python3 "$SRC/tests/e2e/otlp-http-sink.py" sink-default-port 4318 > sink-default-port.log 2>&1 & PORT_SINK=$!
+  lv_request laravel-auto-noendpoint OTEL_PHP_AUTOLOAD_ENABLED=true OTEL_EXPORTER_OTLP_ENDPOINT=
+  kill "$PORT_SINK" 2>/dev/null || true; wait "$PORT_SINK" 2>/dev/null || true
+  [ -z "$(ls sink-default-port)" ] && [ -n "$(pline laravel-auto-noendpoint.log "laravel order line id=7")" ] \
+    && ok "php (laravel auto): with the variable and no endpoint, the app serves and nothing reaches the SDK's default localhost:4318" \
+    || { bad "php (laravel auto, no endpoint): something was exported to :4318"; ls sink-default-port; }
+elif [ "${OTEL_AS_CODE_REQUIRE_PHP_EXTENSION:-}" = 1 ]; then
+  bad "php (laravel auto): the opentelemetry extension is not loaded, and this run requires it"
+else
+  echo "NOT CHECKED: php (laravel auto): the opentelemetry extension is not loaded"
+fi
 
 # ---------------------------------------------------------------- Rust
 # The bootstrap installs the stdout fmt layer itself, so nothing is printed for the user: the
