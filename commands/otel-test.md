@@ -78,6 +78,21 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/enrich.py" list --root <repo root>
 
 A service with no enrichment still gets a test: it asserts the request's own span.
 
+**What it cannot assert.** The service's own code may set up telemetry by hand (a helper that calls
+`getMeter(...).createCounter(...)`, a `trace.get_tracer(...)` in a job). The test learns what to
+assert only from the list above, so that telemetry could stop coming out and the test would still
+pass. Run:
+
+```
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/enrich.py" handwritten --root <repo root> --service-root <rootDir>
+```
+
+Every line it prints goes in `notCovered`, as `<file>:<line> hand-written <meter|tracer> <name>`
+with the reason "set up by hand, not by /otel-enrich, so the test does not know what it emits".
+Never turn one into an expected span or metric: its name, kind and unit are not confirmed in the
+cache. It is a line scan, so read each hit before listing it; one in a string or a test of the
+service's own is still listed, and say so if it is clearly not the service's telemetry.
+
 **Which request.** With `--route`, use it. Otherwise read the route handlers and pick the one
 request that reaches the most of those spans and metrics. Prefer one that can run with nothing else
 started: this test starts the service alone, with no database, queue or other service beside it.
@@ -197,7 +212,9 @@ exited 0.
 
 It sends <METHOD> <path> through <service> and fails if any of these stops coming out:
   <the request's span, the request's duration metric, the spans, the metrics>
-Not covered: <notCovered, or "nothing: every enriched span and business metric is asserted">
+Not covered: <notCovered, including each hand-written meter or tracer from Step 2, or
+             "nothing: every enriched span and business metric is asserted, and no
+             hand-written meter or tracer was found">
 
 Run it:    <the command from Step 4>
 In CI:     add that command to the job that runs your tests.
