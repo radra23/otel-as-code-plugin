@@ -5,8 +5,8 @@
 // current span the same way, so Span::getCurrent() sees it. LOG_MODE picks the app's own handler
 // format (Monolog's default line, a format without %extra%, or JSON); the e2e replaces the line
 // after "log setup" with the line /otel-instrument prints, read out of the generator.
+// telemetry.php is not required here: composer.json's autoload.files loads it, as generated (#351).
 require __DIR__ . '/vendor/autoload.php';
-require __DIR__ . '/telemetry.php';
 
 use Monolog\Formatter\JsonFormatter;
 use Monolog\Formatter\LineFormatter;

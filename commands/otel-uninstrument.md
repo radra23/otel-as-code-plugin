@@ -155,6 +155,12 @@ the list to the target language:
   `dotnet remove package` for the four OTel packages (`OpenTelemetry.Extensions.Hosting`,
   `OpenTelemetry.Instrumentation.AspNetCore`, `OpenTelemetry.Instrumentation.Http`,
   `OpenTelemetry.Exporter.OpenTelemetryProtocol`).
+- **PHP** — `telemetry.php` is deleted above. Say this one first and plainly: `composer.json`'s
+  `autoload.files` still names it, so every entry point (web requests, `artisan`, `bin/console`)
+  fails on the missing file until the user removes that entry and runs `composer dump-autoload`.
+  Then, by hand: remove the `open-telemetry/*` packages from `require` (`composer remove` them),
+  the `pushProcessor('otel_as_code_trace_ids')` line if it was added, and the PECL extension and
+  `OTEL_PHP_AUTOLOAD_ENABLED` from the host if nothing else uses them.
 - **Rust** — `src/telemetry.rs` is deleted above; by hand: remove the lines between
   `# otel-as-code: begin` and `# otel-as-code: end` in `Cargo.toml` (markers included; a
   `tracing` line the app already had stays outside the block), and from `src/main.rs` the

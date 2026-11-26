@@ -346,10 +346,13 @@ error. This is a SYNTAX check only, not the compile-and-link guarantee Go/Rust/.
 — PHP has no build step to catch a wrong class/namespace reference the way those do. Run it only
 if `composer`/`php` are present; otherwise print the wiring steps (`composer install` → the host
 PECL-extension step from the subagent summary → `composer validate && php -l telemetry.php`) and
-note verification was deferred. A syntax error is a failure to fix, not to paper over. (Runtime
-span emission is the e2e follow-up, as with every other language — and PHP's has not been
-runtime-verified at all yet, since no PHP toolchain was available at generation time; say so
-plainly rather than implying it was.)
+note verification was deferred. A syntax error is a failure to fix, not to paper over. Then check
+that `composer.json`'s `autoload.files` names the bootstrap (`telemetry.php`, or
+`bootstrap/telemetry.php`): without it nothing loads the file and the service exports nothing,
+silently (#351). (Runtime span emission is the e2e follow-up, as with every other language. PHP's
+is only partly proven: `tests/e2e/log-trace-ids.sh` loads the golden through `autoload.files` in a
+plain script and a Laravel app and receives its spans, but nothing runs the framework packages or
+a Collector; say so plainly rather than implying more.)
 
 Run the smoke only if the SDK dependencies are installed (`node_modules` / the venv present). If
 they are not, DO NOT fail — print the exact command for the user to run after `npm install` /

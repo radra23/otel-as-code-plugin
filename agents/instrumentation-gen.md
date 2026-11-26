@@ -2543,8 +2543,8 @@ Still required:
 
 ## PHP (Laravel / Symfony / framework-agnostic — SDK wiring + Monolog logs bridge)
 
-PHP is instrumented with one generated `telemetry.php` plus a marked block appended to
-`composer.json`. **There is no framework refusal case** — like Ruby's
+PHP is instrumented with one generated `telemetry.php`, plus the OpenTelemetry packages in
+`composer.json`'s `require` and the bootstrap in its `autoload.files`, which is what loads it. **There is no framework refusal case** — like Ruby's
 `opentelemetry-instrumentation-all`, `generatorSupported` is `true` unconditionally for any
 `runtime: php` service with no OTel already wired (see the scanner's brownfield exclusion:
 an `open-telemetry/*` entry in `composer.json` already means audit, not generate).
@@ -2617,6 +2617,47 @@ use OpenTelemetry\SDK\Trace\Sampler\AlwaysOnSampler;
 use OpenTelemetry\SDK\Trace\SpanProcessor\BatchSpanProcessor;
 use OpenTelemetry\SDK\Trace\TracerProvider;
 
+// Loaded through composer.json's autoload.files (#351), so every entry point that includes
+// vendor/autoload.php runs it: web requests, artisan / bin/console, queue workers. Loaded once:
+// a second load (a hand-written require left over from an earlier setup) would register every
+// provider twice.
+if (defined('OTEL_AS_CODE_BOOTSTRAPPED')) {
+    return;
+}
+define('OTEL_AS_CODE_BOOTSTRAPPED', true);
+
+// Trace IDs in the app's own log lines (#279): a Monolog processor that adds trace_id and span_id
+// to a record's `extra` while a span is active, and nothing outside one. Monolog's LineFormatter
+// prints `extra` where its format says %extra% (the default format ends with it) and
+// JsonFormatter writes it as fields; the app's handlers and format are not touched. Installed by
+// the line /otel-instrument prints, where the app builds its Monolog logger:
+//   $logger->pushProcessor('otel_as_code_trace_ids');
+// Defined before the SDK and endpoint checks, so that line never calls an undefined function: with
+// no endpoint there are no spans and it adds nothing, and without the OpenTelemetry API installed
+// it does nothing.
+if (!function_exists('otel_as_code_trace_ids')) {
+    function otel_as_code_trace_ids(\Monolog\LogRecord $record): \Monolog\LogRecord
+    {
+        if (!class_exists(\OpenTelemetry\API\Trace\Span::class)) {
+            return $record;
+        }
+        $span = \OpenTelemetry\API\Trace\Span::getCurrent()->getContext();
+        if ($span->isValid()) {
+            $record->extra['trace_id'] = $span->getTraceId();
+            $record->extra['span_id'] = $span->getSpanId();
+        }
+        return $record;
+    }
+}
+
+// Telemetry never takes the app down: without the SDK installed (composer.json edited, but the
+// packages not installed yet), say so and do nothing.
+if (!class_exists(TracerProvider::class)) {
+    // error_log, not trigger_error: with display_errors on, a warning would land in the response body.
+    error_log('otel-as-code: the OpenTelemetry SDK is not installed (run composer update \'open-telemetry/*\'); telemetry is off.');
+    return;
+}
+
 $endpointSet = (bool) getenv('OTEL_EXPORTER_OTLP_ENDPOINT');
 
 // Exports nowhere until OTEL_EXPORTER_OTLP_ENDPOINT is configured. PHP's SDK does NOT no-op on
@@ -2637,26 +2678,6 @@ $resource = ResourceInfoFactory::defaultResource()->merge(ResourceInfo::create(A
     'service.namespace' => getenv('OTEL_SERVICE_NAMESPACE') ?: '<SERVICE_NAMESPACE>',
     'deployment.environment.name' => getenv('DEPLOYMENT_ENV') ?: '<DEPLOYMENT_ENV>',
 ])));
-
-// Trace IDs in the app's own log lines (#279): a Monolog processor that adds trace_id and span_id
-// to a record's `extra` while a span is active, and nothing outside one. Monolog's LineFormatter
-// prints `extra` where its format says %extra% (the default format ends with it) and
-// JsonFormatter writes it as fields; the app's handlers and format are not touched. Installed by
-// the line /otel-instrument prints, where the app builds its Monolog logger:
-//   $logger->pushProcessor('otel_as_code_trace_ids');
-// Defined before the endpoint check, so that line also works with no endpoint (no spans, nothing
-// added).
-if (!function_exists('otel_as_code_trace_ids')) {
-    function otel_as_code_trace_ids(\Monolog\LogRecord $record): \Monolog\LogRecord
-    {
-        $span = \OpenTelemetry\API\Trace\Span::getCurrent()->getContext();
-        if ($span->isValid()) {
-            $record->extra['trace_id'] = $span->getTraceId();
-            $record->extra['span_id'] = $span->getSpanId();
-        }
-        return $record;
-    }
-}
 
 if (!$endpointSet) {
     // No provider is registered; OpenTelemetry's own global no-op API answers every call.
@@ -2745,7 +2766,7 @@ say so, never change the format), `error_log`/`echo`, loggers other than Monolog
 while `OTEL_EXPORTER_OTLP_ENDPOINT` is unset (the bootstrap then makes no spans, so the line is
 unchanged).
 
-### Update `composer.json`: append the marked block to `require`
+### Update `composer.json`: add the packages to `require` and the bootstrap to `autoload.files`
 
 ```json
 {
@@ -2755,9 +2776,21 @@ unchanged).
     "open-telemetry/sdk": "^1.17.0",
     "open-telemetry/sem-conv": "^1.45.0",
     "open-telemetry/exporter-otlp": "^1.6.0"
+  },
+  "autoload": {
+    "files": ["telemetry.php"]
   }
 }
 ```
+**`autoload.files` is what runs the bootstrap (#351).** PHP runs no file because of its name, and
+without this entry nothing ever loads `telemetry.php`: no provider is registered and the service
+exports nothing, with no error. Composer includes every `autoload.files` entry from
+`vendor/autoload.php`, which every entry point already loads (Laravel's `public/index.php` and
+`artisan`, Symfony's `public/index.php` and `bin/console`, a plain front controller, queue
+workers), so one entry covers them all and nothing is added to the app's own code. The path is
+relative to `composer.json`: `bootstrap/telemetry.php` when the file went there. Merge into the
+app's existing `autoload` object (keep its `psr-4`, `classmap` and other `files` entries; never
+replace it). The bootstrap loads once even if the app also `require`s it.
 For `framework: laravel`, add `"open-telemetry/opentelemetry-auto-laravel": "^1.10.0"`. For
 `framework: symfony`, add `"open-telemetry/opentelemetry-auto-symfony": "^1.7.0"`. Neither is
 added for `other`/`unknown` — the framework-agnostic path has no matching auto-package; the
@@ -2784,10 +2817,13 @@ is the hook mechanism the auto package attaches to, and installing either one al
 ```
 Generated:
   telemetry.php    (OpenTelemetry SDK wiring — traces, metrics, logs all Stable; no --experimental needed)
-  composer.json    (otel-as-code dependency block appended)
+  composer.json    (OpenTelemetry packages in require; telemetry.php in autoload.files, which loads it)
 
 Wire it up:
-  1. composer install
+  1. composer update 'open-telemetry/*'   (or composer install when there is no composer.lock yet:
+     with a lock, install keeps the old lock and leaves the new packages out; until they are
+     installed, telemetry.php writes one line to the error log per request and does nothing). This also regenerates the autoloader,
+     which is what loads telemetry.php (composer.json's autoload.files).
   2. Required host change (this plugin cannot do this for you):
        pecl install opentelemetry
        echo "extension=opentelemetry.so" >> php.ini

@@ -130,7 +130,15 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
   `return` so the printed `pushProcessor` line never calls an undefined function; Laravel's line
   goes in `AppServiceProvider::boot()` on `Log::getLogger()`. The e2e reads those printed lines out of
   `instrumentation-gen.md` (PHP in a plain script and a new Laravel app, the span started by the
-  fixture because the auto packages need the PECL extension); Rust is still "not checked". Never replace the user's logger or format: the
+  fixture because the auto packages need the PECL extension); Rust is still "not checked".
+- PHP's bootstrap is loaded by `composer.json`'s `autoload.files` (#351), the one thing that runs
+  it: PHP runs no file by name, and until 0.25.19 nothing loaded `telemetry.php`, so a PHP
+  service exported nothing and said nothing. It loads once (a constant guard) and stands down
+  with an `error_log` line, never `trigger_error` (that lands in the response body), when the SDK
+  is not installed, because every entry point now runs it. The summary's first step is
+  `composer update 'open-telemetry/*'`: with a `composer.lock`, `composer install` leaves the
+  new packages out. The e2e never `require`s the bootstrap; it applies the golden
+  `composer.json`'s entries, so a generator that stops adding `autoload.files` fails there. Never replace the user's logger or format: the
   upstream `set_logging_format` was measured to make the app's later `basicConfig(format=...)` a
   no-op, so it is not used. Text is never appended to a custom formatter class or to a line that
   is already JSON (it was caught breaking a structlog-style formatter in a probe). The block is

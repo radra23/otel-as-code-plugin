@@ -508,22 +508,44 @@ unset BUNDLE_GEMFILE BUNDLE_PATH
 # ---------------------------------------------------------------- PHP
 # The golden telemetry.php's otel_as_code_trace_ids processor does the work; the two lines that
 # install it are read out of the generator. A plain Monolog script, and a new Laravel app with the
-# line in AppServiceProvider::boot(). Both take the golden composer.json's OpenTelemetry pins and
-# export over OTLP/HTTP to otlp-http-sink.py; each starts the server span itself, since the
-# framework auto-instrumentation needs the PECL extension.
+# line in AppServiceProvider::boot(). Neither requires telemetry.php: it is loaded only through
+# composer.json's autoload.files, as generated (#351), so a bootstrap nothing loads fails here.
+# Both take the golden composer.json's OpenTelemetry pins and export over OTLP/HTTP to
+# otlp-http-sink.py; each starts the server span itself, since the framework auto-instrumentation
+# needs the PECL extension.
 php_line() { [ "$(grep -cxF "  $1" "$GEN")" = 1 ] && printf '%s' "$1"; }
 PHP_LOGGER=$(php_line "\$logger->pushProcessor('otel_as_code_trace_ids');") \
   || bad "php: the generator does not print the Monolog line exactly once"
 PHP_LARAVEL=$(php_line "\\Illuminate\\Support\\Facades\\Log::getLogger()->pushProcessor('otel_as_code_trace_ids');") \
   || bad "php: the generator does not print the Laravel line exactly once"
-PHP_PINS=$(python3 -c 'import json,sys; r=json.load(open(sys.argv[1]))["require"]; print(" ".join(f"{k}:{v}" for k,v in r.items() if k.startswith("open-telemetry/") and "auto-" not in k))' \
-  "$SRC/tests/snapshots/instrument/php/composer.json")
+PHP_UPDATE="composer update 'open-telemetry/*'"
+[ "$(grep -cF "  1. $PHP_UPDATE " "$GEN")" = 1 ] || bad "php: the generator's summary does not print '$PHP_UPDATE' as its first step"
+# php_composer <composer.json> <bootstrap path>: what the golden composer.json adds (it is held to
+# the generator's block by tests/hooks/php-instrument-wiring.test.sh) -- its OpenTelemetry pins (no
+# framework auto package) in require, and its autoload.files entry, at this app's bootstrap path,
+# merged into what the app already has. Nothing here names the bootstrap on its own.
+php_composer() {
+  python3 - "$1" "$2" "$SRC/tests/snapshots/instrument/php/composer.json" <<'PY'
+import json, sys
+path, bootstrap, golden = sys.argv[1:4]
+app = json.load(open(path, encoding="utf-8"))
+gold = json.load(open(golden))
+pins = {k: v for k, v in gold["require"].items() if k.startswith("open-telemetry/") and "auto-" not in k}
+app.setdefault("require", {}).update(pins)
+files = app.setdefault("autoload", {}).setdefault("files", [])
+for entry in gold.get("autoload", {}).get("files", []):
+    entry = bootstrap if entry == "telemetry.php" else entry
+    if entry not in files:
+        files.append(entry)
+json.dump(app, open(path, "w", encoding="utf-8"), indent=4)
+PY
+}
 mkdir -p "$WORK/php"
 cd "$WORK/php"
-printf '{"name":"otel-as-code/log-trace-ids-php","type":"project","config":{"allow-plugins":{"php-http/discovery":true}}}\n' > composer.json
-# shellcheck disable=SC2086  # one argument per pin
-composer require -q --no-interaction monolog/monolog:^3.0 $PHP_PINS || bad "php: composer require failed"
+printf '{"name":"otel-as-code/log-trace-ids-php","type":"project","require":{"monolog/monolog":"^3.0"},"config":{"allow-plugins":{"php-http/discovery":true}}}\n' > composer.json
 cp "$SRC/tests/snapshots/instrument/php/telemetry.php" telemetry.php
+php_composer composer.json telemetry.php
+composer install -q --no-interaction || bad "php: composer install failed"
 php_place() {   # php_place <src> <out> <line or empty>: the line after "// log setup" replaced
   python3 - "$1" "$2" "$3" <<'PY'
 import sys
@@ -576,19 +598,24 @@ line=$(pline noendpoint-ids.log "php pay line")
 [[ "$line" == *"app.INFO: php pay line orderId=o1 [] []" ]] \
   && ok "php: with no endpoint there are no spans, so the line is unchanged (documented)" || bad "php (no endpoint): '$line'"
 
-# Laravel: a new app, the golden loaded from bootstrap/app.php, the printed line in boot().
+# Laravel: a new app (it has a bootstrap/ dir and a composer.lock), the golden at
+# bootstrap/telemetry.php, composer.json edited as generated, then the summary's first step.
 cd "$WORK"
 composer create-project -q --no-interaction --prefer-dist 'laravel/laravel:^13.0' laravel || bad "php (laravel): create-project failed"
 cd "$WORK/laravel"
-# shellcheck disable=SC2086
-composer require -q --no-interaction $PHP_PINS || bad "php (laravel): composer require failed"
 cp "$SRC/tests/snapshots/instrument/php/telemetry.php" bootstrap/telemetry.php
 cat "$SRC/tests/log-trace-ids/php/laravel_routes.php" >> routes/web.php
-python3 - bootstrap/app.php <<'PY'
-import sys
-p = sys.argv[1]; s = open(p, encoding="utf-8").read()
-open(p, "w", encoding="utf-8").write(s.replace("<?php\n", "<?php\n\nrequire __DIR__ . '/telemetry.php';\n", 1))
-PY
+php_composer composer.json bootstrap/telemetry.php
+# Before the packages are installed: autoload.files already names the bootstrap. The app must keep
+# serving, and say why telemetry is off, in the error log and never in the response.
+composer dump-autoload -q --no-interaction || bad "php (laravel): dump-autoload failed"
+php -S 127.0.0.1:8972 -t public public/index.php > nosdk.server.log 2>&1 & APP_PID=$!
+wait_up http://127.0.0.1:8972/health && body=$(curl -fsS http://127.0.0.1:8972/health) || body="(no answer)"
+stop
+[ "$body" = "ok" ] && grep -qF "otel-as-code: the OpenTelemetry SDK is not installed" nosdk.server.log \
+  && ok "php (laravel): before the packages are installed the app still serves, and the error log says telemetry is off" \
+  || { bad "php (laravel, no SDK): body '$body'"; tail -5 nosdk.server.log; }
+eval "$PHP_UPDATE -q --no-interaction" || bad "php (laravel): '$PHP_UPDATE' failed"
 lv_request() {   # lv_request <name> [VAR=value ...]: one GET /orders/7, the line from laravel.log
   local n="$1"; shift
   rm -rf "sink-$n" storage/logs/laravel.log; mkdir "sink-$n"
