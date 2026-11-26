@@ -6,14 +6,24 @@
 // subscriber and exports nothing, so an unconfigured deployment stays quiet instead of
 // retrying localhost forever. Keep the guard returned by `init()` alive for the life of
 // the process: dropping it flushes and shuts down every provider.
-use opentelemetry::{global, trace::TracerProvider as _, KeyValue};
+use opentelemetry::{
+    global,
+    trace::{TraceContextExt as _, TracerProvider as _},
+    KeyValue,
+};
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use opentelemetry_otlp::{LogExporter, MetricExporter, Protocol, SpanExporter, WithExportConfig};
 use opentelemetry_sdk::{
     logs::SdkLoggerProvider, metrics::SdkMeterProvider, propagation::TraceContextPropagator,
     trace::SdkTracerProvider, Resource,
 };
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
+use tracing_subscriber::{
+    fmt::{format::Writer, FmtContext, FormatEvent, FormatFields},
+    layer::SubscriberExt,
+    registry::LookupSpan,
+    util::SubscriberInitExt,
+    EnvFilter, Layer,
+};
 
 pub struct TelemetryGuard {
     tracer_provider: Option<SdkTracerProvider>,
@@ -31,6 +41,43 @@ impl Drop for TelemetryGuard {
         }
         if let Some(p) = self.logger_provider.take() {
             let _ = p.shutdown();
+        }
+    }
+}
+
+// The stdout line, with ` trace_id=<32 hex> span_id=<16 hex>` appended to an event written inside
+// a span: the framework layer's request span, or a `tracing` span (tracing-opentelemetry makes an
+// entered span the current OpenTelemetry context). Any other line is the stock fmt line, unchanged;
+// while no endpoint is set there are no spans, so that is every line.
+struct WithTraceIds;
+
+impl<S, N> FormatEvent<S, N> for WithTraceIds
+where
+    S: tracing::Subscriber + for<'a> LookupSpan<'a>,
+    N: for<'a> FormatFields<'a> + 'static,
+{
+    fn format_event(
+        &self,
+        ctx: &FmtContext<'_, S, N>,
+        mut writer: Writer<'_>,
+        event: &tracing::Event<'_>,
+    ) -> std::fmt::Result {
+        // The stock line, rendered with the writer's own colour setting.
+        let mut line = String::new();
+        tracing_subscriber::fmt::format()
+            .with_ansi(writer.has_ansi_escapes())
+            .format_event(ctx, Writer::new(&mut line), event)?;
+        let cx = opentelemetry::Context::current();
+        let active = cx.span();
+        let span = active.span_context();
+        match line.strip_suffix('\n') {
+            Some(text) if span.is_valid() => writeln!(
+                writer,
+                "{text} trace_id={} span_id={}",
+                span.trace_id(),
+                span.span_id()
+            ),
+            _ => writer.write_str(&line),
         }
     }
 }
@@ -57,6 +104,7 @@ fn resource() -> Resource {
 
 pub fn init() -> TelemetryGuard {
     let fmt_layer = tracing_subscriber::fmt::layer()
+        .event_format(WithTraceIds)
         .with_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")));
 
     // Only the shared endpoint turns export on: every exporter below falls back to it, while a

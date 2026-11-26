@@ -461,7 +461,8 @@ jobs:
   log-trace-ids:
     name: Log lines carry their request's trace ID
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 15 -> 25 for Rust: two cargo builds of the golden crate (a cold one compiles ~300 crates).
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
@@ -495,7 +496,8 @@ jobs:
           php-version: '8.4'
           tools: composer
 
-      - name: Trace IDs in Python, Node.js, Java, .NET, Go, Ruby and PHP log lines, end to end
+      # cargo comes preinstalled on ubuntu-latest (stable, above the golden's 1.88 floor).
+      - name: Trace IDs in Python, Node.js, Java, .NET, Go, Ruby, PHP and Rust log lines, end to end
         run: bash tests/e2e/log-trace-ids.sh
 
   # /otel-test: the generated telemetry tests, run on real apps. Each must pass on the instrumented

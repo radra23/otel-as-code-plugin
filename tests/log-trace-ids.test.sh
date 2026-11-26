@@ -37,8 +37,8 @@ for lang in "Node.js" "Python" "Java" ".NET" "Go" "Rust" "PHP" "Ruby"; do
   check "the maturity matrix has a log-line row for $lang" \
     'awk "/^## Trace IDs in log lines/{on=1;next} on&&/^## /{exit} on" $M | grep -q "^| $lang  *|"'
 done
-check "only the seven languages the e2e runs are marked as checked" \
-  '[ "$(awk "/^## Trace IDs in log lines/{on=1;next} on&&/^## /{exit} on" $M | grep -c "| yes |$")" = 7 ] && [ "$(awk "/^## Trace IDs in log lines/{on=1;next} on&&/^## /{exit} on" $M | grep -c "| not checked |$")" = 1 ]'
+check "all eight languages are marked as checked, since the e2e runs each" \
+  '[ "$(awk "/^## Trace IDs in log lines/{on=1;next} on&&/^## /{exit} on" $M | grep -c "| yes |$")" = 8 ] && [ "$(awk "/^## Trace IDs in log lines/{on=1;next} on&&/^## /{exit} on" $M | grep -c "| not checked |$")" = 0 ]'
 
 # Java: the generator prints, never writes. The e2e reads these two lines out of the generator, so
 # each must appear exactly once, and the agent pin the e2e downloads must be the generator's.
@@ -102,6 +102,16 @@ check "php: the generator prints each line exactly once, and the e2e reads both"
   '[ "$(grep -cxF "  \$logger->pushProcessor('"'"'otel_as_code_trace_ids'"'"');" $GEN)" = 1 ] && [ "$(grep -cxF "  \Illuminate\Support\Facades\Log::getLogger()->pushProcessor('"'"'otel_as_code_trace_ids'"'"');" $GEN)" = 1 ] && grep -qF "php_line \"\\\$logger->pushProcessor(" tests/e2e/log-trace-ids.sh && grep -qF "php_line \"\\\\Illuminate" tests/e2e/log-trace-ids.sh'
 check "php: the bootstrap never pushes the processor itself" '! grep -q "pushProcessor(" <(grep -v "^//" $PHPG)'
 
+RS=tests/snapshots/instrument/rust/src/telemetry.rs
+rsfmt() { awk '/^\/\/ The stdout line, with/{on=1} on{print} on&&/^}$/{exit}' "$1"; }
+check "rust: the golden defines WithTraceIds and installs it on the fmt layer, once" \
+  'rsfmt $RS | grep -qF "impl<S, N> FormatEvent<S, N> for WithTraceIds" && [ "$(grep -cxF "        .event_format(WithTraceIds)" $RS)" = 1 ]'
+check "rust: the generator's template and the actix golden carry the same formatter" \
+  '[ -n "$(rsfmt $RS)" ] && [ "$(rsfmt $RS)" = "$(rsfmt $GEN)" ] && [ "$(rsfmt $RS)" = "$(rsfmt tests/snapshots/instrument/rust-actix/src/telemetry.rs)" ]'
+check "rust: IDs are appended only for a valid span, after the stock line rendered with the writer's colour" \
+  'rsfmt $RS | grep -qF "Some(text) if span.is_valid() =>" && rsfmt $RS | grep -qF ".with_ansi(writer.has_ansi_escapes())" && rsfmt $RS | grep -qF "_ => writer.write_str(&line),"'
+check "rust: the e2e builds the stock line by removing exactly that install line" \
+  'grep -qF "RS_FORMAT='"'"'        .event_format(WithTraceIds)'"'"'" tests/e2e/log-trace-ids.sh'
 check ".NET: OpenTelemetry.cs and the csproj are still the only .NET goldens (no appsettings)" \
   '[ "$(git ls-files tests/snapshots/instrument/dotnet | grep -v /.gitignore$ | xargs -n1 basename | tr "\n" " ")" = "OpenTelemetry.cs checkout-api.csproj " ]'
 check "the generator points at that section" 'grep -q "Trace IDs in log lines" agents/instrumentation-gen.md'

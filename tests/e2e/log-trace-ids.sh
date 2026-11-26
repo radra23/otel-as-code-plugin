@@ -32,10 +32,15 @@
 #     line and JSON get the IDs; a format without %extra% is left as it was), and the
 #     AppServiceProvider line in a new Laravel app. Exported over OTLP/HTTP to otlp-http-sink.py
 #     (tests/log-trace-ids/php). Needs PHP 8.3+ and Composer.
+#   - Rust: the golden telemetry.rs installs the stdout fmt layer itself, with its WithTraceIds
+#     event format; nothing is printed for the user. An axum app logs in the tower request span, in
+#     a tracing span of its own and outside any span; each line is compared with a build that has
+#     the stock fmt layer. Exported over OTLP/HTTP to otlp-http-sink.py (tests/log-trace-ids/rust).
+#     Needs cargo (Rust 1.88+) and perl.
 # The span's trace ID is read from the exporter's output, the log line from the app's output, and
 # the two must be equal: a trace ID that is merely present would not prove the link. No Docker.
 # Needs Node 18+, Python 3.9+ with venv, JDK 17+ and Maven, the .NET 10 SDK, and network for npm,
-# pip, Maven and NuGet.
+# pip, Maven, NuGet and crates.io.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 SRC=$PWD
@@ -648,6 +653,68 @@ lv_request laravel-noendpoint OTEL_EXPORTER_OTLP_ENDPOINT=
 line=$(pline laravel-noendpoint.log "laravel order line id=7")
 [[ -n "$line" && "$line" != *trace_id* ]] \
   && ok "php (laravel): with no endpoint the line has no IDs (documented)" || bad "php (laravel, no endpoint): '$line'"
+
+# ---------------------------------------------------------------- Rust
+# The bootstrap installs the stdout fmt layer itself, so nothing is printed for the user: the
+# golden telemetry.rs's WithTraceIds event format appends the IDs. The fixture logs in the tower
+# layer's request span, in a `tracing` span of its own, and at start-up outside any span. A second
+# build with the stock fmt layer (the .event_format line removed) is the "left as it was" line.
+# Spans and log records go over OTLP/HTTP to otlp-http-sink.py.
+RS_FORMAT='        .event_format(WithTraceIds)'
+[ "$(grep -cxF "$RS_FORMAT" "$SRC/tests/snapshots/instrument/rust/src/telemetry.rs")" = 1 ] \
+  || bad "rust: the golden telemetry.rs does not install WithTraceIds exactly once"
+mkdir -p "$WORK/rust/src"
+cd "$WORK/rust"
+cp "$SRC/tests/snapshots/instrument/rust/Cargo.toml" "$SRC/tests/snapshots/instrument/rust/Cargo.lock" .
+cp "$SRC/tests/log-trace-ids/rust/main.rs" src/main.rs
+grep -vxF "$RS_FORMAT" "$SRC/tests/snapshots/instrument/rust/src/telemetry.rs" > src/telemetry.rs
+cargo build -q --locked && cp target/debug/search-api app-stock || bad "rust: the stock build failed"
+cp "$SRC/tests/snapshots/instrument/rust/src/telemetry.rs" src/telemetry.rs
+cargo build -q --locked && cp target/debug/search-api app-ids || bad "rust: the golden build failed"
+rs_request() {   # rs_request <name> <binary> [VAR=value ...]: one GET /orders/7, output in <name>.log
+  local n="$1" bin="$2"; shift 2
+  rm -rf "sink-$n"; mkdir "sink-$n"
+  python3 "$SRC/tests/e2e/otlp-http-sink.py" "sink-$n" 48422 > "sink-$n.log" 2>&1 & SINK=$!
+  sleep 0.5
+  env PORT=8974 OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:48422 OTEL_BSP_SCHEDULE_DELAY=200 \
+    OTEL_BLRP_SCHEDULE_DELAY=200 "$@" "./$bin" > "$n.log" 2>&1 & APP_PID=$!
+  wait_up http://127.0.0.1:8974/health || { bad "rust ($n): the service did not start"; tail -20 "$n.log"; }
+  curl -fsS -o /dev/null http://127.0.0.1:8974/orders/7
+  sleep 2; stop; kill "$SINK" 2>/dev/null || true; wait "$SINK" 2>/dev/null || true
+}
+# rline <log> <text>: the first line with <text>, ANSI colour and the leading timestamp removed
+rline() { { grep -F "$2" "$1" || true; } | head -1 | perl -pe 's/\e\[[0-9;]*m//g; s/^\S+\s+//'; }
+rtid() { sed -n 's/.* trace_id=\([0-9a-f]\{32\}\) span_id=[0-9a-f]\{16\}$/\1/p' <<<"$1"; }
+logged() {   # logged <sink dir> <trace id>: an exported log record carries the trace ID
+  [[ "$2" =~ ^[0-9a-f]{32}$ ]] && python3 -c 'import glob,sys; t=bytes.fromhex(sys.argv[2]); sys.exit(0 if any(t in open(f,"rb").read() for f in glob.glob(sys.argv[1]+"/logs-*.bin")) else 1)' "$1" "$2"
+}
+
+rs_request stock app-stock
+rs_request ids app-ids
+stock=$(rline stock.log "rust order line")
+line=$(rline ids.log "rust order line")
+rstid=$(rtid "$line")
+[[ "$line" == "$stock trace_id="* && "$stock" == *"rust order line order_id=7" ]] && exported sink-ids "$rstid" \
+  && ok "rust: a line logged in the request span is the stock fmt line with the exported span's trace ID appended" \
+  || { bad "rust (request span): unexpected line"; echo "  stock: $stock"; echo "  line:  $line"; }
+logged sink-ids "$rstid" \
+  && ok "rust: the exported log record carries the same trace ID" || bad "rust: no exported log record carries $rstid"
+stock=$(rline stock.log "rust charge line")
+line=$(rline ids.log "rust charge line")
+[[ "$line" == "$stock trace_id=$rstid span_id="* ]] \
+  && ok "rust: a line logged in a tracing span inside the request has the request's trace ID" \
+  || { bad "rust (tracing span): unexpected line"; echo "  stock: $stock"; echo "  line:  $line"; }
+stock=$(rline stock.log "rust startup line")
+line=$(rline ids.log "rust startup line")
+[[ -n "$line" && "$line" == "$stock" ]] \
+  && ok "rust: a line logged outside a span is the stock fmt line, unchanged" || bad "rust (outside a span): '$line' vs '$stock'"
+raw=$({ grep -F "rust order line" ids.log || true; } | head -1)
+[[ "$raw" == *$'\e['* ]] && [[ "$({ grep -F "rust order line" stock.log || true; } | head -1)" == *$'\e['* ]] \
+  && ok "rust: the line keeps the fmt layer's colour setting" || bad "rust: the colour setting was not kept"
+rs_request noendpoint app-ids OTEL_EXPORTER_OTLP_ENDPOINT=
+line=$(rline noendpoint.log "rust order line")
+[[ -n "$line" && "$line" != *trace_id=* ]] \
+  && ok "rust: with no endpoint there are no spans, so the line is unchanged (documented)" || bad "rust (no endpoint): '$line'"
 
 [ "$failed" -eq 0 ] && echo "LOG TRACE IDS E2E PASS: log lines carry their request's trace ID, and the app's logging setup is untouched" \
   || { echo "LOG TRACE IDS E2E FAIL"; exit 1; }
