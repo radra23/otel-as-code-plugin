@@ -7,6 +7,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 source tests/hooks/lib/supported-languages.sh   # supported_languages, read by meaning (#259)
+source tests/hooks/lib/step8-languages.sh       # step8_languages, read by meaning (#259)
 pass=0; fail=0
 check() { if eval "$2"; then echo "PASS: $1"; pass=$((pass+1)); else echo "FAIL: $1"; fail=$((fail+1)); fi; }
 
@@ -43,6 +44,11 @@ check "scanner no longer claims php is outside today's codegen" \
 # --- command ---
 check "otel-instrument lists php as supported, not v1-only" \
   'supported_languages | grep -qx php && ! grep -q "v1 will add: php" "$CMD"'
+check "Step 8 puts PHP with the languages that export nowhere until configured, on OTLP/HTTP :4318" \
+  'step8_languages silent "$CMD" | grep -qxF PHP && step8_languages http "$CMD" | grep -qxF PHP'
+check "the golden stands down the way Step 8 says: every exporter none, then no provider" \
+  'grep -qF "putenv(\$var . '"'"'='"'"' . (\$endpointSet ? '"'"'otlp'"'"' : '"'"'none'"'"'));" "$GOLD/telemetry.php" \
+   && grep -qF "http://localhost:4318" "$GOLD/telemetry.php"'
 check "otel-instrument documents composer validate + php -l as the PHP smoke check" \
   'grep -qF "For **PHP** the equivalent check is \`composer validate && php -l telemetry.php\`" "$CMD"'
 
