@@ -2776,8 +2776,9 @@ register_shutdown_function(static function () use ($tracerProvider, $meterProvid
 
 **This file is only partly runtime-verified.** `tests/e2e/log-trace-ids.sh` runs the golden
 under PHP with Monolog and a plain script and a new Laravel app, and requires the spans to arrive
-over OTLP/HTTP; nothing runs the metrics export or the framework auto-instrumentation packages
-(they need the PECL extension). It is written against `open-telemetry/sdk` 1.17.0 / `open-telemetry/sem-conv`
+over OTLP/HTTP, and the Laravel app once more with the PECL extension, `opentelemetry-auto-laravel`
+and `OTEL_PHP_AUTOLOAD_ENABLED=true` (Laravel's request span exported once, through this
+bootstrap's provider); nothing runs the metrics export or the Symfony package. It is written against `open-telemetry/sdk` 1.17.0 / `open-telemetry/sem-conv`
 1.45.0's documented public API and the verified source behavior cited above, not against a live
 run — verify with `composer validate` + `php -l` (syntax only) plus a real `php artisan serve` /
 request cycle before trusting this in production, and flag that gap in the summary.
@@ -2829,7 +2830,7 @@ say so, never change the format), `error_log`/`echo`, loggers other than Monolog
 while `OTEL_EXPORTER_OTLP_ENDPOINT` is unset (the bootstrap then makes no spans, so the line is
 unchanged).
 
-### Update `composer.json`: add the packages to `require` and the bootstrap to `autoload.files`
+### Update `composer.json`: add the packages to `require`, the bootstrap to `autoload.files`, and allow the SPI plugin
 
 ```json
 {
@@ -2842,9 +2843,22 @@ unchanged).
   },
   "autoload": {
     "files": ["telemetry.php"]
+  },
+  "config": {
+    "allow-plugins": {
+      "tbachert/spi": true
+    }
   }
 }
 ```
+**`allow-plugins` for `tbachert/spi` is what lets the framework packages work.** `open-telemetry/api`
+registers the PECL extension's hook manager only in its `composer.json` `extra.spi`, which only that
+Composer plugin reads. A plugin that is not allowed is skipped without an error when Composer runs
+non-interactively (and prompts otherwise), and then the SDK falls back to a no-op hook manager: the
+extension and `opentelemetry-auto-laravel` are both installed and the framework makes no span.
+Measured in `tests/e2e/log-trace-ids.sh`. Merge into the app's existing `config.allow-plugins`
+(keep its other entries).
+
 **`autoload.files` is what runs the bootstrap (#351).** PHP runs no file because of its name, and
 without this entry nothing ever loads `telemetry.php`: no provider is registered and the service
 exports nothing, with no error. Composer includes every `autoload.files` entry from
@@ -2869,11 +2883,19 @@ language's pins.
 Required host change (not generated — no access to php.ini or pecl from here):
   pecl install opentelemetry
   echo "extension=opentelemetry.so" >> php.ini   # or your php.ini-equivalent config
-  OTEL_PHP_AUTOLOAD_ENABLED=true                  # set in your deployment env — unconfirmed
-                                                   # whether this defaults true; treat as required
-Without this, the composer auto-instrumentation package added above is inert: the PECL extension
-is the hook mechanism the auto package attaches to, and installing either one alone does nothing.
+  OTEL_PHP_AUTOLOAD_ENABLED=true                  # set in your deployment env; it is off by default
+Without all three, the composer auto-instrumentation package added above is inert: the PECL
+extension is the hook mechanism it attaches to, and the package registers its hooks only through
+the SDK's autoloader, which runs only when OTEL_PHP_AUTOLOAD_ENABLED=true.
 ```
+
+What the variable also does, measured (`tests/e2e/log-trace-ids.sh`, Laravel with the extension):
+the SDK's autoloader registers providers built from the environment, and the packages' autoload
+files load before the project's own, so `telemetry.php`'s initializer runs after it and its
+tracer and meter providers are the ones the request span is exported through (with this
+bootstrap's resource, not `unknown_service`). With no endpoint, the bootstrap has already set
+`OTEL_*_EXPORTER=none` by then, so the SDK's providers export nothing. Keep that `putenv` loop
+above the `$endpointSet` return: it is what keeps the variable from turning export on.
 
 ### After writing (PHP) — return this summary
 
