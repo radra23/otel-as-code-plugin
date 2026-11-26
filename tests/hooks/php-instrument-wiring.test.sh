@@ -70,7 +70,15 @@ check "generator prints the PECL extension + php.ini step as a host change it ca
   'grep -qiF "pecl install opentelemetry" "$GEN" \
    && grep -qiF "this plugin cannot touch the host" "$GEN"'
 check "generator says how far the PHP bootstrap is runtime-verified, and what is not run" \
-  'grep -qF "This file is only partly runtime-verified." "$GEN" && grep -qF "nothing runs the metrics export or the Symfony package" "$GEN"'
+  'grep -qF "This file is only partly runtime-verified." "$GEN" && grep -qF "runs the metrics export." "$GEN"'
+check "the bootstrap sets the propagator (OTEL_PROPAGATORS through PropagatorFactory), in the template and the golden" \
+  'grep -qF "        ->withPropagator((new PropagatorFactory())->create());" "$GOLD/telemetry.php" && grep -qF "        ->withPropagator((new PropagatorFactory())->create());" "$GEN" && grep -qxF "use OpenTelemetry\SDK\Propagation\PropagatorFactory;" "$GOLD/telemetry.php"'
+check "the Symfony summary puts the extension before composer update, and says why" \
+  'grep -qF "<framework: symfony only: \"Do step 2 first. opentelemetry-auto-symfony requires" "$GEN" && grep -qF "ext-opentelemetry, so Composer refuses this step on a machine without the extension." "$GEN"'
+check "the route-naming caveat states what was measured per framework, not that it is unconfirmed" \
+  '! grep -qF "was not independently confirmed from docs" "$GEN" && grep -qF "e.g. GET app_order_show for /orders/{id} (measured" "$GEN" && grep -qF "e.g. GET /orders/{id}" "$GEN"'
+check "the e2e runs a Symfony app with a known traceparent, and requires the composer step to fail without the extension" \
+  'grep -qF "symfony/skeleton symfony" tests/e2e/log-trace-ids.sh && grep -qF "traceparent: 00-\$SY_TRACE-\$SY_PARENT-01" tests/e2e/log-trace-ids.sh && grep -qF "succeeded without the extension" tests/e2e/log-trace-ids.sh'
 check "the printed host step says why OTEL_PHP_AUTOLOAD_ENABLED is needed, not that it is unconfirmed" \
   '! grep -qF "deployment env — unconfirmed" "$GEN" && grep -qF "registers its hooks only through" "$GEN" && grep -qF "the SDK'"'"'s autoloader, which runs only when OTEL_PHP_AUTOLOAD_ENABLED=true." "$GEN"'
 check "the golden sets OTEL_*_EXPORTER before the no-endpoint return (what keeps the autoload variable from exporting)" \

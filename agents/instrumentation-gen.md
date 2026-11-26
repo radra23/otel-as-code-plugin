@@ -2675,6 +2675,7 @@ use OpenTelemetry\SDK\Logs\LoggerProvider;
 use OpenTelemetry\SDK\Logs\Processor\BatchLogRecordProcessor;
 use OpenTelemetry\SDK\Metrics\MeterProvider;
 use OpenTelemetry\SDK\Metrics\MetricReader\ExportingReader;
+use OpenTelemetry\SDK\Propagation\PropagatorFactory;
 use OpenTelemetry\SDK\Resource\ResourceInfo;
 use OpenTelemetry\SDK\Resource\ResourceInfoFactory;
 use OpenTelemetry\SDK\Trace\Sampler\AlwaysOnSampler;
@@ -2763,10 +2764,14 @@ $meterProvider = MeterProvider::builder()
     ->addReader(new ExportingReader(new MetricExporter($meterTransport)))
     ->build();
 
+// The propagator too (OTEL_PROPAGATORS, default tracecontext,baggage, as the SDK reads it): without
+// one the API's is a no-op, and a framework package (Symfony's reads it whether or not
+// OTEL_PHP_AUTOLOAD_ENABLED is set) would start a new trace for every incoming request.
 \OpenTelemetry\API\Globals::registerInitializer(function ($configurator) use ($tracerProvider, $meterProvider) {
     return $configurator
         ->withTracerProvider($tracerProvider)
-        ->withMeterProvider($meterProvider);
+        ->withMeterProvider($meterProvider)
+        ->withPropagator((new PropagatorFactory())->create());
 });
 
 register_shutdown_function(static function () use ($tracerProvider, $meterProvider): void {
@@ -2779,7 +2784,9 @@ register_shutdown_function(static function () use ($tracerProvider, $meterProvid
 under PHP with Monolog and a plain script and a new Laravel app, and requires the spans to arrive
 over OTLP/HTTP, and the Laravel app once more with the PECL extension, `opentelemetry-auto-laravel`
 and `OTEL_PHP_AUTOLOAD_ENABLED=true` (Laravel's request span exported once, through this
-bootstrap's provider); nothing runs the metrics export or the Symfony package. It is written against `open-telemetry/sdk` 1.17.0 / `open-telemetry/sem-conv`
+bootstrap's provider), and a new Symfony app with the extension and `opentelemetry-auto-symfony`
+(its request span continues an incoming `traceparent`, with and without the variable); nothing
+runs the metrics export. It is written against `open-telemetry/sdk` 1.17.0 / `open-telemetry/sem-conv`
 1.45.0's documented public API and the verified source behavior cited above, not against a live
 run — verify with `composer validate` + `php -l` (syntax only) plus a real `php artisan serve` /
 request cycle before trusting this in production, and flag that gap in the summary.
@@ -2905,6 +2912,14 @@ bootstrap's resource, not `unknown_service`). With no endpoint, the bootstrap ha
 `OTEL_*_EXPORTER=none` by then, so the SDK's providers export nothing. Keep that `putenv` loop
 above the `$endpointSet` return: it is what keeps the variable from turning export on.
 
+**Symfony is different on both counts, measured.** `opentelemetry-auto-symfony` registers itself
+when the extension is loaded, with or without `OTEL_PHP_AUTOLOAD_ENABLED`. It also requires
+`ext-opentelemetry` in its `composer.json`, so `composer update` fails where the extension is
+missing, which is why the Symfony summary puts the extension first. Either way, it reads incoming
+`traceparent` headers through the global propagator, and the bootstrap's initializer sets that
+propagator (`PropagatorFactory`, which reads `OTEL_PROPAGATORS`): without the variable, nothing
+else would, and every request would start a new trace.
+
 ### After writing (PHP) — return this summary
 
 ```
@@ -2917,10 +2932,15 @@ Wire it up:
      with a lock, install keeps the old lock and leaves the new packages out; until they are
      installed, telemetry.php writes one line to the error log per request and does nothing). This also regenerates the autoloader,
      which is what loads telemetry.php (composer.json's autoload.files).
+     <framework: symfony only: "Do step 2 first. opentelemetry-auto-symfony requires
+     ext-opentelemetry, so Composer refuses this step on a machine without the extension. Pass
+     --ignore-platform-req=ext-opentelemetry only where Composer runs without it but the server
+     has it (a build stage): on a server without the extension the package writes a PHP warning
+     at the top of every response.">
   2. Required host change (this plugin cannot do this for you):
        pecl install opentelemetry
        echo "extension=opentelemetry.so" >> php.ini
-       OTEL_PHP_AUTOLOAD_ENABLED=true   (set in your deployment env)
+       OTEL_PHP_AUTOLOAD_ENABLED=true   (set in your deployment env; Laravel's package registers only through it)
   3. composer validate && php -l telemetry.php   (syntax check only — no PHP runtime available
      in this environment to prove the wiring actually works; verify with a real request cycle
      before trusting this in production)
@@ -2939,10 +2959,12 @@ Still required:
     a ⚠ headline warning instead of listing it here.>
   - The PECL extension + php.ini edit above is a host-level change this plugin cannot make;
     without it the composer auto-instrumentation package does nothing.
-  - http.route templating fidelity (the matched route pattern, not the raw request path) for the
-    Laravel/Symfony auto packages was not independently confirmed from docs — verify with
-    OTEL_TRACES_EXPORTER=console that a span for e.g. /invoices/{id} is named with the route
-    pattern, not the literal request path, before trusting dashboards that group by it.
+  - <framework: laravel: "Request spans are named with the route template, e.g. GET /orders/{id}
+    (measured), so dashboards that group by route stay low-cardinality.">
+    <framework: symfony: "Request spans are named with the route's NAME, and http.route is that
+    name too, e.g. GET app_order_show for /orders/{id} (measured; the package does this, not the
+    semantic conventions' path template). Dashboards that group by http.route show route names:
+    give every route an explicit, stable name.">
   - <Monolog bridge bullet, only if monolog/monolog was NOT detected: "Logs were not generated —
     this service has no Monolog dependency to bridge. Add monolog/monolog and re-run to add logs.">
 ```

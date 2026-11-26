@@ -697,11 +697,11 @@ line=$(pline laravel-noendpoint.log "laravel order line id=7")
 # the bootstrap's exporter guard must keep the SDK's own providers from exporting to their
 # default localhost:4318. Needs the opentelemetry extension: not loaded here is "not checked",
 # and a failure where OTEL_AS_CODE_REQUIRE_PHP_EXTENSION=1 (CI).
+spans() { "$WORK/venv/bin/python" "$SRC/tests/e2e/otlp_spans.py" "$1"; }
 if php -m | grep -qx opentelemetry; then
   AUTO_PIN=$(python3 -c 'import json,sys; r=json.load(open(sys.argv[1]))["require"]; print(next(f"{k}:{v}" for k in r for v in [r[k]] if "auto-laravel" in k))' \
     "$SRC/tests/snapshots/instrument/php/composer.json")
   composer require -q --no-interaction "$AUTO_PIN" || bad "php (laravel auto): composer require $AUTO_PIN failed"
-  spans() { "$WORK/venv/bin/python" "$SRC/tests/e2e/otlp_spans.py" "$1"; }
   # The route's span is the fixture's (scope log-trace-ids); Laravel's come from the package's
   # scopes, io.opentelemetry.contrib.php.laravel.<component> (http.kernel for the request).
   LV_SCOPE=io.opentelemetry.contrib.php.laravel
@@ -736,6 +736,62 @@ elif [ "${OTEL_AS_CODE_REQUIRE_PHP_EXTENSION:-}" = 1 ]; then
   bad "php (laravel auto): the opentelemetry extension is not loaded, and this run requires it"
 else
   echo "NOT CHECKED: php (laravel auto): the opentelemetry extension is not loaded"
+fi
+
+# Symfony: a new symfony/skeleton app, the golden at the service root (no bootstrap/ dir),
+# composer.json edited as generated plus the generator's opentelemetry-auto-symfony pin, then the
+# summary's first step. That package requires ext-opentelemetry, so without the extension the
+# step must fail (and the summary says to install the extension first). With it, one request
+# carrying a known traceparent: Symfony's server span must continue that trace (the bootstrap's
+# propagator; without one every request starts a new trace), be exported by the bootstrap's
+# provider, and appear once, with and without OTEL_PHP_AUTOLOAD_ENABLED.
+cd "$WORK"
+composer create-project -q --no-interaction --prefer-dist symfony/skeleton symfony || bad "php (symfony): create-project failed"
+cd "$WORK/symfony"
+cp "$SRC/tests/snapshots/instrument/php/telemetry.php" telemetry.php
+mkdir -p src/Controller
+cp "$SRC/tests/log-trace-ids/php/symfony/OrderController.php" src/Controller/
+php_composer composer.json telemetry.php
+SY_PIN=$(sed -n 's/.*`"\(open-telemetry\/opentelemetry-auto-symfony\)": "\([^"]*\)"`.*/\2/p' "$GEN" | head -1)
+python3 -c 'import json,sys; p=sys.argv[1]; a=json.load(open(p)); a["require"]["open-telemetry/opentelemetry-auto-symfony"]=sys.argv[2]; json.dump(a,open(p,"w"),indent=4)' composer.json "$SY_PIN"
+if php -m | grep -qx opentelemetry; then
+  eval "$PHP_UPDATE -q --no-interaction" || bad "php (symfony): '$PHP_UPDATE' failed with the extension loaded"
+  APP_ENV=prod php bin/console cache:clear -q || bad "php (symfony): cache:clear failed"
+  SY_TRACE=4bf92f3577b34da6a3ce929d0e0e4736 SY_PARENT=00f067aa0ba902b7
+  sy_request() {   # sy_request <name> [VAR=value ...]: one GET /orders/7 carrying SY_TRACE/SY_PARENT
+    local n="$1"; shift
+    rm -rf "sink-$n"; mkdir "sink-$n"
+    python3 "$SRC/tests/e2e/otlp-http-sink.py" "sink-$n" 48423 > "sink-$n.log" 2>&1 & SINK=$!
+    sleep 0.5
+    env APP_ENV=prod APP_DEBUG=0 OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:48423 "$@" \
+      php -S 127.0.0.1:8976 -t public public/index.php > "$n.server.log" 2>&1 & APP_PID=$!
+    wait_up http://127.0.0.1:8976/orders/0 || { bad "php (symfony $n): the app did not start"; tail -20 "$n.server.log"; }
+    body=$(curl -fsS -H "traceparent: 00-$SY_TRACE-$SY_PARENT-01" http://127.0.0.1:8976/orders/7 || true)
+    [ "$body" = "order 7" ] || bad "php (symfony $n): unexpected body '$body'"
+    sleep 0.5; stop; kill "$SINK" 2>/dev/null || true; wait "$SINK" 2>/dev/null || true
+  }
+  # sy_server <sink>: Symfony's server spans in the request's trace
+  sy_server() { spans "$1" | awk -v t="$SY_TRACE" '$1==t && $4=="SERVER" && index($6, "io.opentelemetry.contrib.php.symfony")==1'; }
+  for mode in plain autoload; do
+    if [ "$mode" = plain ]; then sy_request symfony-plain; else sy_request symfony-autoload OTEL_PHP_AUTOLOAD_ENABLED=true; fi
+    srv=$(sy_server "sink-symfony-$mode")
+    [ "$(grep -c . <<<"$srv")" = 1 ] && [ "$(awk '{print $3, $5}' <<<"$srv")" = "$SY_PARENT billing-api" ] \
+      && ok "php (symfony, $mode): Symfony's request span continues the incoming trace, once, exported by the bootstrap's provider" \
+      || { bad "php (symfony, $mode): expected one server span in trace $SY_TRACE under $SY_PARENT from billing-api"; spans "sink-symfony-$mode"; tail -5 "symfony-$mode.server.log"; }
+    [[ "$srv" == *" GET app_order_show http.route=app_order_show" ]] \
+      && ok "php (symfony, $mode): the span is named after the route's name, and http.route is that name, not /orders/{id} (documented)" \
+      || { bad "php (symfony, $mode): unexpected span name or http.route"; echo "  $srv"; }
+  done
+else
+  out=$(eval "$PHP_UPDATE --no-interaction" 2>&1) && bad "php (symfony): '$PHP_UPDATE' succeeded without the extension" \
+    || { grep -qF "ext-opentelemetry" <<<"$out" \
+      && ok "php (symfony): without the extension the summary's composer step fails on ext-opentelemetry (so it comes after the extension)" \
+      || { bad "php (symfony): '$PHP_UPDATE' failed for another reason"; tail -5 <<<"$out"; }; }
+  if [ "${OTEL_AS_CODE_REQUIRE_PHP_EXTENSION:-}" = 1 ]; then
+    bad "php (symfony): the opentelemetry extension is not loaded, and this run requires it"
+  else
+    echo "NOT CHECKED: php (symfony): Symfony's request span (the opentelemetry extension is not loaded)"
+  fi
 fi
 
 # ---------------------------------------------------------------- Rust
