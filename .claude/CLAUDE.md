@@ -156,7 +156,10 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
   alert"); `tests/log-panel.test.sh` requires both Grafana goldens to carry exactly those, and
   `tests/e2e/log-panel.sh` runs them, read out of the golden, against the local stack's Loki
   (`lgtm_check.py logs`), including that the alert query returns nothing before an error is
-  logged. Loki's label is `service_name` with the bare name (no `<namespace>/` prefix, unlike
+  logged. The same e2e follows a trace to its logs: it finds a request's trace in Tempo, builds
+  the LogQL the image's own Tempo `tracesToLogsV2` link builds (read from the running Grafana by
+  `tests/e2e/trace_link.py`, never copied), and requires that request's line back from Loki and
+  nothing for another trace ID. Loki's label is `service_name` with the bare name (no `<namespace>/` prefix, unlike
   Prometheus's `job`), and severity is filtered by `severity_number >= 17`, never by text. The
   alert's query is proven, its rule evaluation is not. New Relic has a Logs page and the same
   alert on `severity.number` (New Relic's documented OTLP mapping); Dash0 has a `dash0.logs`
