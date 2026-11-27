@@ -218,50 +218,66 @@ paths and `Grep` regexes against its own working directory, which sits inside th
 fix only counts absolute paths, which can only lower routed counts; `tests/routing-eval.test.sh`
 now pins it.
 
-### All conditions, per case (Claude Code and Copilot CLI, 2026-11-21)
+### All conditions, per case (Claude Code 2026-11-21, Copilot CLI 2026-11-22 to 2026-11-27)
 
 Each condition ran its own model, so read the Copilot column next to the others, not as a
 like-for-like comparison: a difference can come from the host or from the model, and this eval
 cannot tell which. Claude Code (a) and (b): `claude-opus-5-5` on Claude Code 2.1.311, latest
 recorded run per case, with the plugin version it ran (three runs each). Copilot CLI (c):
-`gpt-4.1` on Copilot CLI 1.0.56, otel-as-code 0.25.1, only otel-as-code installed, capped at
-each case's `max_turns` like the other two.
+`gpt-4.1` on Copilot CLI 1.0.56, otel-as-code 0.25.4, only otel-as-code installed, capped at
+each case's `max_turns` like the other two, three runs per case over several resumed passes.
 
 | Case | Expect | (a) routed | (b) routed | (c) routed | Skill picked (a) / (c) |
 |---|---|---|---|---|---|
-| `add-opentelemetry` | route | 3/3 (0.10.0) | 3/3 (0.10.0) | **6/6** (two passes; one run hit the rate limit after routing) | otel-instrument / otel-instrument |
-| `add-tracing` | route | 3/3 (0.10.0) | 3/3 (0.10.0) | **2/2** (a smoke run and one pass run; two more were rate limited) | otel-instrument / otel-instrument |
-| `instrument-with-opentelemetry` | route | 3/3 (0.10.0) | 3/3 (0.10.0) | not measured | otel-instrument / - |
-| `monitoring-before-launch` | route | 3/3 (0.10.0) | 3/3 (0.10.0) | not measured | otel-init / - |
-| `set-up-observability` | route | 3/3 (0.10.0) | 3/3 (0.10.0) | not measured | otel-init / - |
-| `traces-to-grafana` | route | 3/3 (0.10.0) | 3/3 (0.10.0) | not measured | otel-instrument / - |
-| `see-traces-locally` | route | 3/3 (0.11.0) | 3/3 (0.11.0) | not measured | otel-local / - |
-| `telemetry-on-my-machine` | route | 3/3 (0.11.0) | 3/3 (0.11.0) | not measured | otel-local / - |
-| `span-around-my-function` | route | 3/3 (0.25.1) | not run | not measured | otel-enrich / - |
-| `test-that-telemetry-stays` | route | 3/3 (0.25.1) | not run | not measured | otel-test / - |
-| `checkout-is-slow` | not route | 0/3 (0.10.0) | 0/3 (0.10.0) | not measured | none / - |
-| `diagnose-slow-checkout-with-traces` | not route | 0/3 (0.10.0) | 0/3 (0.10.0) | not measured | none / - |
-| `explain-span` | not route | 0/3 (0.10.0) | 0/3 (0.10.0) | **0/1** (a smoke run; answered in text) | none / none |
-| `fix-failing-test` | not route | 0/3 (0.10.0) | 0/3 (0.10.0) | not measured | none / - |
+| `add-opentelemetry` | route | 3/3 (0.10.0) | 3/3 (0.10.0) | 3/3 (one timed out after routing, scored err) | otel-instrument / otel-instrument |
+| `add-tracing` | route | 3/3 (0.10.0) | 3/3 (0.10.0) | 3/3 | otel-instrument / otel-instrument |
+| `instrument-with-opentelemetry` | route | 3/3 (0.10.0) | 3/3 (0.10.0) | 3/3 (one timed out after routing, scored err) | otel-instrument / otel-instrument |
+| `monitoring-before-launch` | route | 3/3 (0.10.0) | 3/3 (0.10.0) | 3/3 | otel-init / otel-init |
+| `set-up-observability` | route | 3/3 (0.10.0) | 3/3 (0.10.0) | 3/3 | otel-init / otel-init |
+| `traces-to-grafana` | route | 3/3 (0.10.0) | 3/3 (0.10.0) | 3/3 | otel-instrument / otel-backend |
+| `see-traces-locally` | route | 3/3 (0.11.0) | 3/3 (0.11.0) | 3/3 | otel-local / otel-local |
+| `telemetry-on-my-machine` | route | 3/3 (0.11.0) | 3/3 (0.11.0) | 3/3 | otel-local / otel-local |
+| `span-around-my-function` | route | 3/3 (0.25.1) | not run | **0/3** ✗ | otel-enrich / none |
+| `test-that-telemetry-stays` | route | 3/3 (0.25.1) | not run | 3/3 | otel-test / otel-test |
+| `checkout-is-slow` | not route | 0/3 (0.10.0) | 0/3 (0.10.0) | 0/3 | none / none |
+| `diagnose-slow-checkout-with-traces` | not route | 0/3 (0.10.0) | 0/3 (0.10.0) | **3/3** ✗ | none / otel-instrument |
+| `explain-span` | not route | 0/3 (0.10.0) | 0/3 (0.10.0) | 0/3 | none / none |
+| `fix-failing-test` | not route | 0/3 (0.10.0) | 0/3 (0.10.0) | 0/3 | none / none |
 
 The skill picked under (a) is the one the 0.9.7 to 0.11.0 baselines recorded, and today's run
 for the last two should-route cases.
 
-**Why most of (c) is not measured.** The account the runs used is on Copilot Free. In both
-passes, after three or four agent sessions every model call was refused with HTTP 429
-("exceeded your rate limit for utility models", `user_global_rate_limited:free`), and the limit
-had not cleared 35 minutes later. The first pass ran three sessions in parallel and, before
-`run-copilot.sh` detected the limit, scored 38 refused runs as "neither"; those are discarded,
-not counted above. The second pass ran one session at a time and stopped at the first refusal.
-A full pass needs a Copilot plan whose limits cover about 42 agent sessions: run
-`evals/routing/run.sh c <label>` with that account's `gh` login or `COPILOT_GITHUB_TOKEN`, or
-the workflow with `condition: c`.
+**How (c) was measured on Copilot Free.** The account the runs used is on Copilot Free, which
+refuses every model call with HTTP 429 ("exceeded your rate limit for utility models",
+`user_global_rate_limited:free`) after a handful of agent sessions, and the refusal does not say
+when the limit resets. In practice it allowed 7 to 11 sessions a day, and an hourly retry the same
+evening was refused at once. So `run.sh c <label>` is resumable: it runs one session at a time,
+stops at the first refusal, keeps every finished run, and a later run of the same command does
+only what is missing. A refused run, a run that never reached the model and a run broken by
+network failures are discarded, never scored. A run that timed out after real model turns is
+kept and scored as an error, as in (a) and (b). Passes refuse to mix plugin versions, Copilot
+versions or models under one label. All passes merge into one `summary-c.json` and one
+`meta.json`, which lists each run's date, versions, premium requests (0 on every run: `gpt-4.1`
+is included in the plan) and whether the turn cap stopped it (9 runs; 3 of those were stopped
+before Copilot reported a premium-request count). An earlier pass that ran three sessions in
+parallel scored 38 refused runs as "neither"; those are not counted here.
 
-**What the measured runs show.** Every answered should-route run routed, each time with the
-plugin's `otel-instrument` as the session's first tool call, which is also what Claude Code
-picks for those two prompts. The one should-not-route run measured did not touch the plugin.
-Nothing here says how Copilot treats the other eleven prompts, including the debugging boundary
-(`diagnose-slow-checkout-with-traces`), which is where Claude Code misrouted before 0.10.0.
+**What the runs show.** 9 of the 10 should-route cases routed in every run, each starting with a
+plugin skill call, mostly the same one Claude Code picks. `traces-to-grafana` went straight to
+`otel-backend`, where Claude Code starts with `otel-instrument`. Two misroutes:
+
+- `span-around-my-function`, 0/3. Every run searched the fixture for a function named
+  `checkout` and found only `orderTotal` in `lib/orders.js`. One run then asked which function was
+  meant; the other two kept searching (`orderTotal`, `otel|tracer|span`, `otel*`) until the turn
+  cap stopped them, without calling a skill. Likely cause: the prompt names a function the fixture
+  does not have, and `gpt-4.1` tries to resolve that before it picks a skill. Claude Code, given
+  the same prompt and fixture, picks `otel-enrich`.
+- `diagnose-slow-checkout-with-traces`, 3/3 to `otel-instrument`. The prompt itself says
+  "Instrument the service with OpenTelemetry", and Copilot followed that literally. Copilot is
+  shown the same `otel-instrument` description as Claude Code, including "Not for throwaway
+  tracing while debugging one slow or failing request". Likely cause: `gpt-4.1` weighs the
+  prompt's explicit instruction over that exclusion, where Claude Code keeps to it. It also tried
+  an `npx otel-as-code` command that does not exist. The plain `checkout-is-slow` stayed out 0/3.
 
 **Signals with no exact equivalent in Copilot's output.** Two, and how they limit the result:
 
