@@ -274,6 +274,7 @@ client. Show the output unchanged, then say what each status means for this serv
 | `install` | Python: a package exists and is not a dependency yet | offer C3 |
 | `turn-on` | Python: the package is a dependency but nothing turns it on (the usual cause: `/otel-instrument` regenerated the bootstrap) | offer C3 |
 | `layered` | Python: the driver sits under an ORM that has its own package | nothing for the driver; the ORM's row is the one to act on |
+| `pin` | Python: the requirement allows a client version the package does not instrument (it logs a warning and makes no spans there); the line names the cap and says whether the package is installed and turned on | say the service's queries are NOT covered until the requirement is capped as the line says (the user's edit); offer C3 if the package is not turned on yet |
 | `disabled` | Node.js: the bootstrap turns that package off | say so; turning it back on is the user's edit to the bootstrap's options |
 | `not-checked` | Node.js: covered on paper, but not verified here (no `node_modules`, or the bootstrap does not load the bundle) | say what to run (`npm install`), then report again |
 | `manual` | the client has an instrumentation package this command does not set up yet | name the package; do not wrap the client by hand |
@@ -282,7 +283,7 @@ client. Show the output unchanged, then say what each status means for this serv
 The table only knows the clients listed in it. The script says so in its last line; pass that on.
 A client that is not listed is **not checked**: never tell the user that no package exists for it.
 
-If nothing is `install`, `turn-on` or `wrap`, say the clients are covered (or what is left to the
+If nothing is `install`, `turn-on`, `pin` or `wrap`, say the clients are covered (or what is left to the
 user) and stop.
 
 **C3. Turn a package on (Python), one client at a time.**
@@ -311,6 +312,12 @@ Until the package is installed the service still starts, and logs one warning th
   and ask before adding it, as Step 4 does.
 - A `note:` about a missing pin: no other instrumentation package is pinned, so the new one is
   not either. Say so; the instrumentation packages are released together and should match.
+- A `pin:` line: the service's requirement for the client allows a version past the range the
+  package declares, and on such a version the package makes no spans at all (measured: SQLAlchemy
+  2.1 with `opentelemetry-instrumentation-sqlalchemy` 0.66b2, one warning in the log and nothing
+  else). Show the cap it names and say the queries are not covered until it is added; capping the
+  requirement is the user's edit, not this command's. Only the requirement is read: a lock file
+  that holds an older version is not checked, and a poetry constraint is not compared.
 - `REFUSED: ... is not a bootstrap otel-as-code generated`: the service has its own OpenTelemetry
   setup. The message carries the two lines to add; show them and leave the file alone.
 
@@ -325,6 +332,8 @@ shared code, which was not run here):
   `http/dup,database/dup`. Setting it is deployment configuration: show it, do not write it.
 - `sqlite3`: only statements run through a cursor are traced. The `connection.execute(...)`
   shortcut makes no span.
+- `sqlalchemy`: besides one span per statement, it makes a `connect` span each time a
+  connection is checked out of the pool (measured on SQLAlchemy 2.0 with a SQLite engine).
 
 This is the one case where the command writes to a generated file, and it does so through
 `enrich.py` like every other edit: never add the block with Edit/Write.
