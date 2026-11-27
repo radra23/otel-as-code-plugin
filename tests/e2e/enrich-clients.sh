@@ -10,12 +10,14 @@
 #     until the requirement is capped; then one per query.
 #   - Python: tests/enrich/py-redis (FastAPI + a Redis cache): one span per Redis command, against a
 #     real server (a CI service container; "not checked" where none answers).
+#   - Python: tests/enrich/py-psycopg (FastAPI + Postgres through psycopg 3): one span per query,
+#     against a real server the same way.
 #   - Node.js: tests/enrich/node-clients (express + node:sqlite, which no package covers) with the
 #     golden tracing.js. `enrich.py span --client node:sqlite` around the function that queries:
 #     one client span per call. `pg`, which the bundle covers, is refused a hand-made span.
 # Spans are read from the console exporter (OTEL_TRACES_EXPORTER=console), where every span the
 # process made is visible, so "exactly one" is a count and not a search. No Docker, except the
-# Redis server CI starts as a service container.
+# Redis and Postgres servers CI starts as service containers.
 # Needs Node 22.13+ (node:sqlite), Python 3.9+ with venv, and network for npm and pip.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -204,6 +206,55 @@ elif [ "${OTEL_AS_CODE_REQUIRE_REDIS:-}" = 1 ]; then
   bad "redis: no Redis server answered at $REDIS_URL, and OTEL_AS_CODE_REQUIRE_REDIS=1"
 else
   echo "NOT CHECKED: redis (no server at $REDIS_URL; CI runs one)"
+fi
+
+# ---------------------------------------------------------------- Python, psycopg (Postgres)
+# The same rule against a second server, the same way: CI runs Postgres as a service container and
+# sets OTEL_AS_CODE_REQUIRE_POSTGRES=1; anywhere else this is "not checked".
+mkdir -p "$WORK/pg"
+cp "$SRC/tests/enrich/py-psycopg/app.py" "$SRC/tests/snapshots/instrument/python/tracing.py" \
+   "$SRC/tests/snapshots/instrument/python/requirements.txt" "$WORK/pg/"
+cd "$WORK/pg"
+echo 'psycopg[binary]>=3.1' >> requirements.txt
+printf 'import tracing\nfrom app import app\ntracing.instrument_fastapi(app)\n' > main.py
+cp -R "$WORK/pg" "$WORK/pg-before"
+"$WORK/venv/bin/pip" install -q --disable-pip-version-check -r requirements.txt
+export DATABASE_URL="${DATABASE_URL:-postgresql://postgres:postgres@localhost:5432/postgres}" ITEMS_TABLE="enrich_e2e_$$"
+if "$WORK/venv/bin/python" -c 'import os, psycopg; psycopg.connect(os.environ["DATABASE_URL"], connect_timeout=2).close()' 2>/dev/null; then
+  PV=$("$WORK/venv/bin/python" -c 'import psycopg; print(psycopg.__version__)')
+  is "psycopg: psycopg is reported as a client whose package is not installed (psycopg $PV)" "$(status_of psycopg)" install
+  py_run "$WORK/pg-before.log"; get http://localhost:8910/items/1 >/dev/null; stop
+  is "psycopg: before, a request makes no client span" "$(py_clients "$WORK/pg-before.log")" 0
+
+  export ITEMS_TABLE="enrich_e2e_$$_after"
+  enrich client --root . --name psycopg --bootstrap tracing.py >/dev/null
+  grep -q '^opentelemetry-instrumentation-psycopg>=0.66b2$' requirements.txt \
+    && ok "psycopg: the requirement is pinned to the release the other instrumentation package uses" \
+    || { bad "psycopg: requirement line missing or unpinned"; tail -4 requirements.txt; }
+  "$WORK/venv/bin/pip" install -q --disable-pip-version-check -r requirements.txt
+  is "psycopg: after the install, psycopg is reported as turned on" "$(status_of psycopg)" enabled
+
+  py_run "$WORK/pg-after.log"
+  # Start-up: one CREATE and one INSERT (executemany). Then one SELECT per request, 9 not found.
+  codes="$(get http://localhost:8910/items/1) $(get http://localhost:8910/items/1) $(get http://localhost:8910/items/2) $(get http://localhost:8910/items/9)"
+  stop
+  is "psycopg: the service answers as before (three found, one 404)" "$codes" "200 200 200 404"
+  is "psycopg: four queries made exactly four SELECT spans, and only the start-up statements besides" \
+    "$(client_names "$WORK/pg-after.log")" "CREATE=1 INSERT=1 SELECT=4"
+  "$WORK/venv/bin/python" -c 'import os, psycopg
+with psycopg.connect(os.environ["DATABASE_URL"], autocommit=True) as c:
+    for (t,) in c.execute("SELECT tablename FROM pg_tables WHERE tablename LIKE %s", ("enrich_e2e_%",)).fetchall():
+        c.execute(f"DROP TABLE {t}")' || true
+
+  enrich remove --root . >/dev/null
+  rm -rf __pycache__ "$WORK/pg-before/__pycache__"
+  diff -r "$WORK/pg-before" "$WORK/pg" >/dev/null \
+    && ok "psycopg: enrich.py remove restored the bootstrap and requirements.txt byte for byte" \
+    || { bad "psycopg: files differ after removal"; diff -r "$WORK/pg-before" "$WORK/pg" | head; }
+elif [ "${OTEL_AS_CODE_REQUIRE_POSTGRES:-}" = 1 ]; then
+  bad "psycopg: no Postgres server answered at $DATABASE_URL, and OTEL_AS_CODE_REQUIRE_POSTGRES=1"
+else
+  echo "NOT CHECKED: psycopg (no server at $DATABASE_URL; CI runs one)"
 fi
 
 # ---------------------------------------------------------------- Node.js

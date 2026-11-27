@@ -389,6 +389,13 @@ jobs:
         ports: ['6379:6379']
         options: >-
           --health-cmd "redis-cli ping" --health-interval 2s --health-timeout 2s --health-retries 15
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 2s --health-retries 15
     steps:
       - uses: actions/checkout@v4
 
@@ -410,8 +417,9 @@ jobs:
 
       - name: One client span per call, end to end
         env:
-          # Here a missing Redis fails the job; elsewhere the Redis section is "not checked".
+          # Here a missing Redis or Postgres fails the job; elsewhere those sections are "not checked".
           OTEL_AS_CODE_REQUIRE_REDIS: '1'
+          OTEL_AS_CODE_REQUIRE_POSTGRES: '1'
         run: bash tests/e2e/enrich-clients.sh
 
   # Log panel and error-log alert (#279): the Grafana golden's two LogQL queries, run against the
