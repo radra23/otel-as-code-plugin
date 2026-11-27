@@ -377,12 +377,18 @@ jobs:
 
   # /otel-enrich --clients: the coverage table checked against the published packages, then real
   # apps on the console exporter, where every span is visible: exactly one client span per database
-  # call, from the package (Python, sqlite3) or from the span around the calling function (Node.js,
-  # node:sqlite). No Docker.
+  # call, from the package (Python: sqlite3, SQLAlchemy, Redis) or from the span around the calling
+  # function (Node.js, node:sqlite). Redis is a service container; everything else needs no server.
   enrich-clients:
     name: /otel-enrich edits (JS, TS, Python) and --clients one client span per call
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    services:
+      redis:
+        image: redis:8
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 2s --health-timeout 2s --health-retries 15
     steps:
       - uses: actions/checkout@v4
 
@@ -403,6 +409,9 @@ jobs:
         run: bash tests/client-coverage.test.sh
 
       - name: One client span per call, end to end
+        env:
+          # Here a missing Redis fails the job; elsewhere the Redis section is "not checked".
+          OTEL_AS_CODE_REQUIRE_REDIS: '1'
         run: bash tests/e2e/enrich-clients.sh
 
   # Log panel and error-log alert (#279): the Grafana golden's two LogQL queries, run against the
