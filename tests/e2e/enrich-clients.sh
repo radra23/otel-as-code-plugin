@@ -8,11 +8,14 @@
 #   - Python: tests/enrich/py-sqlalchemy (SQLAlchemy over sqlite3): sqlite3 is left to SQLAlchemy,
 #     and an unpinned SQLAlchemy past the package's range is reported as "pin" and makes no span
 #     until the requirement is capped; then one per query.
+#   - Python: tests/enrich/py-redis (FastAPI + a Redis cache): one span per Redis command, against a
+#     real server (a CI service container; "not checked" where none answers).
 #   - Node.js: tests/enrich/node-clients (express + node:sqlite, which no package covers) with the
 #     golden tracing.js. `enrich.py span --client node:sqlite` around the function that queries:
 #     one client span per call. `pg`, which the bundle covers, is refused a hand-made span.
 # Spans are read from the console exporter (OTEL_TRACES_EXPORTER=console), where every span the
-# process made is visible, so "exactly one" is a count and not a search. No Docker.
+# process made is visible, so "exactly one" is a count and not a search. No Docker, except the
+# Redis server CI starts as a service container.
 # Needs Node 22.13+ (node:sqlite), Python 3.9+ with venv, and network for npm and pip.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -156,6 +159,52 @@ sed -i.bak "s/^sqlalchemy>=2.0\$/sqlalchemy>=2.0,<$TOP/" "$WORK/sa-before/requir
 diff -r "$WORK/sa-before" "$WORK/sa" >/dev/null \
   && ok "sqlalchemy: enrich.py remove restored the bootstrap and requirements.txt (but the user's pin) byte for byte" \
   || { bad "sqlalchemy: files differ after removal"; diff -r "$WORK/sa-before" "$WORK/sa" | head; }
+
+# ---------------------------------------------------------------- Python, Redis
+# A client that needs a server: CI runs one as a service container and sets
+# OTEL_AS_CODE_REQUIRE_REDIS=1, so there a missing server fails; anywhere else it is "not checked".
+mkdir -p "$WORK/rd"
+cp "$SRC/tests/enrich/py-redis/app.py" "$SRC/tests/snapshots/instrument/python/tracing.py" \
+   "$SRC/tests/snapshots/instrument/python/requirements.txt" "$WORK/rd/"
+cd "$WORK/rd"
+echo 'redis>=5' >> requirements.txt
+printf 'import tracing\nfrom app import app\ntracing.instrument_fastapi(app)\n' > main.py
+cp -R "$WORK/rd" "$WORK/rd-before"
+"$WORK/venv/bin/pip" install -q --disable-pip-version-check -r requirements.txt
+export REDIS_URL="${REDIS_URL:-redis://localhost:6379/0}" CACHE_PREFIX="enrich-e2e-$$"
+if "$WORK/venv/bin/python" -c 'import os, redis; redis.Redis.from_url(os.environ["REDIS_URL"], socket_timeout=2).ping()' 2>/dev/null; then
+  RV=$("$WORK/venv/bin/python" -c 'import redis; print(redis.__version__)')
+  is "redis: redis is reported as a client whose package is not installed (redis-py $RV)" "$(status_of redis)" install
+  py_run "$WORK/rd-before.log"; get http://localhost:8910/items/1 >/dev/null; stop
+  is "redis: before, a request makes no client span" "$(py_clients "$WORK/rd-before.log")" 0
+
+  export CACHE_PREFIX="enrich-e2e-$$-after"
+  enrich client --root . --name redis --bootstrap tracing.py >/dev/null
+  grep -q '^opentelemetry-instrumentation-redis>=0.66b2$' requirements.txt \
+    && ok "redis: the requirement is pinned to the release the other instrumentation package uses" \
+    || { bad "redis: requirement line missing or unpinned"; tail -4 requirements.txt; }
+  "$WORK/venv/bin/pip" install -q --disable-pip-version-check -r requirements.txt
+  is "redis: after the install, redis is reported as turned on" "$(status_of redis)" enabled
+
+  py_run "$WORK/rd-after.log"
+  # 1 misses (GET, SET), 1 hits (GET), 2 misses (GET, SET), 9 is not in the catalog (GET, no SET).
+  codes="$(get http://localhost:8910/items/1) $(get http://localhost:8910/items/1) $(get http://localhost:8910/items/2) $(get http://localhost:8910/items/9)"
+  stop
+  is "redis: the service answers as before (three hits, one 404)" "$codes" "200 200 200 404"
+  is "redis: six commands made exactly six client spans, one each, named after the command" \
+    "$(client_names "$WORK/rd-after.log")" "GET=4 SET=2"
+  "$WORK/venv/bin/python" -c 'import os, redis; r = redis.Redis.from_url(os.environ["REDIS_URL"]); [r.delete(k) for k in r.scan_iter("enrich-e2e-*")]' || true
+
+  enrich remove --root . >/dev/null
+  rm -rf __pycache__ "$WORK/rd-before/__pycache__"
+  diff -r "$WORK/rd-before" "$WORK/rd" >/dev/null \
+    && ok "redis: enrich.py remove restored the bootstrap and requirements.txt byte for byte" \
+    || { bad "redis: files differ after removal"; diff -r "$WORK/rd-before" "$WORK/rd" | head; }
+elif [ "${OTEL_AS_CODE_REQUIRE_REDIS:-}" = 1 ]; then
+  bad "redis: no Redis server answered at $REDIS_URL, and OTEL_AS_CODE_REQUIRE_REDIS=1"
+else
+  echo "NOT CHECKED: redis (no server at $REDIS_URL; CI runs one)"
+fi
 
 # ---------------------------------------------------------------- Node.js
 mkdir -p "$WORK/node"
