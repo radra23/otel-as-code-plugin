@@ -535,7 +535,7 @@ nothing here checks it. "Unknown" means nobody has tried.
 |---|---|---|---|---|---|
 | Claude Code | yes | yes | yes | yes | `claude plugin validate --strict` in CI and the routing eval in `evals/routing/` (skills); `tests/hooks/write-guard.test.sh`, `tests/hooks/semconv-lint.test.sh`, `tests/hooks/session-summary.test.sh` |
 | Codex | not tested | yes, when this repo is the project root | yes, when this repo is the project root | no, not ported | CI checks that the skill files resolve (`validate-codex-bridge`); `tests/hooks/codex-adapters.test.sh`, `tests/hooks/codex-cache-confirm.test.sh` |
-| GitHub Copilot CLI | partly: picked in every run measured (2 of the 10 plain OpenTelemetry requests, 8 runs, `gpt-4.1`), and stayed out of the 1 other request measured; the other 11 requests not measured | yes | yes | no, not ported | the routing eval's condition (c), results in `evals/routing/README.md` (skills); `tests/hooks/copilot-adapters.test.sh`, which replays payloads captured from Copilot CLI 1.0.56; one live run by hand, written up in `docs/agents/copilot-spike.md` |
+| GitHub Copilot CLI | partly: picked in every run for 9 of the 10 OpenTelemetry requests, never for "add a span around the checkout function" (0 of 3); stayed out of 3 of the 4 other requests, but the slow-checkout question that says "Instrument the service with OpenTelemetry" routed in 3 of 3 (`gpt-4.1`, 42 runs) | yes | yes | no, not ported | the routing eval's condition (c), 14 requests, three runs each on otel-as-code 0.25.4 and Copilot CLI 1.0.56, results in `evals/routing/README.md` (skills); `tests/hooks/copilot-adapters.test.sh`, which replays payloads captured from Copilot CLI 1.0.56; one live run by hand, written up in `docs/agents/copilot-spike.md` |
 | GitHub Copilot cloud agent | unknown | unknown | unknown | unknown | nothing yet |
 | Cursor | unknown | unknown | unknown | unknown | nothing yet |
 | Gemini CLI | unknown | unknown | unknown | unknown | nothing yet |
@@ -614,9 +614,10 @@ the model as guidance after the write.
   (`apply_patch`, `str_replace_editor`); those were never seen, so they are not checked.
 - **Subagents.** Not tested. Where a command says "dispatch the `<x>` agent" and Copilot does not
   do it, read `agents/<x>.md` and do that work inline, as in Codex.
-- **Skills.** They load, and Copilot picked otel-as-code in every routing-eval run measured so
-  far, but only 3 of the 14 test requests have been measured (see
-  [`evals/routing/README.md`](evals/routing/README.md)), on `gpt-4.1`.
+- **Skills.** They load. In the routing eval (14 requests, three runs each, `gpt-4.1`), Copilot
+  picked otel-as-code for 9 of the 10 OpenTelemetry requests every time. It missed "add a span
+  around the checkout function" and routed a slow-checkout question that asks to instrument the
+  service; see [`evals/routing/README.md`](evals/routing/README.md).
 
 **VS Code.** GitHub's docs say Copilot in VS Code uses the same hooks as Copilot CLI. Nobody has
 run this plugin there, and the CLI already behaved differently from those docs in two places
