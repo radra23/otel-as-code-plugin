@@ -8,6 +8,7 @@
 #   - Python: tests/enrich/py-sqlalchemy (SQLAlchemy over sqlite3): sqlite3 is left to SQLAlchemy,
 #     and an unpinned SQLAlchemy past the package's range is reported as "pin" and makes no span
 #     until the requirement is capped; then one per query.
+#   - Python: tests/enrich/py-tortoise (Tortoise ORM over a SQLite file, async): one span per query.
 #   - Python: tests/enrich/py-redis (FastAPI + a Redis cache): one span per Redis command, against a
 #     real server (a CI service container; "not checked" where none answers).
 #   - Python: tests/enrich/py-psycopg (FastAPI + Postgres through psycopg 3): one span per query,
@@ -167,6 +168,49 @@ sed -i.bak "s/^sqlalchemy>=2.0\$/sqlalchemy>=2.0,<$TOP/" "$WORK/sa-before/requir
 diff -r "$WORK/sa-before" "$WORK/sa" >/dev/null \
   && ok "sqlalchemy: enrich.py remove restored the bootstrap and requirements.txt (but the user's pin) byte for byte" \
   || { bad "sqlalchemy: files differ after removal"; diff -r "$WORK/sa-before" "$WORK/sa" | head; }
+
+# ---------------------------------------------------------------- Python, Tortoise ORM over SQLite
+# An async ORM over a SQLite file, so no server. Tortoise reaches sqlite3 through aiosqlite, and the
+# app imports neither, so sqlite3 is not offered at all. Measured (#322): sqlite3's package on as
+# well added no span (aiosqlite runs statements on the connection, which that package does not
+# trace), but sqlite3 stays layered under Tortoise in client-coverage.json, the safe side.
+mkdir -p "$WORK/tt"
+cp "$SRC/tests/enrich/py-tortoise/app.py" "$SRC/tests/snapshots/instrument/python/tracing.py" \
+   "$SRC/tests/snapshots/instrument/python/requirements.txt" "$WORK/tt/"
+cd "$WORK/tt"
+echo 'tortoise-orm>=1.1' >> requirements.txt
+printf 'import tracing\nfrom app import app\ntracing.instrument_fastapi(app)\n' > main.py
+cp -R "$WORK/tt" "$WORK/tt-before"
+"$WORK/venv/bin/pip" install -q --disable-pip-version-check -r requirements.txt
+TV=$("$WORK/venv/bin/python" -c 'from importlib.metadata import version; print(version("tortoise-orm"))')
+is "tortoise: tortoise-orm is reported as a client whose package is not installed (tortoise-orm $TV)" "$(status_of tortoise-orm)" install
+is "tortoise: sqlite3 under it is not offered (the app does not import it)" "$(status_of sqlite3)" absent
+export ITEMS_DB="$WORK/tt-before.db"
+py_run "$WORK/tt-before.log"; get http://localhost:8910/items/1 >/dev/null; stop
+is "tortoise: before, a request makes no client span" "$(py_clients "$WORK/tt-before.log")" 0
+
+export ITEMS_DB="$WORK/tt-after.db"
+enrich client --root . --name tortoise-orm --bootstrap tracing.py >/dev/null
+grep -q '^opentelemetry-instrumentation-tortoiseorm>=0.66b2$' requirements.txt \
+  && ok "tortoise: the requirement is pinned to the release the other instrumentation package uses" \
+  || { bad "tortoise: requirement line missing or unpinned"; tail -4 requirements.txt; }
+"$WORK/venv/bin/pip" install -q --disable-pip-version-check -r requirements.txt
+is "tortoise: after the install, tortoise-orm is reported as turned on" "$(status_of tortoise-orm)" enabled
+
+py_run "$WORK/tt-after.log"
+# Start-up: the schema (one CREATE) and the catalog (one INSERT, bulk_create). Then one SELECT
+# per request, 9 not found.
+codes="$(get http://localhost:8910/items/1) $(get http://localhost:8910/items/1) $(get http://localhost:8910/items/2) $(get http://localhost:8910/items/9)"
+stop
+is "tortoise: the service answers as before (three found, one 404)" "$codes" "200 200 200 404"
+is "tortoise: four queries made exactly four SELECT spans, and only the start-up statements besides" \
+  "$(client_names "$WORK/tt-after.log")" "CREATE=1 INSERT=1 SELECT=4"
+
+enrich remove --root . >/dev/null
+rm -rf __pycache__ "$WORK/tt-before/__pycache__"
+diff -r "$WORK/tt-before" "$WORK/tt" >/dev/null \
+  && ok "tortoise: enrich.py remove restored the bootstrap and requirements.txt byte for byte" \
+  || { bad "tortoise: files differ after removal"; diff -r "$WORK/tt-before" "$WORK/tt" | head; }
 
 # ---------------------------------------------------------------- Python, Redis
 # A client that needs a server: CI runs one as a service container and sets
