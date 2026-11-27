@@ -95,6 +95,7 @@ set -uo pipefail
 cd "$(dirname "$0")/../.."
 pass=0; fail=0
 check() { if eval "$2"; then echo "PASS: $1"; pass=$((pass+1)); else echo "FAIL: $1"; fail=$((fail+1)); fi; }
+source tests/hooks/lib/maturity-status.sh   # maturity_status, read by table row (#259)
 
 SCANNER="agents/repo-context-scanner.md"
 INIT="commands/otel-init.md"
@@ -687,15 +688,13 @@ check "goldens use the otlp exporter alias, matching that decision" \
 
 # --- #118: Rust maturity row matches upstream opentelemetry-rust 0.33 --------------------------
 MATURITY="skills/language-maturity/SKILL.md"
-# Since the generator shipped, Rust has its own signal table in the supported section.
-# Read once into a variable, not piped into each grep: `grep -q` exits at its first match, and
-# under pipefail a sed still writing then dies of SIGPIPE and fails the check (about 3% of runs
-# on Linux).
-RUST_TABLE=$(sed -n "/^### Rust$/,/^## /p" "$MATURITY")
+# Since the generator shipped, Rust has its own signal table in the supported section, read by
+# row with maturity_status (#259).
 check "#118 Rust maturity is Traces Beta, Metrics Stable, Logs Stable" \
-  'grep -qE "^\| Traces +\| Beta " <<<"$RUST_TABLE" && grep -qE "^\| Metrics +\| Stable " <<<"$RUST_TABLE" && grep -qE "^\| Logs +\| Stable " <<<"$RUST_TABLE"'
+  '[ "$(maturity_status Rust Traces "$MATURITY")" = Beta ] && [ "$(maturity_status Rust Metrics "$MATURITY")" = Stable ] \
+   && [ "$(maturity_status Rust Logs "$MATURITY")" = Stable ]'
 check "#118 Rust logs are no longer gated as Development" \
-  '! grep -qE "^\| Logs .*Development" <<<"$RUST_TABLE" && ! grep -qE "^\| Rust .*Development" "$MATURITY"'
+  '[ "$(maturity_status Rust Logs "$MATURITY")" != Development ] && ! grep -qE "^\| Rust .*Development" "$MATURITY"'
 # --- #295: the Python bootstrap flushes on SIGTERM, not only at a normal exit ------------------
 # The behavior is proven on real servers by tests/e2e/python-sigterm-flush.sh. These keep the
 # generator's template and both goldens saying the same thing, so the proof stays about what
@@ -768,9 +767,8 @@ check "#122c note stamps the versions it was checked against, with a re-check in
 # are all Stable there. Swift is still a v1-additions stub (no generator), so it keeps the old
 # Language/Traces/Metrics/Logs table shape.
 check "PHP maturity row (real section) is Stable on Traces, Metrics, and Logs" \
-  'grep -qE "^\| Traces +\| Stable +\| \`open-telemetry/sdk\`" "$MATURITY" \
-   && grep -qE "^\| Metrics +\| Stable +\| same SDK/exporter packages" "$MATURITY" \
-   && grep -qE "^\| Logs +\| Stable +\| \`open-telemetry/sdk\`" "$MATURITY"'
+  '[ "$(maturity_status PHP Traces "$MATURITY")" = Stable ] && [ "$(maturity_status PHP Metrics "$MATURITY")" = Stable ] \
+   && [ "$(maturity_status PHP Logs "$MATURITY")" = Stable ]'
 check "Swift maturity row is Traces Stable, Metrics and Logs Development" \
   'grep -qE "^\| Swift +\| Stable +\| Development +\| Development +\|" "$MATURITY"'
 
