@@ -14,6 +14,7 @@
 #     against a real server the same way.
 #   - Python: tests/enrich/py-asyncpg (the same service on asyncio through asyncpg), on the same server.
 #   - Python: tests/enrich/py-aiopg (the same service on aiopg, over psycopg2), on the same server.
+#   - Python: tests/enrich/py-psycopg2 (the same service on psycopg2 directly), on the same server.
 #   - Node.js: tests/enrich/node-clients (express + node:sqlite, which no package covers) with the
 #     golden tracing.js. `enrich.py span --client node:sqlite` around the function that queries:
 #     one client span per call. `pg`, which the bundle covers, is refused a hand-made span.
@@ -307,6 +308,55 @@ elif [ "${OTEL_AS_CODE_REQUIRE_POSTGRES:-}" = 1 ]; then
   bad "asyncpg: no Postgres server answered at $DATABASE_URL, and OTEL_AS_CODE_REQUIRE_POSTGRES=1"
 else
   echo "NOT CHECKED: asyncpg (no server at $DATABASE_URL; CI runs one)"
+fi
+
+# ---------------------------------------------------------------- Python, psycopg2 (Postgres)
+# The DB-API driver aiopg runs on, used directly: with no aiopg in the service it is not layered.
+# The server probe and the table cleanup use psycopg, which a section above put in the venv.
+mkdir -p "$WORK/p2"
+cp "$SRC/tests/enrich/py-psycopg2/app.py" "$SRC/tests/snapshots/instrument/python/tracing.py" \
+   "$SRC/tests/snapshots/instrument/python/requirements.txt" "$WORK/p2/"
+cd "$WORK/p2"
+echo 'psycopg2-binary>=2.9' >> requirements.txt
+printf 'import tracing\nfrom app import app\ntracing.instrument_fastapi(app)\n' > main.py
+cp -R "$WORK/p2" "$WORK/p2-before"
+"$WORK/venv/bin/pip" install -q --disable-pip-version-check -r requirements.txt
+export ITEMS_TABLE="enrich_e2e_$$_p2"
+if "$WORK/venv/bin/python" -c 'import os, psycopg; psycopg.connect(os.environ["DATABASE_URL"], connect_timeout=2).close()' 2>/dev/null; then
+  PV=$("$WORK/venv/bin/python" -c 'import psycopg2; print(psycopg2.__version__.split()[0])')
+  is "psycopg2: psycopg2 is reported as a client whose package is not installed (psycopg2 $PV)" "$(status_of psycopg2)" install
+  py_run "$WORK/p2-before.log"; get http://localhost:8910/items/1 >/dev/null; stop
+  is "psycopg2: before, a request makes no client span" "$(py_clients "$WORK/p2-before.log")" 0
+
+  export ITEMS_TABLE="enrich_e2e_$$_p2_after"
+  enrich client --root . --name psycopg2 --bootstrap tracing.py >/dev/null
+  grep -q '^opentelemetry-instrumentation-psycopg2>=0.66b2$' requirements.txt \
+    && ok "psycopg2: the requirement is pinned to the release the other instrumentation package uses" \
+    || { bad "psycopg2: requirement line missing or unpinned"; tail -4 requirements.txt; }
+  "$WORK/venv/bin/pip" install -q --disable-pip-version-check -r requirements.txt
+  is "psycopg2: after the install, psycopg2 is reported as turned on" "$(status_of psycopg2)" enabled
+
+  py_run "$WORK/p2-after.log"
+  # Start-up: one CREATE and one INSERT (executemany). Then one SELECT per request, 9 not found.
+  codes="$(get http://localhost:8910/items/1) $(get http://localhost:8910/items/1) $(get http://localhost:8910/items/2) $(get http://localhost:8910/items/9)"
+  stop
+  is "psycopg2: the service answers as before (three found, one 404)" "$codes" "200 200 200 404"
+  is "psycopg2: four queries made exactly four SELECT spans, and only the start-up statements besides" \
+    "$(client_names "$WORK/p2-after.log")" "CREATE=1 INSERT=1 SELECT=4"
+  "$WORK/venv/bin/python" -c 'import os, psycopg
+with psycopg.connect(os.environ["DATABASE_URL"], autocommit=True) as c:
+    for (t,) in c.execute("SELECT tablename FROM pg_tables WHERE tablename LIKE %s", ("enrich_e2e_%",)).fetchall():
+        c.execute(f"DROP TABLE {t}")' || true
+
+  enrich remove --root . >/dev/null
+  rm -rf __pycache__ "$WORK/p2-before/__pycache__"
+  diff -r "$WORK/p2-before" "$WORK/p2" >/dev/null \
+    && ok "psycopg2: enrich.py remove restored the bootstrap and requirements.txt byte for byte" \
+    || { bad "psycopg2: files differ after removal"; diff -r "$WORK/p2-before" "$WORK/p2" | head; }
+elif [ "${OTEL_AS_CODE_REQUIRE_POSTGRES:-}" = 1 ]; then
+  bad "psycopg2: no Postgres server answered at $DATABASE_URL, and OTEL_AS_CODE_REQUIRE_POSTGRES=1"
+else
+  echo "NOT CHECKED: psycopg2 (no server at $DATABASE_URL; CI runs one)"
 fi
 
 # ---------------------------------------------------------------- Python, aiopg (Postgres)
