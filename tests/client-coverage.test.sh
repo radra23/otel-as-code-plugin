@@ -32,13 +32,14 @@ done
 
 SPEC=$(sed -nE 's/^opentelemetry-instrumentation-[a-z0-9-]+(.*)$/\1/p' tests/snapshots/instrument/python/requirements.txt | head -1)
 [ -n "$SPEC" ] || { echo "FAIL: no opentelemetry-instrumentation pin in the golden requirements.txt"; exit 1; }
-while IFS=$'\t' read -r label package module class clients; do
+while IFS=$'\t' read -r label package module class instruments clients; do
   if ! python3 -m pip download -q --disable-pip-version-check --no-deps -d "$TMPD/w" "$package$SPEC" >"$TMPD/pip.log" 2>&1; then
     bad "python: $package$SPEC could not be downloaded"; tail -2 "$TMPD/pip.log"; continue
   fi
-  if python3 - "$TMPD/w" "$package" "$module" "$class" "$clients" <<'PY'
-import glob, re, sys, zipfile
-wdir, package, module, cls, clients = sys.argv[1:6]
+  if python3 - "$TMPD/w" "$package" "$module" "$class" "$instruments" "$clients" <<'PY'
+import glob, json, re, sys, zipfile
+wdir, package, module, cls, instruments = sys.argv[1:6]
+clients = sys.argv[6] if len(sys.argv) > 6 else ""
 norm = lambda s: re.sub(r"[-_.]+", "-", s).lower()
 wheels = glob.glob(f"{wdir}/{package.replace('-', '_')}-*.whl")
 if len(wheels) != 1:
@@ -53,18 +54,24 @@ defined = any(re.search(rf"^class {cls}\b", t, re.M) for t in files.values())
 exported = re.search(rf"^class {cls}\b", init, re.M) or re.search(rf"\bimport\b[^\n]*\b{cls}\b|^\s+{cls},?$", init, re.M)
 if not (defined and exported):
     sys.exit(f"  {module} does not define and export {cls}")
-declared = {norm(m) for m in re.findall(r"""["']\s*([A-Za-z0-9][A-Za-z0-9._-]*)""", files.get(base + "package.py", ""))}
+# Every "<client> <versions>" string in package.py (_instruments, and _instruments_any's parts).
+declared = {norm(m.group(1)): re.sub(r"\s+", "", m.group(2))
+            for m in re.finditer(r"""["']\s*([A-Za-z][A-Za-z0-9._-]*)\s*([<>=!~][^"']*)?["']""", files.get(base + "package.py", ""))
+            if m.group(2)}
 want = {norm(c) for c in clients.split(",") if c}
-if not want <= declared:
+if not want <= set(declared):
     sys.exit(f"  {package} declares {sorted(declared)}, the table lists {sorted(want)}")
+listed = json.loads(instruments)
+if listed != {c: declared[c] for c in want}:
+    sys.exit(f"  {package} instruments {declared}, the table's instruments are {listed}")
 PY
-  then ok "python: $package has $module.$class and instruments ${clients:-the standard library}"
+  then ok "python: $package has $module.$class and instruments ${clients:-the standard library} ${instruments}"
   else bad "python: $label does not match the published $package"
   fi
 done < <(python3 -c '
 import json
 for r in json.load(open("scripts/client-coverage.json"))["python"]["packages"]:
-    print("\t".join([r["label"], r["package"], r["module"], r["class"], ",".join(r["clients"])]))')
+    print("\t".join([r["label"], r["package"], r["module"], r["class"], json.dumps(r["instruments"]), ",".join(r["clients"])]))')
 
 echo
 echo "client-coverage: $pass passed, $fail failed"
