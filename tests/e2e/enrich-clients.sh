@@ -17,6 +17,7 @@
 #   - Python: tests/enrich/py-psycopg2 (the same service on psycopg2 directly), on the same server.
 #   - Python: tests/enrich/py-pymysql (the same service on MySQL through PyMySQL), against a MySQL server.
 #   - Python: tests/enrich/py-mysql-connector (the same service on mysql-connector-python), on the same server.
+#   - Python: tests/enrich/py-mysqlclient (the same service on mysqlclient, built against libmysqlclient).
 #   - Node.js: tests/enrich/node-clients (express + node:sqlite, which no package covers) with the
 #     golden tracing.js. `enrich.py span --client node:sqlite` around the function that queries:
 #     one client span per call. `pg`, which the bundle covers, is refused a hand-made span.
@@ -521,6 +522,60 @@ elif [ "${OTEL_AS_CODE_REQUIRE_MYSQL:-}" = 1 ]; then
   bad "mysql-connector: no MySQL server answered at $MYSQL_HOST, and OTEL_AS_CODE_REQUIRE_MYSQL=1"
 else
   echo "NOT CHECKED: mysql-connector-python (no server at $MYSQL_HOST; CI runs one)"
+fi
+
+# ---------------------------------------------------------------- Python, mysqlclient (MySQL)
+# The C driver (MySQLdb) on the same server. It builds against libmysqlclient, which CI installs;
+# where the build fails, this is "not checked" like a missing server. The server probe and the
+# table cleanup use PyMySQL, which a section above put in the venv.
+mkdir -p "$WORK/mq"
+cp "$SRC/tests/enrich/py-mysqlclient/app.py" "$SRC/tests/snapshots/instrument/python/tracing.py" \
+   "$SRC/tests/snapshots/instrument/python/requirements.txt" "$WORK/mq/"
+cd "$WORK/mq"
+echo 'mysqlclient>=2.2,<3' >> requirements.txt
+printf 'import tracing\nfrom app import app\ntracing.instrument_fastapi(app)\n' > main.py
+cp -R "$WORK/mq" "$WORK/mq-before"
+mq_built=no
+"$WORK/venv/bin/pip" install -q --disable-pip-version-check -r requirements.txt >"$WORK/mq-pip.log" 2>&1 && mq_built=yes
+export ITEMS_TABLE="enrich_e2e_$$_mq"
+if [ "$mq_built" = yes ] && "$WORK/venv/bin/python" -c 'import os, pymysql; pymysql.connect(host=os.environ["MYSQL_HOST"], user="root", password=os.environ["MYSQL_PASSWORD"], database=os.environ["MYSQL_DATABASE"], connect_timeout=2).close()' 2>/dev/null; then
+  PV=$("$WORK/venv/bin/python" -c 'from importlib.metadata import version; print(version("mysqlclient"))')
+  is "mysqlclient: mysqlclient is reported as a client whose package is not installed (mysqlclient $PV)" "$(status_of mysqlclient)" install
+  py_run "$WORK/mq-before.log"; get http://localhost:8910/items/1 >/dev/null; stop
+  is "mysqlclient: before, a request makes no client span" "$(py_clients "$WORK/mq-before.log")" 0
+
+  export ITEMS_TABLE="enrich_e2e_$$_mq_after"
+  enrich client --root . --name mysqlclient --bootstrap tracing.py >/dev/null
+  grep -q '^opentelemetry-instrumentation-mysqlclient>=0.66b2$' requirements.txt \
+    && ok "mysqlclient: the requirement is pinned to the release the other instrumentation package uses" \
+    || { bad "mysqlclient: requirement line missing or unpinned"; tail -4 requirements.txt; }
+  "$WORK/venv/bin/pip" install -q --disable-pip-version-check -r requirements.txt
+  is "mysqlclient: after the install, mysqlclient is reported as turned on" "$(status_of mysqlclient)" enabled
+
+  py_run "$WORK/mq-after.log"
+  # Start-up: one CREATE and one INSERT (executemany, which the driver sends as one statement). Then one SELECT per request, 9 not found.
+  codes="$(get http://localhost:8910/items/1) $(get http://localhost:8910/items/1) $(get http://localhost:8910/items/2) $(get http://localhost:8910/items/9)"
+  stop
+  is "mysqlclient: the service answers as before (three found, one 404)" "$codes" "200 200 200 404"
+  is "mysqlclient: four queries made exactly four SELECT spans, and only the start-up statements besides" \
+    "$(client_names "$WORK/mq-after.log")" "CREATE=1 INSERT=1 SELECT=4"
+  "$WORK/venv/bin/python" -c 'import os, pymysql
+c = pymysql.connect(host=os.environ["MYSQL_HOST"], user="root", password=os.environ["MYSQL_PASSWORD"], database=os.environ["MYSQL_DATABASE"])
+with c.cursor() as cur:
+    cur.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name LIKE %s", ("enrich_e2e_%",))
+    for (t,) in cur.fetchall():
+        cur.execute(f"DROP TABLE {t}")' || true
+
+  enrich remove --root . >/dev/null
+  rm -rf __pycache__ "$WORK/mq-before/__pycache__"
+  diff -r "$WORK/mq-before" "$WORK/mq" >/dev/null \
+    && ok "mysqlclient: enrich.py remove restored the bootstrap and requirements.txt byte for byte" \
+    || { bad "mysqlclient: files differ after removal"; diff -r "$WORK/mq-before" "$WORK/mq" | head; }
+elif [ "${OTEL_AS_CODE_REQUIRE_MYSQL:-}" = 1 ]; then
+  tail -5 "$WORK/mq-pip.log"
+  bad "mysqlclient: no MySQL server answered at $MYSQL_HOST or mysqlclient did not build, and OTEL_AS_CODE_REQUIRE_MYSQL=1"
+else
+  echo "NOT CHECKED: mysqlclient (no server at $MYSQL_HOST, or no libmysqlclient to build against; CI has both)"
 fi
 
 # ---------------------------------------------------------------- Node.js

@@ -423,6 +423,10 @@ jobs:
       - name: The coverage table matches the published packages
         run: bash tests/client-coverage.test.sh
 
+      # mysqlclient builds from source against libmysqlclient (the e2e's mysqlclient section).
+      - name: libmysqlclient for mysqlclient
+        run: sudo apt-get update -q && sudo apt-get install -y -q libmysqlclient-dev pkg-config
+
       - name: One client span per call, end to end
         env:
           # Here a missing Redis, Postgres or MySQL fails the job; elsewhere those sections are "not checked".
