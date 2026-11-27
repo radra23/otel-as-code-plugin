@@ -249,8 +249,8 @@ the bootstrap installs the web framework's package and nothing else, so a query 
 gaps and closes them.
 
 The rule behind every step: **exactly one client span per call.** A client that a package covers
-is never wrapped by hand, and a driver under an ORM that is instrumented is left alone, because
-either would give two spans per query.
+is never wrapped by hand, and a driver under an instrumented ORM or wrapper (SQLAlchemy, Tortoise,
+aiopg over psycopg2) is left alone, because either would give two spans per query.
 
 **C1. Load context and check the baseline** as in Step 1 (select the service as `/otel-instrument`
 Step 2 does). Take the service's `rootDir`, its `language`, and its generated bootstrap file
@@ -273,7 +273,7 @@ client. Show the output unchanged, then say what each status means for this serv
 | `enabled` | Python: the package is installed and turned on | nothing |
 | `install` | Python: a package exists and is not a dependency yet | offer C3 |
 | `turn-on` | Python: the package is a dependency but nothing turns it on (the usual cause: `/otel-instrument` regenerated the bootstrap) | offer C3 |
-| `layered` | Python: the driver sits under an ORM that has its own package | nothing for the driver; the ORM's row is the one to act on |
+| `layered` | Python: the driver sits under an ORM or wrapper that has its own package | nothing for the driver; the ORM's row is the one to act on |
 | `pin` | Python: the requirement allows a client version the package does not instrument (it logs a warning and makes no spans there); the line names the cap and says whether the package is installed and turned on | say the service's queries are NOT covered until the requirement is capped as the line says (the user's edit); offer C3 if the package is not turned on yet |
 | `disabled` | Node.js: the bootstrap turns that package off | say so; turning it back on is the user's edit to the bootstrap's options |
 | `not-checked` | Node.js: covered on paper, but not verified here (no `node_modules`, or the bootstrap does not load the bundle) | say what to run (`npm install`), then report again |

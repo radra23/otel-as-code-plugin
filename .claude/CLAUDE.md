@@ -56,7 +56,8 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
   it runs in the `enrich-clients` job): add a row only with that test passing, and never treat a
   client that is not listed as "no package exists" (it is "not checked"). A client a package covers
   is refused a hand-made span; a driver under an instrumented ORM is left alone (both measured:
-  SQLAlchemy plus the sqlite3 package gives two client spans per query). Each Python row also
+  SQLAlchemy plus the sqlite3 package gives two client spans per query, and aiopg's package plus
+  psycopg2's, which aiopg runs, two per query and one more per connection). Each Python row also
   carries `instruments`, the client versions its `package.py` declares at the pinned release
   (the same test holds it to the wheel): outside them the instrumentor logs one warning and makes
   no spans (measured: SQLAlchemy 2.1.9 with the 0.66b2 package), so a requirement that allows a

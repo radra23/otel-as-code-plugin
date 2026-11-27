@@ -310,14 +310,16 @@ else
 fi
 
 # ---------------------------------------------------------------- Python, aiopg (Postgres)
-# aiopg runs psycopg2 connections in async mode, and psycopg2 has a package of its own: this section
-# also measures what turning both on does to the span count (#322).
+# aiopg runs psycopg2 connections in async mode, and psycopg2 has a package of its own. Measured in
+# CI (#322): both on gave two spans per query and one more per connection (CREATE=2 INSERT=4
+# SELECT=13), so psycopg2 is layered under aiopg in client-coverage.json and turning it on is
+# refused. aiopg is capped below 2 (its package's range), or it would read as "pin".
 # The server probe and the table cleanup use psycopg, which a section above put in the venv.
 mkdir -p "$WORK/ao"
 cp "$SRC/tests/enrich/py-aiopg/app.py" "$SRC/tests/snapshots/instrument/python/tracing.py" \
    "$SRC/tests/snapshots/instrument/python/requirements.txt" "$WORK/ao/"
 cd "$WORK/ao"
-printf 'aiopg>=1.4\npsycopg2-binary>=2.9\n' >> requirements.txt
+printf 'aiopg>=1.4,<2\npsycopg2-binary>=2.9\n' >> requirements.txt
 printf 'import tracing\nfrom app import app\ntracing.instrument_fastapi(app)\n' > main.py
 cp -R "$WORK/ao" "$WORK/ao-before"
 "$WORK/venv/bin/pip" install -q --disable-pip-version-check -r requirements.txt
@@ -343,16 +345,10 @@ if "$WORK/venv/bin/python" -c 'import os, psycopg; psycopg.connect(os.environ["D
   is "aiopg: the service answers as before (three found, one 404)" "$codes" "200 200 200 404"
   is "aiopg: four queries made exactly four SELECT spans, and only the start-up statements besides" \
     "$(client_names "$WORK/ao-after.log")" "CREATE=1 INSERT=2 SELECT=4"
-  # Measured, not yet asserted: psycopg2's package on as well, under aiopg.
-  echo "MEASURED: aiopg: psycopg2's status beside aiopg: $(status_of psycopg2)"
-  export ITEMS_TABLE="enrich_e2e_$$_ao_both"
+  is "aiopg: psycopg2 under it is reported as layered" "$(status_of psycopg2)" layered
   out=$(enrich client --root . --name psycopg2 --bootstrap tracing.py 2>&1) && rc=0 || rc=$?
-  echo "MEASURED: aiopg: turning psycopg2 on beside it: exit $rc: $out"
-  "$WORK/venv/bin/pip" install -q --disable-pip-version-check -r requirements.txt
-  py_run "$WORK/ao-both.log"
-  codes="$(get http://localhost:8910/items/1) $(get http://localhost:8910/items/1) $(get http://localhost:8910/items/2) $(get http://localhost:8910/items/9)"
-  stop
-  echo "MEASURED: aiopg: with psycopg2's package on too: $codes, client spans $(client_names "$WORK/ao-both.log")"
+  { [ "$rc" = 2 ] && printf '%s' "$out" | grep -q "two spans per query"; } \
+    && ok "aiopg: turning psycopg2 on under it is refused" || bad "aiopg: psycopg2 was not refused: $out"
   "$WORK/venv/bin/python" -c 'import os, psycopg
 with psycopg.connect(os.environ["DATABASE_URL"], autocommit=True) as c:
     for (t,) in c.execute("SELECT tablename FROM pg_tables WHERE tablename LIKE %s", ("enrich_e2e_%",)).fetchall():
