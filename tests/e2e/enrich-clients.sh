@@ -5,6 +5,9 @@
 #   - Python: tests/enrich/py-clients (FastAPI + the standard library's sqlite3) with the golden
 #     tracing.py. Before: no client span at all. After `enrich.py client --name sqlite3` and a
 #     plain `pip install -r requirements.txt`: one per query.
+#   - Python: tests/enrich/py-sqlalchemy (SQLAlchemy over sqlite3): sqlite3 is left to SQLAlchemy,
+#     and an unpinned SQLAlchemy past the package's range is reported as "pin" and makes no span
+#     until the requirement is capped; then one per query.
 #   - Node.js: tests/enrich/node-clients (express + node:sqlite, which no package covers) with the
 #     golden tracing.js. `enrich.py span --client node:sqlite` around the function that queries:
 #     one client span per call. `pg`, which the bundle covers, is refused a hand-made span.
@@ -77,6 +80,82 @@ rm -rf __pycache__ "$WORK/py-before/__pycache__"
 diff -r "$WORK/py-before" "$WORK/py" >/dev/null \
   && ok "python: enrich.py remove restored the bootstrap and requirements.txt byte for byte" \
   || { bad "python: files differ after removal"; diff -r "$WORK/py-before" "$WORK/py" | head; }
+
+# ---------------------------------------------------------------- Python, SQLAlchemy over sqlite3
+# Two rules on a real ORM. The layering one (client-coverage.json's "layers"): the app imports
+# sqlite3 too, to open the engine's connections, and sqlite3 must be left alone, since its package
+# under SQLAlchemy's would make two client spans per query. And the version one (#322): the
+# package instruments only the SQLAlchemy versions its package.py declares, and on a newer one it
+# logs a warning and makes no spans, so an unpinned requirement is reported as "pin", never
+# "enabled", until the requirement is capped.
+mkdir -p "$WORK/sa"
+cp "$SRC/tests/enrich/py-sqlalchemy/app.py" "$SRC/tests/snapshots/instrument/python/tracing.py" \
+   "$SRC/tests/snapshots/instrument/python/requirements.txt" "$WORK/sa/"
+cd "$WORK/sa"
+echo 'sqlalchemy>=2.0' >> requirements.txt
+printf 'import tracing\nfrom app import app\ntracing.instrument_fastapi(app)\n' > main.py
+cp -R "$WORK/sa" "$WORK/sa-before"
+"$WORK/venv/bin/pip" install -q --disable-pip-version-check -r requirements.txt
+TOP=$(python3 -c 'import json; print([r for r in json.load(open("'"$SRC"'/scripts/client-coverage.json"))["python"]["packages"] if r["label"] == "sqlalchemy"][0]["instruments"]["sqlalchemy"].split("<")[1])')
+SA=$("$WORK/venv/bin/python" -c 'import sqlalchemy; print(sqlalchemy.__version__)')
+past=$(python3 -c 'import sys; a, b = (tuple(map(int, v.split(".")[:3])) for v in sys.argv[1:]); print("yes" if a >= b else "no")' "$SA" "$TOP")
+
+is "sqlalchemy: sqlite3 under it is reported as layered, not offered a package" "$(status_of sqlite3)" layered
+out=$(enrich client --root . --name sqlite3 --bootstrap tracing.py 2>&1) && rc=0 || rc=$?
+{ [ "$rc" = 2 ] && printf '%s' "$out" | grep -q "two spans per query"; } \
+  && ok "sqlalchemy: turning sqlite3 on under it is refused" || bad "sqlalchemy: sqlite3 was not refused: $out"
+out=$(enrich span --root . --file app.py --function find_item --span-name store.find_item \
+  --tracer-name enrich-catalog --client sqlalchemy 2>&1) && rc=0 || rc=$?
+{ [ "$rc" = 2 ] && printf '%s' "$out" | grep -q "two client spans per call"; } \
+  && ok "sqlalchemy: a hand-made span for it is refused, a package covers it" || bad "sqlalchemy: --client sqlalchemy was not refused: $out"
+is "sqlalchemy: the unpinned requirement is reported as pin (SQLAlchemy $SA installed, package range ends before $TOP)" \
+  "$(status_of sqlalchemy)" pin
+py_run "$WORK/sa-before.log"; get http://localhost:8910/items/1 >/dev/null; stop
+is "sqlalchemy: before, a query makes no client span" "$(py_clients "$WORK/sa-before.log")" 0
+
+out=$(enrich client --root . --name sqlalchemy --bootstrap tracing.py 2>&1)
+printf '%s' "$out" | grep -qF "pin \`sqlalchemy<$TOP\`." \
+  && ok "sqlalchemy: turning it on prints the pin it still needs" || bad "sqlalchemy: no pin line: $out"
+grep -q '^opentelemetry-instrumentation-sqlalchemy>=0.66b2$' requirements.txt \
+  && ok "sqlalchemy: the requirement is pinned to the release the other instrumentation package uses" \
+  || { bad "sqlalchemy: requirement line missing or unpinned"; tail -4 requirements.txt; }
+"$WORK/venv/bin/pip" install -q --disable-pip-version-check -r requirements.txt
+is "sqlalchemy: installed and turned on, it is still pin, not enabled" "$(status_of sqlalchemy)" pin
+if [ "$past" = yes ]; then
+  py_run "$WORK/sa-unpinned.log"; get http://localhost:8910/items/1 >/dev/null; stop
+  is "sqlalchemy: what pin is for: on SQLAlchemy $SA the package makes no client span" "$(py_clients "$WORK/sa-unpinned.log")" 0
+  grep -q "falls outside of that range" "$WORK/sa-unpinned.log" \
+    && ok "sqlalchemy: the instrumentor said so only in a log line" || bad "sqlalchemy: no out-of-range warning in the log"
+else
+  echo "NOT CHECKED: SQLAlchemy $SA is inside the package's range, so the unpinned run proves nothing"
+fi
+
+# The user's own edit, as the pin line says: cap the requirement.
+sed -i.bak "s/^sqlalchemy>=2.0\$/sqlalchemy>=2.0,<$TOP/" requirements.txt && rm requirements.txt.bak
+"$WORK/venv/bin/pip" install -q --disable-pip-version-check -r requirements.txt
+is "sqlalchemy: pinned, it is reported as turned on" "$(status_of sqlalchemy)" enabled
+is "sqlalchemy: sqlite3 is still layered, not offered" "$(status_of sqlite3)" layered
+
+py_run "$WORK/sa-after.log"
+codes="$(get http://localhost:8910/items/1) $(get http://localhost:8910/items/2) $(get http://localhost:8910/items/1) $(get http://localhost:8910/items/9)"
+stop
+is "sqlalchemy: the service answers as before (three hits, one 404)" "$codes" "200 200 200 404"
+# The package also makes a `connect` span each time a connection is checked out, and the start-up
+# CREATE and INSERT run once: those are not a second span per query, so the count is by name.
+client_names() { python3 -c '
+import json, re, sys
+names = [s["name"] for s in (json.loads(m) for m in re.findall(r"(?ms)^\{\n.*?^\}$", open(sys.argv[1]).read()))
+         if s.get("kind") == "SpanKind.CLIENT"]
+print(" ".join(f"{n}={names.count(n)}" for n in sorted(set(names))))' "$1"; }
+is "sqlalchemy: four queries made exactly four SELECT spans, and nothing but connect and start-up besides" \
+  "$(client_names "$WORK/sa-after.log")" "CREATE=1 INSERT=1 SELECT=4 connect=5"
+
+enrich remove --root . >/dev/null
+rm -rf __pycache__ "$WORK/sa-before/__pycache__"
+sed -i.bak "s/^sqlalchemy>=2.0\$/sqlalchemy>=2.0,<$TOP/" "$WORK/sa-before/requirements.txt" && rm "$WORK/sa-before/requirements.txt.bak"
+diff -r "$WORK/sa-before" "$WORK/sa" >/dev/null \
+  && ok "sqlalchemy: enrich.py remove restored the bootstrap and requirements.txt (but the user's pin) byte for byte" \
+  || { bad "sqlalchemy: files differ after removal"; diff -r "$WORK/sa-before" "$WORK/sa" | head; }
 
 # ---------------------------------------------------------------- Node.js
 mkdir -p "$WORK/node"

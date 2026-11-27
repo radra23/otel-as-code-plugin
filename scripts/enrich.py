@@ -1253,7 +1253,8 @@ REQ_LINE_RE = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)\s*(?:\[[^\]]*\])?\s*
 
 def py_requirements(sdir):
     """({normalised name: version spec}, [manifest file names read]) from requirements.txt and
-    pyproject.toml in the service directory."""
+    pyproject.toml in the service directory. A poetry dependency's spec is None: its constraint
+    syntax (^, ~) is not read, so its version is not compared."""
     found, read_from = {}, []
 
     def take(spec_line):
@@ -1275,14 +1276,14 @@ def py_requirements(sdir):
             for dep in (data.get("project") or {}).get("dependencies") or []:
                 take(dep)
             for name in ((data.get("tool") or {}).get("poetry") or {}).get("dependencies") or {}:
-                found.setdefault(norm(name), "")
+                found.setdefault(norm(name), None)
         except ImportError:      # Python < 3.11: the quoted requirement strings, and poetry's keys
             for block in re.findall(r"(?ms)^\s*dependencies\s*=\s*\[(.*?)\]", text):
                 for dep in re.findall(r"""["']([^"']+)["']""", block):
                     take(dep)
             for block in re.findall(r"(?ms)^\[tool\.poetry\.dependencies\]\s*$(.*?)(?=^\[|\Z)", text):
                 for name in re.findall(r"(?m)^\s*([A-Za-z0-9][A-Za-z0-9._-]*)\s*=", block):
-                    found.setdefault(norm(name), "")
+                    found.setdefault(norm(name), None)
         except ValueError as e:
             raise Refused(f"pyproject.toml does not parse ({e}); nothing checked.")
     return found, read_from
@@ -1305,6 +1306,58 @@ def py_sources(sdir):
 
 def js_sources(sdir):
     return source_files(sdir, JS_EXTS + TS_EXTS)
+
+
+def release(version):
+    """The release numbers of a version, `2.1.0rc1` -> (2, 1, 0); None if it has none."""
+    m = re.match(r"\s*(\d+(?:\.\d+)*)", version)
+    return tuple(int(x) for x in m.group(1).split(".")) if m else None
+
+
+def padded(a, b):
+    n = max(len(a), len(b))
+    return a + (0,) * (n - len(a)), b + (0,) * (n - len(b))
+
+
+def upper_bound(spec):
+    """The highest versions a specifier allows, as (release, allows_it_itself), or None when
+    nothing caps it. Only the clauses that cap from above count (<, <=, ==, ~=)."""
+    best = None
+    for clause in filter(None, (c.strip() for c in spec.split(","))):
+        m = re.match(r"(<=|<|===|==|~=)\s*(\S+)$", clause)
+        if not m or not release(m.group(2)):
+            continue
+        op, ver = m.groups()
+        rel = release(ver)
+        if op == "~=":       # ~=2.0.3 is <2.1, ~=3.25 is <4
+            cap = (rel[:-2] + (rel[-2] + 1,), False) if len(rel) > 1 else None
+        elif op in ("==", "===") and ver.endswith(".*"):
+            cap = (rel[:-1] + (rel[-1] + 1,), False)
+        else:
+            cap = (rel, op != "<")
+        if cap is None:
+            continue
+        if best is None:
+            best = cap
+            continue
+        new, old = padded(cap[0], best[0])
+        if new < old or (new == old and not cap[1]):
+            best = cap
+    return best
+
+
+def allows_past(app_spec, supported):
+    """The supported range's upper bound as text when the app's requirement allows a version above
+    it (the instrumentor does nothing there), else None. Lower bounds are not compared."""
+    top = upper_bound(supported)
+    if top is None:
+        return None
+    mine = upper_bound(app_spec)
+    if mine is not None:
+        a, s = padded(mine[0], top[0])
+        if a < s or (a == s and not (mine[1] and not top[1])):
+            return None
+    return ".".join(map(str, top[0]))
 
 
 def py_clients(sdir):
@@ -1340,8 +1393,20 @@ def py_clients(sdir):
             status, detail = "install", f"{r['where'][0]} turns {r['package']} on, but it is not a declared dependency"
         else:
             status, detail = "install", f"{r['package']} exists and is not installed"
+        # A version the package does not instrument: it logs a warning and makes no spans, so
+        # "enabled" would be false. Read from the requirement only; a lock file is not checked.
+        base = status
+        past = next(((c, reqs[c], top) for c in map(norm, r["clients"]) if reqs.get(c) is not None
+                     for top in [allows_past(reqs[c], r["instruments"].get(c, ""))] if top), None)
+        if past and status != "layered":
+            c, spec, top = past
+            have = {"enabled": "it is turned on", "install": "it is not installed yet",
+                    "turn-on": "it is installed but nothing turns it on"}[status]
+            status, detail = "pin", (f"{r['package']} instruments {c} {r['instruments'][c]} only, and the "
+                                     f"requirement `{c}{spec}` allows {top} and later, where it makes no "
+                                     f"spans: pin `{c}<{top}` ({have})")
         out.append({"client": r["label"], "signal": r["signal"], "status": status, "detail": detail,
-                    "package": r["package"], "turned_on": bool(r["where"])})
+                    "package": r["package"], "turned_on": bool(r["where"]), "base": base})
     return out, read_from + ["imports"]
 
 
@@ -1467,7 +1532,7 @@ def cmd_client(args):
     if row is None:
         raise Refused(f"`{args.name}` is not a client this service uses that the coverage table knows; "
                       f"run `enrich.py clients` for the list.")
-    if row["status"] not in ("install", "turn-on"):
+    if row["base"] not in ("install", "turn-on") or row["status"] == "layered":
         raise Refused(f"`{row['client']}`: {row['detail']}. Nothing to add.")
     spec = next(r for r in load_coverage()["python"]["packages"] if r["label"] == row["client"])
     bid = CLIENT_PREFIX + slug(row["client"])
@@ -1500,7 +1565,9 @@ def cmd_client(args):
     # "install" with the instrumentor already turned on: only the requirement is missing.
     edits = [] if row["turned_on"] else [(full, rel, lines, out, new)]
     notes = []
-    if row["status"] == "install":
+    if row["status"] == "pin":
+        notes.append(f"pin: {row['detail'].rsplit(' (', 1)[0]}.")
+    if row["base"] == "install":
         reqs, _ = py_requirements(sdir)
         pin = next((v for k, v in sorted(reqs.items()) if k.startswith("opentelemetry-instrumentation") and v), "")
         requirement = spec["package"] + pin

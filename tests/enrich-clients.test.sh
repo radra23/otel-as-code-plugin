@@ -43,6 +43,7 @@ ok = len(labels) == len(set(labels)) and all(
     and r["class"].endswith("Instrumentor") and r["signal"] in ("db", "messaging")
     and (r["clients"] or r.get("stdlib")) for r in rows)
 ok = ok and all(top in labels and all(u in labels for u in under) for top, under in t["python"]["layers"].items())
+ok = ok and all(isinstance(r.get("instruments"), dict) and set(r["instruments"]) == set(r["clients"]) for r in rows)
 n = t["nodejs"]
 ok = ok and not (set(n["bundle"]) & set(n["none"])) and not (set(n["bundle"]) & set(n["manual"])) and not (set(n["manual"]) & set(n["none"]))
 ok = ok and all(v["signal"] in ("db", "messaging") and v["system"] for v in n["none"].values())
@@ -61,9 +62,29 @@ check "python: an import of sqlite3 in the generated bootstrap alone would not c
 mkdir -p "$TMPD/many"
 printf 'fastapi>=0.110\nSQLAlchemy[asyncio]>=2.0\npsycopg2-binary==2.9.9\nredis>=5 ; python_version >= "3.9"\nPyMySQL\n-r other.txt\n# celery\nopentelemetry-instrumentation-fastapi>=0.66b2\nopentelemetry-instrumentation-redis>=0.66b2\n' > "$TMPD/many/requirements.txt"
 check "python: names are matched whatever their case, extras, pins or markers" \
-  '[ "$(status "$TMPD/many" sqlalchemy)" = install ] && [ "$(status "$TMPD/many" redis)" = turn-on ]'
+  '[ "$(status "$TMPD/many" sqlalchemy)" = pin ] && [ "$(status "$TMPD/many" redis)" = turn-on ]'
 check "python: a driver under SQLAlchemy is left to SQLAlchemy (two spans per query otherwise)" \
   '[ "$(status "$TMPD/many" psycopg2)" = layered ] && [ "$(status "$TMPD/many" pymysql)" = layered ] && enrich clients --root "$TMPD/many" | grep -q "psycopg2 .*two spans per query"'
+# A client version the package does not instrument (#322): the instrumentor logs a warning and
+# makes no spans, so the report says what to pin instead of "install" or "enabled".
+pinned() { mkdir -p "$TMPD/pin-$1" && printf '%s\n' "$2" > "$TMPD/pin-$1/requirements.txt" && status "$TMPD/pin-$1" "$3"; }
+check "python: a requirement that allows a version past the package's range reads as pin" \
+  '[ "$(pinned a "sqlalchemy>=2.0" sqlalchemy)" = pin ] && [ "$(pinned b "sqlalchemy" sqlalchemy)" = pin ] \
+   && [ "$(pinned c "sqlalchemy~=2.0" sqlalchemy)" = pin ] && [ "$(pinned d "pymongo>=4" pymongo)" = pin ]'
+check "python: a requirement capped inside the range does not" \
+  '[ "$(pinned e "sqlalchemy>=2.0,<2.1" sqlalchemy)" = install ] && [ "$(pinned f "sqlalchemy==2.0.36" sqlalchemy)" = install ] \
+   && [ "$(pinned g "sqlalchemy~=2.0.30" sqlalchemy)" = install ] && [ "$(pinned h "redis>=5" redis)" = install ]'
+check "python: the pin line names the range, the requirement and the cap to add" \
+  'enrich clients --root "$TMPD/pin-a" | grep -qF "instruments sqlalchemy >=1.0.0,<2.1.0 only, and the requirement \`sqlalchemy>=2.0\` allows 2.1.0 and later, where it makes no spans: pin \`sqlalchemy<2.1.0\` (it is not installed yet)"'
+check "python: a driver under the ORM stays layered, even past its own range" \
+  'printf "sqlalchemy<2.1\nPyMySQL>=1\n" > "$TMPD/pin-a/requirements.txt" && [ "$(status "$TMPD/pin-a" pymysql)" = layered ]'
+printf 'sqlalchemy>=2.0\nopentelemetry-instrumentation-fastapi>=0.66b2\nopentelemetry-instrumentation-sqlalchemy>=0.66b2\n' > "$TMPD/pin-a/requirements.txt"
+printf 'from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor\nSQLAlchemyInstrumentor().instrument()\n' > "$TMPD/pin-a/otel_setup.py"
+check "python: installed and turned on, but on a version it does not instrument, is pin and not enabled" \
+  '[ "$(status "$TMPD/pin-a" sqlalchemy)" = pin ] && enrich clients --root "$TMPD/pin-a" | grep -q "(it is turned on)"'
+refused "client: turned on already, a pin is still nothing to add" "$TMPD/pin-a" "pin \`sqlalchemy<2.1.0\`" \
+  client --root "$TMPD/pin-a" --name sqlalchemy --bootstrap otel_setup.py
+rm "$TMPD/pin-a/otel_setup.py"
 check "python: a commented-out requirement and an -r line are not clients" '[ "$(status "$TMPD/many" celery)" = absent ]'
 printf 'from opentelemetry.instrumentation.redis import RedisInstrumentor\nRedisInstrumentor().instrument()\n' > "$TMPD/many/otel_setup.py"
 check "python: installed and turned on anywhere in the service reads as enabled" \
@@ -76,6 +97,8 @@ mkdir -p "$TMPD/poetry"
 printf '[tool.poetry.dependencies]\npython = "^3.12"\npymongo = "^4.6"\n\n[tool.poetry.group.dev.dependencies]\nkafka-python = "*"\n' > "$TMPD/poetry/pyproject.toml"
 check "python: poetry dependencies are read, dev groups are not" \
   '[ "$(status "$TMPD/poetry" pymongo)" = install ] && [ "$(status "$TMPD/poetry" kafka-python)" = absent ]'
+check "python: a poetry constraint is not read, so its version is not compared" \
+  'printf "[tool.poetry.dependencies]\nsqlalchemy = \"^2.0\"\n" > "$TMPD/poetry/pyproject.toml" && [ "$(status "$TMPD/poetry" sqlalchemy)" = install ]'
 mkdir -p "$TMPD/empty"
 refused "python: a directory with no manifest is refused, not reported as clean" "$TMPD/empty" "no package.json, requirements.txt or pyproject.toml" \
   clients --root "$TMPD/empty"
@@ -138,6 +161,10 @@ cp "$GOLDEN_PY/tracing.py" "$TMPD/pp/tracing.py"
 out=$(enrich client --root "$TMPD/pp" --name asyncpg --bootstrap tracing.py --dry-run)
 check "client: with pyproject.toml the dependency is a line to add, not an edit to the file" \
   'echo "$out" | grep -q "^dependency: add \"opentelemetry-instrumentation-asyncpg\" to the dependencies in pyproject.toml" && ! echo "$out" | grep -q "b/pyproject.toml"'
+mkdir -p "$TMPD/sa"; cp "$GOLDEN_PY/tracing.py" "$TMPD/sa/"; printf 'sqlalchemy>=2.0\nopentelemetry-instrumentation-fastapi>=0.66b2\n' > "$TMPD/sa/requirements.txt"
+out=$(enrich client --root "$TMPD/sa" --name sqlalchemy --bootstrap tracing.py --dry-run); rc=$?
+check "client: a client to pin is still turned on, and the pin is printed with it" \
+  '[ "$rc" -eq 1 ] && echo "$out" | grep -q "^+opentelemetry-instrumentation-sqlalchemy>=0.66b2$" && echo "$out" | grep -q "^+    SQLAlchemyInstrumentor().instrument()$" && echo "$out" | grep -qF "pin: opentelemetry-instrumentation-sqlalchemy instruments sqlalchemy >=1.0.0,<2.1.0 only" && echo "$out" | grep -qF "pin \`sqlalchemy<2.1.0\`."'
 mkdir -p "$TMPD/nopin"; cp "$GOLDEN_PY/tracing.py" "$TMPD/nopin/"; printf 'redis\n' > "$TMPD/nopin/requirements.txt"
 out=$(enrich client --root "$TMPD/nopin" --name redis --bootstrap tracing.py --dry-run)
 check "client: with no pin to copy, the requirement is unpinned and a note says so" \
