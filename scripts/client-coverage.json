@@ -63,7 +63,8 @@
     ],
     "layers": {
       "sqlalchemy": ["psycopg2", "psycopg", "asyncpg", "aiopg", "pymysql", "mysql-connector-python", "mysqlclient", "pymssql", "sqlite3"],
-      "tortoise-orm": ["asyncpg", "psycopg", "sqlite3"]
+      "tortoise-orm": ["asyncpg", "psycopg", "sqlite3"],
+      "aiopg": ["psycopg2"]
     },
     "none": {}
   }
