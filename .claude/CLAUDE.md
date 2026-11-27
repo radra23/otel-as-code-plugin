@@ -56,14 +56,15 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
   it runs in the `enrich-clients` job): add a row only with that test passing, and never treat a
   client that is not listed as "no package exists" (it is "not checked"). A client a package covers
   is refused a hand-made span; a driver under an instrumented ORM is left alone (both measured:
-  SQLAlchemy plus the sqlite3 package gives two client spans per query). Each Python row also
+  SQLAlchemy plus the sqlite3 package gives two client spans per query, and aiopg's package plus
+  psycopg2's, which aiopg runs, two per query and one more per connection). Each Python row also
   carries `instruments`, the client versions its `package.py` declares at the pinned release
   (the same test holds it to the wheel): outside them the instrumentor logs one warning and makes
   no spans (measured: SQLAlchemy 2.1.9 with the 0.66b2 package), so a requirement that allows a
   version past the upper bound is `pin`, never `enabled`, until the user caps it. `enrich.py client` is the
   one place the plugin edits its own generated bootstrap after writing it, as a marked block at the
   end of the file; `/otel-instrument` drops that block on a regeneration and says so.
-  `tests/e2e/enrich-clients.sh` counts client spans on the console exporter; only Redis and Postgres (psycopg, asyncpg) need a server (CI service containers, required there by `OTEL_AS_CODE_REQUIRE_REDIS=1` and `OTEL_AS_CODE_REQUIRE_POSTGRES=1`, "not checked" elsewhere).
+  `tests/e2e/enrich-clients.sh` counts client spans on the console exporter; only Redis and Postgres (psycopg, asyncpg, aiopg) need a server (CI service containers, required there by `OTEL_AS_CODE_REQUIRE_REDIS=1` and `OTEL_AS_CODE_REQUIRE_POSTGRES=1`, "not checked" elsewhere).
 - `/otel-test` writes a telemetry test into the user's service (`otel.test.cjs`, `test_otel.py`;
   the names live in `hooks/otel-paths.sh` as `otel_test_globs`, apart from the bootstrap names so
   `/otel-instrument` never mistakes a test for a bootstrap). `scripts/telemetry_test.py` renders it

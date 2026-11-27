@@ -13,6 +13,7 @@
 #   - Python: tests/enrich/py-psycopg (FastAPI + Postgres through psycopg 3): one span per query,
 #     against a real server the same way.
 #   - Python: tests/enrich/py-asyncpg (the same service on asyncio through asyncpg), on the same server.
+#   - Python: tests/enrich/py-aiopg (the same service on aiopg, over psycopg2), on the same server.
 #   - Node.js: tests/enrich/node-clients (express + node:sqlite, which no package covers) with the
 #     golden tracing.js. `enrich.py span --client node:sqlite` around the function that queries:
 #     one client span per call. `pg`, which the bundle covers, is refused a hand-made span.
@@ -306,6 +307,62 @@ elif [ "${OTEL_AS_CODE_REQUIRE_POSTGRES:-}" = 1 ]; then
   bad "asyncpg: no Postgres server answered at $DATABASE_URL, and OTEL_AS_CODE_REQUIRE_POSTGRES=1"
 else
   echo "NOT CHECKED: asyncpg (no server at $DATABASE_URL; CI runs one)"
+fi
+
+# ---------------------------------------------------------------- Python, aiopg (Postgres)
+# aiopg runs psycopg2 connections in async mode, and psycopg2 has a package of its own. Measured in
+# CI (#322): both on gave two spans per query and one more per connection (CREATE=2 INSERT=4
+# SELECT=13), so psycopg2 is layered under aiopg in client-coverage.json and turning it on is
+# refused. aiopg is capped below 2 (its package's range), or it would read as "pin".
+# The server probe and the table cleanup use psycopg, which a section above put in the venv.
+mkdir -p "$WORK/ao"
+cp "$SRC/tests/enrich/py-aiopg/app.py" "$SRC/tests/snapshots/instrument/python/tracing.py" \
+   "$SRC/tests/snapshots/instrument/python/requirements.txt" "$WORK/ao/"
+cd "$WORK/ao"
+printf 'aiopg>=1.4,<2\npsycopg2-binary>=2.9\n' >> requirements.txt
+printf 'import tracing\nfrom app import app\ntracing.instrument_fastapi(app)\n' > main.py
+cp -R "$WORK/ao" "$WORK/ao-before"
+"$WORK/venv/bin/pip" install -q --disable-pip-version-check -r requirements.txt
+export ITEMS_TABLE="enrich_e2e_$$_ao"
+if "$WORK/venv/bin/python" -c 'import os, psycopg; psycopg.connect(os.environ["DATABASE_URL"], connect_timeout=2).close()' 2>/dev/null; then
+  PV=$("$WORK/venv/bin/python" -c 'import aiopg; print(aiopg.__version__)')
+  is "aiopg: aiopg is reported as a client whose package is not installed (aiopg $PV)" "$(status_of aiopg)" install
+  py_run "$WORK/ao-before.log"; get http://localhost:8910/items/1 >/dev/null; stop
+  is "aiopg: before, a request makes no client span" "$(py_clients "$WORK/ao-before.log")" 0
+
+  export ITEMS_TABLE="enrich_e2e_$$_ao_after"
+  enrich client --root . --name aiopg --bootstrap tracing.py >/dev/null
+  grep -q '^opentelemetry-instrumentation-aiopg>=0.66b2$' requirements.txt \
+    && ok "aiopg: the requirement is pinned to the release the other instrumentation package uses" \
+    || { bad "aiopg: requirement line missing or unpinned"; tail -4 requirements.txt; }
+  "$WORK/venv/bin/pip" install -q --disable-pip-version-check -r requirements.txt
+  is "aiopg: after the install, aiopg is reported as turned on" "$(status_of aiopg)" enabled
+
+  py_run "$WORK/ao-after.log"
+  # Start-up: one CREATE and one INSERT per row (aiopg has no executemany). Then one SELECT per request, 9 not found.
+  codes="$(get http://localhost:8910/items/1) $(get http://localhost:8910/items/1) $(get http://localhost:8910/items/2) $(get http://localhost:8910/items/9)"
+  stop
+  is "aiopg: the service answers as before (three found, one 404)" "$codes" "200 200 200 404"
+  is "aiopg: four queries made exactly four SELECT spans, and only the start-up statements besides" \
+    "$(client_names "$WORK/ao-after.log")" "CREATE=1 INSERT=2 SELECT=4"
+  is "aiopg: psycopg2 under it is reported as layered" "$(status_of psycopg2)" layered
+  out=$(enrich client --root . --name psycopg2 --bootstrap tracing.py 2>&1) && rc=0 || rc=$?
+  { [ "$rc" = 2 ] && printf '%s' "$out" | grep -q "two spans per query"; } \
+    && ok "aiopg: turning psycopg2 on under it is refused" || bad "aiopg: psycopg2 was not refused: $out"
+  "$WORK/venv/bin/python" -c 'import os, psycopg
+with psycopg.connect(os.environ["DATABASE_URL"], autocommit=True) as c:
+    for (t,) in c.execute("SELECT tablename FROM pg_tables WHERE tablename LIKE %s", ("enrich_e2e_%",)).fetchall():
+        c.execute(f"DROP TABLE {t}")' || true
+
+  enrich remove --root . >/dev/null
+  rm -rf __pycache__ "$WORK/ao-before/__pycache__"
+  diff -r "$WORK/ao-before" "$WORK/ao" >/dev/null \
+    && ok "aiopg: enrich.py remove restored the bootstrap and requirements.txt byte for byte" \
+    || { bad "aiopg: files differ after removal"; diff -r "$WORK/ao-before" "$WORK/ao" | head; }
+elif [ "${OTEL_AS_CODE_REQUIRE_POSTGRES:-}" = 1 ]; then
+  bad "aiopg: no Postgres server answered at $DATABASE_URL, and OTEL_AS_CODE_REQUIRE_POSTGRES=1"
+else
+  echo "NOT CHECKED: aiopg (no server at $DATABASE_URL; CI runs one)"
 fi
 
 # ---------------------------------------------------------------- Node.js

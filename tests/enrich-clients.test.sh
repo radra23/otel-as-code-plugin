@@ -76,6 +76,9 @@ check "python: a requirement capped inside the range does not" \
    && [ "$(pinned g "sqlalchemy~=2.0.30" sqlalchemy)" = install ] && [ "$(pinned h "redis>=5" redis)" = install ]'
 check "python: the pin line names the range, the requirement and the cap to add" \
   'enrich clients --root "$TMPD/pin-a" | grep -qF "instruments sqlalchemy >=1.0.0,<2.1.0 only, and the requirement \`sqlalchemy>=2.0\` allows 2.1.0 and later, where it makes no spans: pin \`sqlalchemy<2.1.0\` (it is not installed yet)"'
+check "python: psycopg2 under aiopg is left to aiopg (measured: both on gave two spans per query)" \
+  'mkdir -p "$TMPD/aiopg" && printf "aiopg>=1.4,<2\npsycopg2-binary>=2.9\n" > "$TMPD/aiopg/requirements.txt" \
+   && [ "$(status "$TMPD/aiopg" psycopg2)" = layered ] && [ "$(status "$TMPD/aiopg" aiopg)" = install ]'
 check "python: a driver under the ORM stays layered, even past its own range" \
   'printf "sqlalchemy<2.1\nPyMySQL>=1\n" > "$TMPD/pin-a/requirements.txt" && [ "$(status "$TMPD/pin-a" pymysql)" = layered ]'
 printf 'sqlalchemy>=2.0\nopentelemetry-instrumentation-fastapi>=0.66b2\nopentelemetry-instrumentation-sqlalchemy>=0.66b2\n' > "$TMPD/pin-a/requirements.txt"
