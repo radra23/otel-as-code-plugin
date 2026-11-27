@@ -396,6 +396,14 @@ jobs:
         ports: ['5432:5432']
         options: >-
           --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 2s --health-retries 15
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: mysql
+          MYSQL_DATABASE: catalog
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -pmysql" --health-interval 2s --health-timeout 2s --health-retries 30
     steps:
       - uses: actions/checkout@v4
 
@@ -417,9 +425,10 @@ jobs:
 
       - name: One client span per call, end to end
         env:
-          # Here a missing Redis or Postgres fails the job; elsewhere those sections are "not checked".
+          # Here a missing Redis, Postgres or MySQL fails the job; elsewhere those sections are "not checked".
           OTEL_AS_CODE_REQUIRE_REDIS: '1'
           OTEL_AS_CODE_REQUIRE_POSTGRES: '1'
+          OTEL_AS_CODE_REQUIRE_MYSQL: '1'
         run: bash tests/e2e/enrich-clients.sh
 
   # Log panel and error-log alert (#279): the Grafana golden's two LogQL queries, run against the
