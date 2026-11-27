@@ -63,7 +63,7 @@ agent, or hook — the `validate-codex-bridge` CI job checks the skill reference
   version past the upper bound is `pin`, never `enabled`, until the user caps it. `enrich.py client` is the
   one place the plugin edits its own generated bootstrap after writing it, as a marked block at the
   end of the file; `/otel-instrument` drops that block on a regeneration and says so.
-  `tests/e2e/enrich-clients.sh` counts client spans on the console exporter; only Redis and Postgres (psycopg) need a server (CI service containers, required there by `OTEL_AS_CODE_REQUIRE_REDIS=1` and `OTEL_AS_CODE_REQUIRE_POSTGRES=1`, "not checked" elsewhere).
+  `tests/e2e/enrich-clients.sh` counts client spans on the console exporter; only Redis and Postgres (psycopg, asyncpg) need a server (CI service containers, required there by `OTEL_AS_CODE_REQUIRE_REDIS=1` and `OTEL_AS_CODE_REQUIRE_POSTGRES=1`, "not checked" elsewhere).
 - `/otel-test` writes a telemetry test into the user's service (`otel.test.cjs`, `test_otel.py`;
   the names live in `hooks/otel-paths.sh` as `otel_test_globs`, apart from the bootstrap names so
   `/otel-instrument` never mistakes a test for a bootstrap). `scripts/telemetry_test.py` renders it
