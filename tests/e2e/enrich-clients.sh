@@ -421,6 +421,7 @@ fi
 # OTEL_AS_CODE_REQUIRE_MYSQL=1; anywhere else this is "not checked". The requirement is capped
 # below 2, the package's range, or it would read as "pin"; the rsa extra is what MySQL 8's default
 # authentication needs over a plain connection.
+# PyMySQL's __version__ is a MySQLdb-compatible "2.2.8"; its own version is VERSION_STRING.
 mkdir -p "$WORK/my"
 cp "$SRC/tests/enrich/py-pymysql/app.py" "$SRC/tests/snapshots/instrument/python/tracing.py" \
    "$SRC/tests/snapshots/instrument/python/requirements.txt" "$WORK/my/"
@@ -431,7 +432,7 @@ cp -R "$WORK/my" "$WORK/my-before"
 "$WORK/venv/bin/pip" install -q --disable-pip-version-check -r requirements.txt
 export MYSQL_HOST="${MYSQL_HOST:-127.0.0.1}" MYSQL_PASSWORD="${MYSQL_PASSWORD:-mysql}" MYSQL_DATABASE="${MYSQL_DATABASE:-catalog}" ITEMS_TABLE="enrich_e2e_$$_my"
 if "$WORK/venv/bin/python" -c 'import os, pymysql; pymysql.connect(host=os.environ["MYSQL_HOST"], user="root", password=os.environ["MYSQL_PASSWORD"], database=os.environ["MYSQL_DATABASE"], connect_timeout=2).close()' 2>/dev/null; then
-  PV=$("$WORK/venv/bin/python" -c 'import pymysql; print(pymysql.__version__)')
+  PV=$("$WORK/venv/bin/python" -c 'import pymysql; print(pymysql.VERSION_STRING)')
   is "pymysql: pymysql is reported as a client whose package is not installed (PyMySQL $PV)" "$(status_of pymysql)" install
   py_run "$WORK/my-before.log"; get http://localhost:8910/items/1 >/dev/null; stop
   is "pymysql: before, a request makes no client span" "$(py_clients "$WORK/my-before.log")" 0
